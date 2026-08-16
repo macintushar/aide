@@ -40,9 +40,27 @@ All commands are run from the root of the project, from a terminal:
 | `bun install`         | Installs dependencies                            |
 | `bun dev`             | Starts local dev server at `localhost:4321`      |
 | `bun build`           | Build your production site to `./dist/`          |
-| `bun preview`         | Preview your build locally, before deploying     |
+| `bun preview`         | Preview your build locally with Astro            |
+| `bun run preview:cf`  | Preview the Cloudflare Workers build locally     |
 | `bun astro ...`       | Run CLI commands like `astro add`, `astro check` |
 | `bun astro -- --help` | Get help using the Astro CLI                     |
+
+## Cloudflare
+
+The site is static. Wrangler uploads `dist/` as [Workers Static Assets](https://developers.cloudflare.com/workers/static-assets/) — no `@astrojs/cloudflare` adapter. Production deploys go through [Workers Builds](https://developers.cloudflare.com/workers/ci-cd/builds/) in the dashboard, not GitHub Actions.
+
+Create a Worker named **`aide-www`** (must match `wrangler.jsonc`), connect this GitHub repo, then:
+
+| Setting               | Value                                                              |
+| :-------------------- | :----------------------------------------------------------------- |
+| Production branch     | `main`                                                             |
+| Root directory        | `apps/www`                                                         |
+| Build command         | `bun run build`                                                    |
+| Deploy command        | `npx wrangler deploy`                                              |
+| Non-production deploy | `npx wrangler versions upload`                                     |
+| Watch paths           | `apps/www`, `docs/DESIGN.md`, `packages/ui/src/styles/globals.css` |
+
+Token generation reads `packages/ui` and `docs/DESIGN.md` from the repo root, so the full clone must stay intact. Attach custom domains on the Worker in the dashboard.
 
 ## 👀 Want to learn more?
 

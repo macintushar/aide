@@ -380,14 +380,14 @@ should be too.
 Marketing leads with switching agents, not with local-first. Local / SQLite /
 loopback remain true of the product; they do not have to lead the landing page.
 
-| Slot         | Copy                                                                                                                              |
-| ------------ | --------------------------------------------------------------------------------------------------------------------------------- |
-| Tagline      | One conversation. Any agent.                                                                                                      |
-| Descriptor   | An open-source home for coding agents.                                                                                            |
-| Hero sub     | Start in OpenCode, continue in Claude, and finish in Codex. Switch whenever you want without explaining everything again.         |
-| Meta / OG    | aide lets you switch between coding agents without starting over.                                                                 |
-| Page title   | aide — one conversation across coding agents                                                                                      |
-| Docs intro   | aide owns the session. Harnesses are configuration.                                                                               |
+| Slot       | Copy                                                                                                                      |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Tagline    | One conversation. Any agent.                                                                                              |
+| Descriptor | An open-source home for coding agents.                                                                                    |
+| Hero sub   | Start in OpenCode, continue in Claude, and finish in Codex. Switch whenever you want without explaining everything again. |
+| Meta / OG  | aide lets you switch between coding agents without starting over.                                                         |
+| Page title | aide — one conversation across coding agents                                                                              |
+| Docs intro | aide owns the session. Harnesses are configuration.                                                                       |
 
 **Write:** "aide stores the transcript" · "select an instance per message" · "runs on
 127.0.0.1" · sentence case · lowercase "aide" even sentence-initially.

@@ -61,7 +61,7 @@
 
 @media (prefers-color-scheme: light) {
   :root {
-  --n0: oklch(0.995 0.001 250);
+    --n0: oklch(0.995 0.001 250);
     --n1: oklch(0.975 0.002 250);
     --n2: oklch(0.955 0.003 250);
     --n3: oklch(0.91 0.004 250);
