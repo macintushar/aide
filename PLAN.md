@@ -33,7 +33,7 @@ OpenCode is the first adapter, not the type system. Aide owns the types the UI, 
 10. The application runs entirely on the local machine and binds to loopback by default.
 11. Commands are intent. Events are facts. The UI must not invent authoritative lifecycle events.
 12. The wire contract is transport-agnostic. Day 0 delivery is HTTP commands plus SSE. WebSocket may be added later as another delivery path for the same types.
-13. A harness *driver* is code. A harness *instance* is configuration. Users may configure many instances of the same driver, and every execution selection names an instance, never a bare driver.
+13. A harness _driver_ is code. A harness _instance_ is configuration. Users may configure many instances of the same driver, and every execution selection names an instance, never a bare driver.
 14. Composer controls are described by the adapter, not hardcoded by the UI. Adding a harness-specific control must not require a UI change.
 
 ## Current Workspace
@@ -44,7 +44,7 @@ Keep the existing Bun + Turborepo monorepo. Do not rescaffold onto Vite+.
 apps/web              Vite 8, React 19, Tailwind 4
 apps/server           Bun, Hono, Drizzle, bun:sqlite
 packages/ui           Shared UI primitives
-packages/contracts    To add: commands, snapshots, AideEvent, Part, config schema
+packages/contracts    To add: zod schemas + inferred types for commands, snapshots, AideEvent, Part, config
 ```
 
 Existing pieces to build on:
@@ -53,7 +53,9 @@ Existing pieces to build on:
 - `apps/web` is a Vite SPA with `@workspace/ui`.
 - Root tooling is Turbo, oxlint, and oxfmt.
 
-Add `packages/contracts` as the only types that cross the wire. `apps/web` and `apps/server` depend on it. Adapters live under `apps/server` and are the only code allowed to import a harness SDK.
+Add `packages/contracts` as the only types that cross the wire. `apps/web` and `apps/server` depend on it. Every wire type is authored as a zod schema and the TypeScript type is inferred from it, so runtime validation and static types can never drift. Adapters live under `apps/server` and are the only code allowed to import a harness SDK.
+
+Server process configuration (bind host/port, per-launch bearer token, `DB_FILE_NAME`) is validated at boot with `@t3-oss/env-core` + zod and fails fast on invalid values. This is process environment only — user-facing Aide configuration remains UI-managed and DB-persisted, never environment variables or files.
 
 ## Initial Scope
 
@@ -63,7 +65,7 @@ Add `packages/contracts` as the only types that cross the wire. `apps/web` and `
 - Browser-based chat UI.
 - Local project directories.
 - Aide-owned sessions, messages, parts, turns, and requests.
-- User-editable configuration file defining harness instances.
+- UI-managed configuration, persisted by the server, defining harness instances.
 - Multiple configured instances per driver.
 - Harness runtime supervisor that starts enabled instances at server boot.
 - OpenCode v2 integration through its official TypeScript SDK.
@@ -95,7 +97,7 @@ Add `packages/contracts` as the only types that cross the wire. `apps/web` and `
 
 A harness **driver** is an adapter implementation. A harness **instance** is a configured, named, running use of a driver. Users may run several instances of the same driver — for example one OpenCode instance pointed at a self-hosted server and another at the hosted one, or two Claude instances on different accounts.
 
-Configuration lives in a single user-editable file, `~/.aide/config.json`, with a per-project override at `<project>/.aide/config.json`. Merge behavior is defined below; it is not a generic shallow object merge.
+Configuration is managed entirely in the App UI and persisted by the Aide server in SQLite. There are no configuration files to edit — not in the repository and not in `~/.aide`. Global settings and per-project settings are separate database records; the UI is the only writer and submits validated `config.update` commands. Merge behavior is defined below; it is not a generic shallow object merge.
 
 ```jsonc
 {
@@ -107,7 +109,7 @@ Configuration lives in a single user-editable file, `~/.aide/config.json`, with 
       "displayName": "OpenCode",
       "enabled": true,
       "autoStart": true,
-      "config": { }
+      "config": {},
     },
     "claude": {
       "instanceId": "claude",
@@ -115,7 +117,7 @@ Configuration lives in a single user-editable file, `~/.aide/config.json`, with 
       "displayName": "Claude",
       "enabled": true,
       "autoStart": true,
-      "config": { }
+      "config": {},
     },
     "claude-work": {
       "instanceId": "claude-work",
@@ -123,11 +125,11 @@ Configuration lives in a single user-editable file, `~/.aide/config.json`, with 
       "displayName": "Claude (work)",
       "enabled": false,
       "autoStart": false,
-      "config": { }
-    }
+      "config": {},
+    },
   },
-  "mcpServers": { },
-  "defaults": { }
+  "mcpServers": {},
+  "defaults": {},
 }
 ```
 
@@ -150,7 +152,7 @@ Rules:
 - `instanceId` is the stable identity recorded on every message. It is user-chosen and must be unique.
 - The `instances` map key must equal the entry's `instanceId`; a mismatch is a validation error for that instance. Requiring both keeps the serialized identity explicit while preventing two competing identifiers.
 - `config` is driver-specific and opaque to everything except that driver's adapter. Each adapter exports a runtime schema for its own `config` and validates it at load.
-- Aide never writes to this file. It is user-owned. Aide watches it and reloads on change.
+- Aide never writes configuration into the repository or the user's home directory. The UI writes through `config.update`; the server validates, persists, and reconciles without a restart.
 - A malformed instance disables that instance and surfaces a `harness.instance_failed` notice. It must not prevent the server from starting or disable other instances.
 - Renaming an `instanceId` orphans historical messages that reference it. Those messages still render — the recorded selection is denormalized on the message — but the instance shows as unavailable for new sends.
 
@@ -158,13 +160,13 @@ Rules:
 
 Configuration is resolved by key, not by blindly spreading the top-level objects:
 
-1. Scalar top-level fields such as `projectsDirectory` use the project value when present, then the user value, then the application default.
-2. `instances` is merged by `instanceId`. A project entry replaces the matching user entry as a complete `InstanceConfig`; omitted fields do not inherit implicitly. Driver defaults are applied only after the winning entry passes structural validation.
-3. `defaults` is merged by its documented fields, with project values winning over user values. Unknown default fields are rejected.
-4. Top-level `mcpServers` is merged additively by server name, with the project entry winning on conflict.
+1. Scalar top-level fields such as `projectsDirectory` use the project settings value when present, then the global value, then the application default.
+2. `instances` is merged by `instanceId`. A project settings record replaces the matching global entry as a complete `InstanceConfig`; omitted fields do not inherit implicitly. Driver defaults are applied only after the winning entry passes structural validation.
+3. `defaults` is merged by its documented fields, with project settings values winning over global values. Unknown default fields are rejected.
+4. Top-level `mcpServers` is merged additively by server name, with the project settings record winning on conflict.
 5. An instance's `mcpServers` is then overlaid by server name for sends through that instance. Aide-provided toolsets are applied last.
 
-All paths, tildes, environment references, and relative command paths are resolved only after the effective configuration has been assembled. Reload computes the same deterministic effective configuration as boot.
+All paths, tildes, environment references, and relative command paths are resolved only after the effective configuration has been assembled. Recomputing after a `config.update` produces the same deterministic effective configuration as boot.
 
 ## Harness Runtime Lifecycle
 
@@ -202,7 +204,7 @@ Write the authentication middleware...
 
 The two selectors are distinct concepts and must not be collapsed:
 
-- **Agent** — a named agent persona with its own prompt and tool access. OpenCode exposes this today (`build`, `plan`, and user-defined agents). Claude and Codex do not expose an equivalent selector for the main loop; the Claude Agent SDK's `agents` option defines *subagents the main loop delegates to*, which is a different axis and is not surfaced as a composer control.
+- **Agent** — a named agent persona with its own prompt and tool access. OpenCode exposes this today (`build`, `plan`, and user-defined agents). Claude and Codex do not expose an equivalent selector for the main loop; the Claude Agent SDK's `agents` option defines _subagents the main loop delegates to_, which is a different axis and is not surfaced as a composer control.
 - **Mode** — interaction mode, `build` or `plan`. Claude and Codex expose this. OpenCode does not; it expresses the same intent through its agent selector instead.
 
 An instance advertises which of the two it supports. Exactly one of them is shown per instance today, but the contract permits both, neither, or future modes.
@@ -312,7 +314,13 @@ type ToolStatus = "pending" | "running" | "completed" | "failed"
 
 type Part =
   | { id: string; messageId: string; index: number; type: "text"; text: string }
-  | { id: string; messageId: string; index: number; type: "reasoning"; text: string }
+  | {
+      id: string
+      messageId: string
+      index: number
+      type: "reasoning"
+      text: string
+    }
   | {
       id: string
       messageId: string
@@ -326,8 +334,22 @@ type Part =
       output?: string
       artifactId?: string
     }
-  | { id: string; messageId: string; index: number; type: "file"; path: string; mime?: string }
-  | { id: string; messageId: string; index: number; type: "agent"; name: string; status?: string }
+  | {
+      id: string
+      messageId: string
+      index: number
+      type: "file"
+      path: string
+      mime?: string
+    }
+  | {
+      id: string
+      messageId: string
+      index: number
+      type: "agent"
+      name: string
+      status?: string
+    }
 
 type UserMessage = {
   id: string
@@ -373,12 +395,7 @@ type Usage = {
   costUsd?: number
 }
 
-type TurnStatus =
-  | "queued"
-  | "running"
-  | "completed"
-  | "interrupted"
-  | "failed"
+type TurnStatus = "queued" | "running" | "completed" | "interrupted" | "failed"
 
 type Turn = {
   id: string
@@ -447,7 +464,12 @@ type AideError = {
 }
 
 type McpServerConfig =
-  | { type: "stdio"; command: string; args?: string[]; env?: Record<string, string> }
+  | {
+      type: "stdio"
+      command: string
+      args?: string[]
+      env?: Record<string, string>
+    }
   | { type: "http"; url: string; headers?: Record<string, string> }
   | { type: "sse"; url: string; headers?: Record<string, string> }
   | { type: "aide"; toolset: string }
@@ -584,7 +606,7 @@ Browser UI
     | HTTP commands, snapshots, SSE AideEvents
     v
 Local Aide server (Hono)
-    |-- Config loader + watcher
+    |-- Config service (UI-managed, DB-backed)
     |-- Instance supervisor
     |-- Application services
     |-- Drizzle / bun:sqlite
@@ -602,7 +624,7 @@ Local Aide server (Hono)
 
 The server owns:
 
-- Configuration loading, validation, and reload.
+- Configuration persistence, validation, and change application.
 - Instance lifecycle, health, and supervision.
 - Project and session lifecycle.
 - Canonical messages, parts, and turns.
@@ -657,7 +679,7 @@ Keep `packages/contracts` free of SSE framing types. A later WebSocket endpoint 
 
 ## Harness Adapter Contract
 
-The adapter API is internal and capability-driven. It is the only code allowed to import a harness SDK.
+The adapter API is internal and capability-driven. It is the only code allowed to import a harness SDK. Adapters author `configSchema` with zod; zod schemas satisfy `StandardSchemaV1`, so the core depends only on the standard-schema interface and never on a specific validation library.
 
 ```ts
 interface HarnessAdapter {
@@ -729,16 +751,16 @@ The adapter must:
 
 Native to Aide mapping:
 
-| OpenCode | Aide |
-| --- | --- |
-| Pinned v2 part snapshot event | `part.upserted` |
-| Pinned v2 part delta event | `part.delta` (not stored) |
-| Pinned v2 session running / terminal events | `turn.started` / terminal `turn.*` |
-| `permission.v2.asked` / `permission.v2.replied` | `request.opened` / `request.resolved` |
+| OpenCode                                             | Aide                                                        |
+| ---------------------------------------------------- | ----------------------------------------------------------- |
+| Pinned v2 part snapshot event                        | `part.upserted`                                             |
+| Pinned v2 part delta event                           | `part.delta` (not stored)                                   |
+| Pinned v2 session running / terminal events          | `turn.started` / terminal `turn.*`                          |
+| `permission.v2.asked` / `permission.v2.replied`      | `request.opened` / `request.resolved`                       |
 | Pinned v2 question asked / replied / rejected events | `request.opened` / `request.resolved` / `request.cancelled` |
-| Pinned v2 session error event | `error.occurred` and `turn.failed` |
-| `provider.list` / `app.agents` | `harness.inventory_updated` |
-| `mcp.status` | `harness.mcp_status_changed` |
+| Pinned v2 session error event                        | `error.occurred` and `turn.failed`                          |
+| `provider.list` / `app.agents`                       | `harness.inventory_updated`                                 |
+| `mcp.status`                                         | `harness.mcp_status_changed`                                |
 
 Conceptually, per-message execution maps to:
 
@@ -778,25 +800,25 @@ The adapter must:
 
 Native to Aide mapping:
 
-| Claude Agent SDK | Aide |
-| --- | --- |
-| `SDKAssistantMessage` content blocks | `part.upserted` (diffed, stable Aide part ids) |
-| `SDKPartialAssistantMessage` (`stream_event`) | `part.delta` (not stored) |
-| thinking content blocks | `part.upserted` with `type: "reasoning"` |
-| `SDKSystemMessage` (init) | `harness.connected` + `harness.inventory_updated` |
-| `SDKResultMessage` | `turn.completed` / `turn.failed` |
-| `canUseTool` invocation | `request.opened` (`kind: "permission"`) |
-| `canUseTool` return value | `request.resolved` |
-| `SDKPermissionDeniedMessage` | `notice.created` |
-| `SDKCompactBoundaryMessage` | `notice.created` (compaction is harness-private) |
-| `mcpServerStatus()` | `harness.mcp_status_changed` |
-| `SDKStatusMessage` / `SDKAPIRetryMessage` | `notice.created` |
+| Claude Agent SDK                              | Aide                                              |
+| --------------------------------------------- | ------------------------------------------------- |
+| `SDKAssistantMessage` content blocks          | `part.upserted` (diffed, stable Aide part ids)    |
+| `SDKPartialAssistantMessage` (`stream_event`) | `part.delta` (not stored)                         |
+| thinking content blocks                       | `part.upserted` with `type: "reasoning"`          |
+| `SDKSystemMessage` (init)                     | `harness.connected` + `harness.inventory_updated` |
+| `SDKResultMessage`                            | `turn.completed` / `turn.failed`                  |
+| `canUseTool` invocation                       | `request.opened` (`kind: "permission"`)           |
+| `canUseTool` return value                     | `request.resolved`                                |
+| `SDKPermissionDeniedMessage`                  | `notice.created`                                  |
+| `SDKCompactBoundaryMessage`                   | `notice.created` (compaction is harness-private)  |
+| `mcpServerStatus()`                           | `harness.mcp_status_changed`                      |
+| `SDKStatusMessage` / `SDKAPIRetryMessage`     | `notice.created`                                  |
 
 Two consequences worth stating explicitly, because they are the design pressure this adapter applies:
 
 1. **Part synthesis.** OpenCode emits part-level updates. The Agent SDK emits message-level `SDKAssistantMessage` carrying Anthropic content blocks plus raw `stream_event` frames. The adapter must diff content blocks across successive assistant messages, assign stable Aide part ids, and derive `index`. It cannot relabel events. If `Part` is genuinely harness-neutral, this is mechanical; if it is not, this is where that shows up.
 
-2. **Permission inversion.** OpenCode is an event plus an out-of-band reply. The Agent SDK is a blocking async callback that must *return* the decision. The adapter holds an unresolved promise across the browser round-trip. It must: persist the open `Request` before awaiting; resolve from the `permission.respond` command; reject with a deny decision if the turn is interrupted; and, on server restart, treat any stranded pending permission as a failed turn rather than leaving a dangling promise.
+2. **Permission inversion.** OpenCode is an event plus an out-of-band reply. The Agent SDK is a blocking async callback that must _return_ the decision. The adapter holds an unresolved promise across the browser round-trip. It must: persist the open `Request` before awaiting; resolve from the `permission.respond` command; reject with a deny decision if the turn is interrupted; and, on server restart, treat any stranded pending permission as a failed turn rather than leaving a dangling promise.
 
 ## MCP Integration
 
@@ -813,7 +835,7 @@ Resolution order for a given send, merged by server name:
 
 Requirements:
 
-- MCP configuration is declarative and lives in the same config file as instances. Aide never mutates a harness's own config file to inject servers.
+- MCP configuration is declarative and lives in the same UI-managed configuration record as instances. Aide never mutates a harness's own config file to inject servers.
 - MCP-sourced tool calls surface as ordinary Aide tool parts with `category: "mcp"` and `source: { kind: "mcp", server }`. The UI must not special-case MCP.
 - Server connection state is Aide-owned and reaches the UI as `harness.mcp_status_changed`. Failures are non-fatal: a server that fails to connect disables its tools and raises a notice; the turn still runs.
 - `{ type: "aide", toolset }` denotes a toolset Aide itself hosts, which is how tools get created on the fly. Where the adapter supports in-process servers, it is passed directly — the Claude Agent SDK's `createSdkMcpServer()` plus `tool()` hosts these with no subprocess. Where it does not, Aide exposes the same toolset over a loopback-bound HTTP MCP endpoint with a per-instance bearer token, and passes an `http` config instead. The toolset definition is identical in both cases.
@@ -942,7 +964,7 @@ For durable delivery, `sequence` is monotonic within `scope`: each Aide session 
 - `harness.inventory_failed`
 - `harness.auth_changed`
 - `harness.mcp_status_changed`
-- `config.reloaded`
+- `config.updated`
 
 ### General
 
@@ -982,7 +1004,7 @@ Broadcast but do not permanently store:
 
 Persist the assembled assistant message and bounded tool results. Large outputs are stored as referenced artifacts (`Part.artifactId`) rather than duplicated in events.
 
-Do not persist configuration. The config file is the source of truth and is user-owned.
+Persist configuration: it is the source of truth and is written only through UI commands. Secrets inside driver and MCP configuration are encrypted at rest with a local key and redacted from all events, snapshots, and diagnostics. Auth state is never stored or proxied by Aide.
 
 On reconnect, the UI receives a current snapshot followed by live events. It should not need to replay historical deltas.
 
@@ -1003,7 +1025,7 @@ Commands represent UI intent and remain separate from events. **Every** command 
 - `instance.start`
 - `instance.stop`
 - `instance.restart`
-- `config.reload`
+- `config.update`
 - `mcp.reconnect`
 
 `turn.send` includes `commandId`, `sessionId`, `content`, and `execution`. The server resolves the selection to immutable `ResolvedExecution` metadata before committing the queued turn. The UI may show a temporary local sending state, but it must not invent authoritative lifecycle events.
@@ -1021,6 +1043,7 @@ Commands represent UI intent and remain separate from events. **Every** command 
 - Deduplicate repeated SDK events.
 - Bound and truncate high-volume output while preserving retrievable artifacts.
 - Keep unresolved requests visible after UI reconnects, and resolve or fail stranded permission callbacks on restart.
+- Validate all server process environment (bind host/port, per-launch bearer token, `DB_FILE_NAME`) at boot with `@t3-oss/env-core` + zod; fail fast on invalid values.
 - Redact secrets from diagnostics, including MCP headers and environment values.
 - Never claim native session continuity when context was reconstructed.
 - Preserve errors with enough structured detail to diagnose adapter failures, including `instanceId`.
@@ -1039,7 +1062,7 @@ Commands represent UI intent and remain separate from events. **Every** command 
 - Verify `part.delta` is absent from snapshots, durable replay, and SSE `id:` fields.
 - Verify part ordering is stable across out-of-order arrival.
 - Verify config validation rejects malformed instances without disabling healthy ones.
-- Verify config merging by instance and MCP server key, complete project replacement of matching instance entries, and rejection of map-key/`instanceId` mismatches.
+- Verify config merging by instance and MCP server key, complete per-project record replacement of matching instance entries, and rejection of map-key/`instanceId` mismatches.
 - Verify normalized input requests preserve multiple questions, multi-select answers, and free-text answers.
 
 ### Fake Adapter
@@ -1095,15 +1118,16 @@ Claude-specific:
 ### Phase 1: Foundation
 
 - Keep the current Turbo/Bun workspace. Add `packages/contracts`.
-- Define runtime-validated Aide commands, snapshots, parts, requests, turns, config, and `AideEvent`s.
-- Fill the Drizzle schema and migrations for projects, sessions, canonical messages, immutable resolved execution snapshots, internal handoff dispatch inputs, parts, turns, requests, dispatch receipts, mappings, artifacts, and the event log.
+- Define runtime-validated Aide commands, snapshots, parts, requests, turns, config, and `AideEvent`s as zod schemas in `packages/contracts`; infer the TypeScript types from the schemas.
+- Validate the server process environment with `@t3-oss/env-core` + zod at boot.
+- Fill the Drizzle schema and migrations for projects, sessions, canonical messages, immutable resolved execution snapshots, internal handoff dispatch inputs, parts, turns, requests, dispatch receipts, mappings, artifacts, the event log, and configuration records (global and per-project).
 - Implement projects, Aide sessions, two-role canonical messages, internal handoff dispatch inputs, and turn lifecycle.
 - Implement HTTP commands with universal durable-dispatch receipts, snapshot GET, session SSE, and scoped event cursors.
 - Implement the `fake` adapter and the contract test suite against it.
 
 ### Phase 2: Configuration and Instance Supervision
 
-- Implement the config loader, schema validation, project override merge, and file watching.
+- Implement the config service: schema-validated global and per-project records, the `config.update` command with a durable receipt, and reconciliation on change.
 - Implement the instance supervisor: start on boot, health, backoff, reconcile on config change, shutdown.
 - Surface instance state, version, and auth as `harness.*` events and `GET /instances`.
 - Install the exact OpenCode v2 and Claude Agent SDK versions named in their adapter sections; implement `start` / `stop` / `health` for both.
@@ -1184,5 +1208,6 @@ Day 0 is complete when a user can:
 15. Restart Aide and restore persisted conversation history, with no turn left in `running`.
 16. Inspect the files and Git diff changed during the work.
 17. Continue after a native session becomes unavailable by reconstructing portable canonical context without transferring reasoning or native protocol data.
+18. Add, edit, enable, and disable instances and MCP servers from the settings UI and see the supervisor reconcile them without a restart.
 
 The architecture is ready for future harnesses when adding one requires a new SDK adapter and a mapping into Aide parts and events, not changes to the core session, message, composer, or UI event model. The `fake` adapter and the two structurally different real adapters are the continuous proof of that property.

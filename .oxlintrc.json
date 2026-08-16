@@ -1,0 +1,77 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "unicorn", "oxc", "react"],
+  "categories": {
+    "correctness": "error"
+  },
+  "ignorePatterns": ["**/dist/**", "**/.turbo/**", "**/coverage/**"],
+  "env": {
+    "builtin": true
+  },
+  "overrides": [
+    {
+      "files": ["apps/web/**", "packages/ui/**"],
+      "env": {
+        "browser": true
+      }
+    },
+    {
+      "files": ["apps/server/**"],
+      "env": {
+        "node": true
+      }
+    },
+    {
+      "files": ["**/*.{ts,tsx,js,jsx}"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["@opencode-ai", "@opencode-ai/**"],
+                "message": "@opencode-ai is only importable under apps/server/src/harness/opencode/**"
+              },
+              {
+                "group": ["@anthropic-ai", "@anthropic-ai/**"],
+                "message": "@anthropic-ai is only importable under apps/server/src/harness/claude/**"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["apps/server/src/harness/opencode/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["@anthropic-ai", "@anthropic-ai/**"],
+                "message": "@anthropic-ai is only importable under apps/server/src/harness/claude/**"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["apps/server/src/harness/claude/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["@opencode-ai", "@opencode-ai/**"],
+                "message": "@opencode-ai is only importable under apps/server/src/harness/opencode/**"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
