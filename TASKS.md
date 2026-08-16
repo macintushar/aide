@@ -133,6 +133,13 @@ Both are throwaway spikes owned by the eventual Claude track owner. Their only d
 
 P2.1/P2.2 scope here is: pin the exact SDK version, author `configSchema`, implement `start`/`stop`/`health`, and get `discover` returning real inventory. Send/stream/interrupt is Wave 3. P2.3 delivers resolution order, additive merge by server name, and secret redaction — adapter-side translation lands with each adapter.
 
+Two implementation notes from the wave, both about how "adapter done = conformance suite green" applies before the send path exists:
+
+- The conformance suite now takes a `scope` of `"lifecycle"` or `"full"`. Wave 2 adapters run at `lifecycle`, which covers config, start/stop/health, discovery, MCP normalization, and instance isolation; the session and turn expectations are skipped until Wave 3 flips each adapter to `full`. Same suite, same file — only which expectations apply changes.
+- Both adapters take an injectable SDK factory (`createRuntime` / `createSession`) so the suite runs against a double. A suite needing a live OpenCode server, a Claude Code install, and real provider credentials would not run in CI, and the adapter contract is what is under test.
+
+Per-instance validation isolation (S5.2) lands in the merge rather than in storage: the record schemas validate `instances` as a whole, so anything persisted is already structurally sound. The realistic malformed instance is one whose driver-specific `config` its own adapter rejects, so `mergeConfig` takes a `validateDriverConfig` hook fed from each adapter's `configSchema`.
+
 **Gate G2:** boot with OpenCode, Claude, a second Claude, and one intentionally malformed instance. Supervisor reconciles, UI shows health/auth/version, editing config applies without a server restart, the malformed one fails alone.
 
 ---

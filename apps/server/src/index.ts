@@ -7,9 +7,13 @@ import { loopbackOrigins } from "./security/loopback"
 
 export { createCommandRouter } from "./commands"
 export type { CommandDispatcher } from "./commands"
+export * from "./config"
 export * from "./events"
 export * from "./integration"
+export * from "./inventory"
+export * from "./mcp"
 export * from "./services"
+export * from "./supervisor"
 
 const app = new Hono()
 

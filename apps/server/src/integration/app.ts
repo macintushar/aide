@@ -1,8 +1,15 @@
 import { Hono } from "hono"
 
 import { createCommandDispatcher, createCommandRouter } from "../commands"
+import {
+  ConfigService,
+  createDriverConfigValidator,
+  type ResolutionEnvironment,
+} from "../config"
 import type { AideDb } from "../db"
 import { createEventRouter, EventService, SnapshotService } from "../events"
+import type { HarnessAdapter } from "../harness/types"
+import { InventoryService } from "../inventory"
 import { createCommandGuard } from "../security/command-guard"
 import {
   AdapterRegistry,
@@ -11,12 +18,23 @@ import {
   ProjectService,
   TurnService,
 } from "../services"
+import {
+  createInstancesRouter,
+  InstanceSupervisor,
+  type BackoffPolicy,
+} from "../supervisor"
 
 export type CoreIntegrationOptions = {
   db: AideDb
   registry?: AdapterRegistry
   bearerToken?: string
   allowedOrigins?: string[]
+  /** Driver implementations available to the supervisor. */
+  adapters?: HarnessAdapter[]
+  /** Project directory used for directory-scoped inventory. */
+  projectDirectory?: string
+  configEnvironment?: ResolutionEnvironment
+  backoff?: BackoffPolicy
   now?: () => string
   id?: (
     kind: "project" | "session" | "turn" | "message" | "part" | "event"
@@ -41,9 +59,59 @@ export function createAideTestApp(options: CoreIntegrationOptions) {
     now: options.now,
     id: options.id,
   })
+
+  const byDriver = new Map(
+    (options.adapters ?? []).map((adapter) => [adapter.driver, adapter])
+  )
+
+  const eventId = options.id ? () => options.id!("event") : undefined
+  const config = new ConfigService({
+    db: options.db,
+    eventService,
+    // Each adapter validates its own driver-specific `config`, so a malformed
+    // instance disables only itself.
+    validateDriverConfig: createDriverConfigValidator(
+      (driver) => byDriver.get(driver)?.configSchema
+    ),
+    ...(options.configEnvironment
+      ? { environment: options.configEnvironment }
+      : {}),
+    ...(options.now ? { now: options.now } : {}),
+    ...(eventId ? { id: eventId } : {}),
+  })
+  const inventory = new InventoryService({
+    db: options.db,
+    eventService,
+    ...(options.now ? { now: options.now } : {}),
+    ...(eventId ? { id: eventId } : {}),
+  })
+
+  const supervisor = new InstanceSupervisor({
+    registry,
+    adapters: (driver) => byDriver.get(driver),
+    inventory,
+    eventService,
+    ...(options.backoff ? { backoff: options.backoff } : {}),
+    ...(options.projectDirectory
+      ? { projectDirectory: options.projectDirectory }
+      : {}),
+    ...(options.now ? { now: options.now } : {}),
+    ...(eventId ? { id: eventId } : {}),
+  })
+
+  // Config change is reconciled, not restarted wholesale.
+  config.onChange((effective) => supervisor.reconcile(effective))
+
   const dispatcher = createCommandDispatcher({
     db: options.db,
-    handlers: createCoreCommandHandlers({ projects, turns }),
+    handlers: createCoreCommandHandlers({
+      projects,
+      turns,
+      config,
+      supervisor,
+      inventory,
+      registry,
+    }),
     now: options.now,
   })
 
@@ -59,6 +127,7 @@ export function createAideTestApp(options: CoreIntegrationOptions) {
   }
   app.route("/", createCommandRouter({ dispatcher }))
   app.route("/", createEventRouter({ eventService, snapshotService }))
+  app.route("/", createInstancesRouter({ supervisor, eventService }))
 
   return {
     app,
@@ -67,7 +136,15 @@ export function createAideTestApp(options: CoreIntegrationOptions) {
     dispatcher,
     eventService,
     snapshotService,
-    services: { projects, turns, executionResolver },
+    supervisor,
+    services: {
+      projects,
+      turns,
+      executionResolver,
+      config,
+      inventory,
+      supervisor,
+    },
   }
 }
 

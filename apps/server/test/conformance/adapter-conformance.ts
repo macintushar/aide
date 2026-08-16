@@ -33,10 +33,23 @@ export type ConformanceSubject = {
   projectDirectory: string
 }
 
+/**
+ * How much of the contract the adapter claims to implement.
+ *
+ * `"lifecycle"` covers configuration, start/stop/health, discovery, and MCP
+ * normalization — everything a Wave 2 adapter owns. `"full"` adds sessions, the
+ * turn script, requests, and interrupt, which arrive with the send path. The
+ * suite is the same either way; the scope only selects which of its
+ * expectations apply yet.
+ */
+export type ConformanceScope = "lifecycle" | "full"
+
 export type ConformanceOptions = {
   name: string
   /** Returns a fresh, isolated subject. Called once per test. */
   createSubject: () => Promise<ConformanceSubject> | ConformanceSubject
+  /** Defaults to `"full"`. */
+  scope?: ConformanceScope
   /** Config value the adapter's configSchema must accept. */
   validConfig?: unknown
   /** Config value the adapter's configSchema must reject. */
@@ -292,8 +305,11 @@ export function defineHarnessAdapterConformance(
   options: ConformanceOptions
 ): void {
   const stepTimeoutMs = options.stepTimeoutMs ?? 5_000
+  const scope = options.scope ?? "full"
+  /** Session-scoped expectations, skipped while an adapter is lifecycle-only. */
+  const sessionIt = scope === "full" ? it : it.skip
 
-  describe(`adapter conformance: ${options.name}`, () => {
+  describe(`adapter conformance: ${options.name} (${scope})`, () => {
     it("accepts a valid driver config and rejects an invalid one", async () => {
       const subject = await options.createSubject()
       const schema = subject.adapter.configSchema
@@ -340,224 +356,247 @@ export function defineHarnessAdapterConformance(
       expect(stopped.status).toBe("stopped")
     })
 
-    it("openSession and resumeSession preserve native session identity", async () => {
-      const subject = await options.createSubject()
-      const adapter = subject.adapter
-      const handle = await adapter.start({
-        instance: subject.instanceConfig,
-        projectDirectory: subject.projectDirectory,
-      })
-      const inventory = harnessInventorySchema.parse(
-        await adapter.discover({ handle, directory: subject.projectDirectory })
-      )
-      const execution = defaultExecutionFrom(handle, inventory)
-      const opened = await adapter.openSession({
-        handle,
-        sessionId: "conformance-session-resume",
-        projectDirectory: subject.projectDirectory,
-        execution,
-      })
-      expect(opened.nativeSessionId).toBeTruthy()
-      const resumed = await adapter.resumeSession({
-        handle,
-        sessionId: "conformance-session-resume",
-        nativeSessionId: opened.nativeSessionId,
-        resumeCursor: opened.resumeCursor,
-      })
-      expect(resumed.nativeSessionId).toBe(opened.nativeSessionId)
-    })
+    sessionIt(
+      "openSession and resumeSession preserve native session identity",
+      async () => {
+        const subject = await options.createSubject()
+        const adapter = subject.adapter
+        const handle = await adapter.start({
+          instance: subject.instanceConfig,
+          projectDirectory: subject.projectDirectory,
+        })
+        const inventory = harnessInventorySchema.parse(
+          await adapter.discover({
+            handle,
+            directory: subject.projectDirectory,
+          })
+        )
+        const execution = defaultExecutionFrom(handle, inventory)
+        const opened = await adapter.openSession({
+          handle,
+          sessionId: "conformance-session-resume",
+          projectDirectory: subject.projectDirectory,
+          execution,
+        })
+        expect(opened.nativeSessionId).toBeTruthy()
+        const resumed = await adapter.resumeSession({
+          handle,
+          sessionId: "conformance-session-resume",
+          nativeSessionId: opened.nativeSessionId,
+          resumeCursor: opened.resumeCursor,
+        })
+        expect(resumed.nativeSessionId).toBe(opened.nativeSessionId)
+      }
+    )
 
-    it("runs a full turn with valid events, requests, and a terminal state", async () => {
-      const subject = await options.createSubject()
-      const adapter = subject.adapter
-      const handle = await adapter.start({
-        instance: subject.instanceConfig,
-        projectDirectory: subject.projectDirectory,
-      })
-      const inventory = harnessInventorySchema.parse(
-        await adapter.discover({ handle, directory: subject.projectDirectory })
-      )
-      const execution = defaultExecutionFrom(handle, inventory)
-      const sessionId = "conformance-session-turn"
-      const native = await adapter.openSession({
-        handle,
-        sessionId,
-        projectDirectory: subject.projectDirectory,
-        execution,
-      })
-      const userMessage = buildUserMessage(
-        sessionId,
-        1,
-        execution,
-        "conformance turn text"
-      )
-      const stream = adapter.events({ handle, nativeSession: native })
-      const driver = new TurnDriver(
-        stream,
-        adapter,
-        handle,
-        native,
-        stepTimeoutMs
-      )
-      await adapter.send({
-        handle,
-        nativeSession: native,
-        commandId: "conformance-command-1",
-        turnId: "conformance-turn-1",
-        userMessage,
-        execution,
-      })
-      const events = await driver.run()
+    sessionIt(
+      "runs a full turn with valid events, requests, and a terminal state",
+      async () => {
+        const subject = await options.createSubject()
+        const adapter = subject.adapter
+        const handle = await adapter.start({
+          instance: subject.instanceConfig,
+          projectDirectory: subject.projectDirectory,
+        })
+        const inventory = harnessInventorySchema.parse(
+          await adapter.discover({
+            handle,
+            directory: subject.projectDirectory,
+          })
+        )
+        const execution = defaultExecutionFrom(handle, inventory)
+        const sessionId = "conformance-session-turn"
+        const native = await adapter.openSession({
+          handle,
+          sessionId,
+          projectDirectory: subject.projectDirectory,
+          execution,
+        })
+        const userMessage = buildUserMessage(
+          sessionId,
+          1,
+          execution,
+          "conformance turn text"
+        )
+        const stream = adapter.events({ handle, nativeSession: native })
+        const driver = new TurnDriver(
+          stream,
+          adapter,
+          handle,
+          native,
+          stepTimeoutMs
+        )
+        await adapter.send({
+          handle,
+          nativeSession: native,
+          commandId: "conformance-command-1",
+          turnId: "conformance-turn-1",
+          userMessage,
+          execution,
+        })
+        const events = await driver.run()
 
-      assertCommonEventInvariants(events)
+        assertCommonEventInvariants(events)
 
-      const types = events.map((event) => event.type)
-      expect(types).toContain("turn.started")
-      expect(types).toContain("message.upserted")
-      expect(types).toContain("request.opened")
-      expect(types).toContain("request.resolved")
-      expect(types.filter((type) => type === "turn.completed")).toHaveLength(1)
+        const types = events.map((event) => event.type)
+        expect(types).toContain("turn.started")
+        expect(types).toContain("message.upserted")
+        expect(types).toContain("request.opened")
+        expect(types).toContain("request.resolved")
+        expect(types.filter((type) => type === "turn.completed")).toHaveLength(
+          1
+        )
 
-      const toolEvents = events.filter(
-        (event) =>
-          event.type === "part.upserted" && event.data.part.type === "tool"
-      )
-      expect(toolEvents.length).toBeGreaterThan(0)
-      const toolStatuses = new Set(
-        toolEvents.map(
+        const toolEvents = events.filter(
+          (event) =>
+            event.type === "part.upserted" && event.data.part.type === "tool"
+        )
+        expect(toolEvents.length).toBeGreaterThan(0)
+        const toolStatuses = new Set(
+          toolEvents.map(
+            (event) =>
+              event.type === "part.upserted" &&
+              event.data.part.type === "tool" &&
+              event.data.part.status
+          )
+        )
+        for (const status of ["pending", "running", "completed", "failed"]) {
+          expect(toolStatuses, `tool part reaches ${status}`).toContain(status)
+        }
+
+        const reasoningEvents = events.filter(
           (event) =>
             event.type === "part.upserted" &&
-            event.data.part.type === "tool" &&
-            event.data.part.status
+            event.data.part.type === "reasoning"
         )
-      )
-      for (const status of ["pending", "running", "completed", "failed"]) {
-        expect(toolStatuses, `tool part reaches ${status}`).toContain(status)
-      }
+        expect(reasoningEvents.length).toBeGreaterThan(0)
 
-      const reasoningEvents = events.filter(
-        (event) =>
-          event.type === "part.upserted" && event.data.part.type === "reasoning"
-      )
-      expect(reasoningEvents.length).toBeGreaterThan(0)
-
-      const textEvents = events.filter(
-        (event) =>
-          event.type === "part.upserted" && event.data.part.type === "text"
-      )
-      const echoed = textEvents
-        .map((event) =>
-          event.type === "part.upserted" && event.data.part.type === "text"
-            ? event.data.part.text
-            : ""
+        const textEvents = events.filter(
+          (event) =>
+            event.type === "part.upserted" && event.data.part.type === "text"
         )
-        .join("\n")
-      expect(echoed).toContain("conformance turn text")
+        const echoed = textEvents
+          .map((event) =>
+            event.type === "part.upserted" && event.data.part.type === "text"
+              ? event.data.part.text
+              : ""
+          )
+          .join("\n")
+        expect(echoed).toContain("conformance turn text")
 
-      const openedRequests = events.filter(
-        (event) => event.type === "request.opened"
-      )
-      const inputOpened = openedRequests.find(
-        (event) =>
-          event.type === "request.opened" && event.data.request.kind === "input"
-      )
-      expect(inputOpened).toBeDefined()
+        const openedRequests = events.filter(
+          (event) => event.type === "request.opened"
+        )
+        const inputOpened = openedRequests.find(
+          (event) =>
+            event.type === "request.opened" &&
+            event.data.request.kind === "input"
+        )
+        expect(inputOpened).toBeDefined()
 
-      const terminalIndex = events.findIndex(isTerminal)
-      expect(terminalIndex).toBeGreaterThan(-1)
-      const afterTerminal = events.slice(terminalIndex + 1)
-      expect(
-        afterTerminal.filter(isTerminal),
-        "exactly one terminal event"
-      ).toHaveLength(0)
-    })
-
-    it("interrupt is idempotent, cancels open requests, and yields one interrupted terminal", async () => {
-      const subject = await options.createSubject()
-      const adapter = subject.adapter
-      const handle = await adapter.start({
-        instance: subject.instanceConfig,
-        projectDirectory: subject.projectDirectory,
-      })
-      const inventory = harnessInventorySchema.parse(
-        await adapter.discover({ handle, directory: subject.projectDirectory })
-      )
-      const execution = defaultExecutionFrom(handle, inventory)
-      const sessionId = "conformance-session-interrupt"
-      const native = await adapter.openSession({
-        handle,
-        sessionId,
-        projectDirectory: subject.projectDirectory,
-        execution,
-      })
-      const userMessage = buildUserMessage(
-        sessionId,
-        1,
-        execution,
-        "interrupt me"
-      )
-      const stream = adapter.events({ handle, nativeSession: native })
-      const driver = new TurnDriver(
-        stream,
-        adapter,
-        handle,
-        native,
-        stepTimeoutMs,
-        false
-      )
-      await adapter.send({
-        handle,
-        nativeSession: native,
-        commandId: "conformance-command-interrupt",
-        turnId: "conformance-turn-interrupt",
-        userMessage,
-        execution,
-      })
-      await driver.run((event) => event.type === "request.opened")
-      expect(
-        driver.events.filter((event) => event.type === "request.opened").length
-      ).toBeGreaterThan(0)
-
-      const postInterrupt: AideEvent[] = []
-      const iterator = adapter
-        .events({ handle, nativeSession: native })
-        [Symbol.asyncIterator]()
-
-      await adapter.interrupt({
-        handle,
-        nativeSession: native,
-        turnId: "conformance-turn-interrupt",
-      })
-
-      const drainDeadline = Date.now() + stepTimeoutMs
-      while (Date.now() < drainDeadline) {
-        const next = await Promise.race([
-          iterator.next(),
-          new Promise<"timeout">((resolve) =>
-            setTimeout(() => resolve("timeout"), 50)
-          ),
-        ])
-        if (next === "timeout") break
-        if (next.done) break
-        aideEventSchema.parse(next.value)
-        postInterrupt.push(next.value)
-        if (isTerminal(next.value)) break
+        const terminalIndex = events.findIndex(isTerminal)
+        expect(terminalIndex).toBeGreaterThan(-1)
+        const afterTerminal = events.slice(terminalIndex + 1)
+        expect(
+          afterTerminal.filter(isTerminal),
+          "exactly one terminal event"
+        ).toHaveLength(0)
       }
-      await iterator.return?.()
+    )
 
-      expect(
-        postInterrupt.filter((event) => event.type === "turn.interrupted"),
-        "exactly one turn.interrupted"
-      ).toHaveLength(1)
-      expect(
-        postInterrupt.filter((event) => event.type === "turn.completed"),
-        "no completed event after interrupt"
-      ).toHaveLength(0)
-      expect(
-        postInterrupt.filter((event) => event.type === "request.cancelled")
-          .length
-      ).toBeGreaterThan(0)
-    })
+    sessionIt(
+      "interrupt is idempotent, cancels open requests, and yields one interrupted terminal",
+      async () => {
+        const subject = await options.createSubject()
+        const adapter = subject.adapter
+        const handle = await adapter.start({
+          instance: subject.instanceConfig,
+          projectDirectory: subject.projectDirectory,
+        })
+        const inventory = harnessInventorySchema.parse(
+          await adapter.discover({
+            handle,
+            directory: subject.projectDirectory,
+          })
+        )
+        const execution = defaultExecutionFrom(handle, inventory)
+        const sessionId = "conformance-session-interrupt"
+        const native = await adapter.openSession({
+          handle,
+          sessionId,
+          projectDirectory: subject.projectDirectory,
+          execution,
+        })
+        const userMessage = buildUserMessage(
+          sessionId,
+          1,
+          execution,
+          "interrupt me"
+        )
+        const stream = adapter.events({ handle, nativeSession: native })
+        const driver = new TurnDriver(
+          stream,
+          adapter,
+          handle,
+          native,
+          stepTimeoutMs,
+          false
+        )
+        await adapter.send({
+          handle,
+          nativeSession: native,
+          commandId: "conformance-command-interrupt",
+          turnId: "conformance-turn-interrupt",
+          userMessage,
+          execution,
+        })
+        await driver.run((event) => event.type === "request.opened")
+        expect(
+          driver.events.filter((event) => event.type === "request.opened")
+            .length
+        ).toBeGreaterThan(0)
+
+        const postInterrupt: AideEvent[] = []
+        const iterator = adapter
+          .events({ handle, nativeSession: native })
+          [Symbol.asyncIterator]()
+
+        await adapter.interrupt({
+          handle,
+          nativeSession: native,
+          turnId: "conformance-turn-interrupt",
+        })
+
+        const drainDeadline = Date.now() + stepTimeoutMs
+        while (Date.now() < drainDeadline) {
+          const next = await Promise.race([
+            iterator.next(),
+            new Promise<"timeout">((resolve) =>
+              setTimeout(() => resolve("timeout"), 50)
+            ),
+          ])
+          if (next === "timeout") break
+          if (next.done) break
+          aideEventSchema.parse(next.value)
+          postInterrupt.push(next.value)
+          if (isTerminal(next.value)) break
+        }
+        await iterator.return?.()
+
+        expect(
+          postInterrupt.filter((event) => event.type === "turn.interrupted"),
+          "exactly one turn.interrupted"
+        ).toHaveLength(1)
+        expect(
+          postInterrupt.filter((event) => event.type === "turn.completed"),
+          "no completed event after interrupt"
+        ).toHaveLength(0)
+        expect(
+          postInterrupt.filter((event) => event.type === "request.cancelled")
+            .length
+        ).toBeGreaterThan(0)
+      }
+    )
 
     it("normalizes MCP server configuration into one status per server", async () => {
       const subject = await options.createSubject()
@@ -590,8 +629,7 @@ export function defineHarnessAdapterConformance(
       }
     })
 
-    it("isolates two instances started from the same adapter", async () => {
-      const subject = await options.createSubject()
+    async function startTwoInstances(subject: ConformanceSubject) {
       const adapter = subject.adapter
       const handleA = await adapter.start({
         instance: subject.instanceConfig,
@@ -605,6 +643,12 @@ export function defineHarnessAdapterConformance(
         instance: secondConfig,
         projectDirectory: subject.projectDirectory,
       })
+      return { adapter, handleA, handleB }
+    }
+
+    it("isolates the inventory of two instances started from the same adapter", async () => {
+      const subject = await options.createSubject()
+      const { adapter, handleA, handleB } = await startTwoInstances(subject)
       expect(handleA.instanceId).not.toBe(handleB.instanceId)
 
       const inventoryA = harnessInventorySchema.parse(
@@ -615,13 +659,24 @@ export function defineHarnessAdapterConformance(
       )
       expect(inventoryA.instanceId).toBe(handleA.instanceId)
       expect(inventoryB.instanceId).toBe(handleB.instanceId)
+    })
 
-      const executionA = defaultExecutionFrom(handleA, inventoryA)
+    sessionIt("isolates the native sessions of two instances", async () => {
+      const subject = await options.createSubject()
+      const { adapter, handleA, handleB } = await startTwoInstances(subject)
+
+      const inventoryA = harnessInventorySchema.parse(
+        await adapter.discover({ handle: handleA })
+      )
+      const inventoryB = harnessInventorySchema.parse(
+        await adapter.discover({ handle: handleB })
+      )
+
       const sessionA = await adapter.openSession({
         handle: handleA,
         sessionId: "conformance-isolation",
         projectDirectory: subject.projectDirectory,
-        execution: executionA,
+        execution: defaultExecutionFrom(handleA, inventoryA),
       })
       const sessionB = await adapter.openSession({
         handle: handleB,
