@@ -3,6 +3,7 @@ import { Hono } from "hono"
 import { createCommandDispatcher, createCommandRouter } from "../commands"
 import {
   ConfigService,
+  createConfigRouter,
   createDriverConfigValidator,
   type ResolutionEnvironment,
 } from "../config"
@@ -126,7 +127,22 @@ export function createAideTestApp(options: CoreIntegrationOptions) {
     )
   }
   app.route("/", createCommandRouter({ dispatcher }))
-  app.route("/", createEventRouter({ eventService, snapshotService }))
+  app.route("/", createConfigRouter({ config }))
+  app.route(
+    "/",
+    createEventRouter({
+      eventService,
+      snapshotService,
+      instancesSnapshot: () => ({
+        schemaVersion: 1,
+        scope: { kind: "instances" },
+        cursor: {
+          sequence: eventService.latestSequence({ kind: "instances" }),
+        },
+        instances: supervisor.snapshot(),
+      }),
+    })
+  )
   app.route("/", createInstancesRouter({ supervisor, eventService }))
 
   return {

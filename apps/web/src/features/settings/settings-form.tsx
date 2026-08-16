@@ -28,6 +28,7 @@ export type SettingsTarget =
 export type SettingsFormProps = {
   initial?: ConfigDraft
   target: SettingsTarget
+  saving?: boolean
   onSubmit: (
     payload: NonNullable<DraftValidation["payload"]>,
     target: SettingsTarget
@@ -51,7 +52,12 @@ function IssueList({ issues }: { issues: ReturnType<typeof issuesFor> }) {
   )
 }
 
-export function SettingsForm({ initial, target, onSubmit }: SettingsFormProps) {
+export function SettingsForm({
+  initial,
+  target,
+  onSubmit,
+  saving = false,
+}: SettingsFormProps) {
   const [draft, setDraft] = useState<ConfigDraft>(initial ?? emptyDraft())
   const [submitted, setSubmitted] = useState(false)
   const validation = useMemo(() => validateDraft(draft), [draft])
@@ -447,7 +453,9 @@ export function SettingsForm({ initial, target, onSubmit }: SettingsFormProps) {
       </section>
 
       <div className="flex items-center gap-3">
-        <Button type="submit">Save settings</Button>
+        <Button type="submit" disabled={saving}>
+          {saving ? "Saving…" : "Save settings"}
+        </Button>
         {showIssues && validation.issues.length > 0 ? (
           <span className="text-xs text-destructive">
             Fix {validation.issues.length} issue

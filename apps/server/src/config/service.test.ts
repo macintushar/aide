@@ -234,6 +234,25 @@ describe("ConfigService", () => {
     expect(seen).toEqual([["opencode"]])
   })
 
+  it("broadcasts config.updated only after change listeners finish", async () => {
+    const order: string[] = []
+    service.onChange(async () => {
+      await Promise.resolve()
+      order.push("reconciled")
+    })
+    const subscription = eventService.subscribe({ kind: "instances" })
+    const broadcast = subscription.next().then((result) => {
+      expect(result.value?.type).toBe("config.updated")
+      order.push("broadcast")
+    })
+
+    await service.update(updateCommand())
+    await broadcast
+
+    expect(order).toEqual(["reconciled", "broadcast"])
+    await subscription.return()
+  })
+
   it("recomputes after an update to the same value boot would produce", async () => {
     await service.update(
       updateCommand({

@@ -4,6 +4,7 @@ import { env } from "./env"
 import type { HarnessAdapter } from "./harness/types"
 import { createCommandGuard } from "./security/command-guard"
 import { loopbackOrigins } from "./security/loopback"
+import { runProductionServer } from "./integration/production"
 
 export { createCommandRouter } from "./commands"
 export type { CommandDispatcher } from "./commands"
@@ -32,3 +33,7 @@ app.get("/", (c) => {
 export default app
 export { env }
 export type { HarnessAdapter }
+
+if (import.meta.main) {
+  await runProductionServer()
+}

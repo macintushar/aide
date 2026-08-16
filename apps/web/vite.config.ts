@@ -11,6 +11,13 @@ export default defineConfig({
       "@": path.resolve(import.meta.dirname, "./src"),
     },
   },
+  server: {
+    proxy: Object.fromEntries(
+      ["/commands", "/instances", "/config", "/sessions", "/projects"].map(
+        (route) => [route, "http://localhost:3000"]
+      )
+    ),
+  },
   test: {
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],

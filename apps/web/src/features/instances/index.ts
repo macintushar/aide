@@ -10,3 +10,7 @@ export {
   sendBlockedReason,
   type InstancesStoreState,
 } from "./instances-store"
+export {
+  InstancesBoundary,
+  type InstancesBoundaryProps,
+} from "./instances-boundary"

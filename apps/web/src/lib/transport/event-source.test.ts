@@ -1,4 +1,8 @@
-import { eventFixtures } from "@workspace/contracts"
+import {
+  eventFixtures,
+  instancesSnapshotFixture,
+  sessionSnapshotFixture,
+} from "@workspace/contracts"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
@@ -15,13 +19,30 @@ class FakeEventSource {
   onopen: ((event: Event) => void) | null = null
   onerror: ((event: Event) => void) | null = null
   onmessage: ((event: MessageEvent<string>) => void) | null = null
+  readonly listeners = new Map<
+    string,
+    Array<(event: MessageEvent<string>) => void>
+  >()
 
   constructor(url: string) {
     this.url = url
     FakeEventSource.instances.push(this)
   }
 
-  emit(data: string) {
+  addEventListener(
+    type: string,
+    listener: (event: MessageEvent<string>) => void
+  ) {
+    this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener])
+  }
+
+  emit(type: string, data: string) {
+    for (const listener of this.listeners.get(type) ?? []) {
+      listener(new MessageEvent(type, { data }))
+    }
+  }
+
+  emitMessage(data: string) {
     this.onmessage?.(new MessageEvent("message", { data }))
   }
 
@@ -55,22 +76,57 @@ describe("event source subscriptions", () => {
     )
   })
 
-  it("delivers valid frames and reports invalid frames", () => {
+  it("delivers every named Aide event and reports invalid frames", () => {
     FakeEventSource.instances = []
     const onEvent = vi.fn()
     const onInvalidFrame = vi.fn()
     subscribeInstancesEvents({ EventSourceImpl, onEvent, onInvalidFrame })
     const source = FakeEventSource.instances[0]!
-    const valid = eventFixtures().find(
-      (event) => event.type === "harness.connected"
-    )!
+    const events = eventFixtures()
 
-    source.emit(JSON.stringify(valid))
-    source.emit('{"type":"unknown"}')
+    for (const event of events) source.emit(event.type, JSON.stringify(event))
+    source.emitMessage('{"type":"unknown"}')
 
-    expect(onEvent).toHaveBeenCalledWith(valid)
+    expect(onEvent.mock.calls.map(([event]) => event)).toEqual(events)
     expect(onInvalidFrame).toHaveBeenCalledOnce()
     expect(onInvalidFrame.mock.calls[0]?.[0]).toBe('{"type":"unknown"}')
+  })
+
+  it("parses snapshots with the schema for each subscription", () => {
+    FakeEventSource.instances = []
+    const onInstancesSnapshot = vi.fn()
+    const onSessionSnapshot = vi.fn()
+    const onInvalidFrame = vi.fn()
+    subscribeInstancesEvents({
+      EventSourceImpl,
+      onEvent: vi.fn(),
+      onSnapshot: onInstancesSnapshot,
+      onInvalidFrame,
+    })
+    subscribeSessionEvents({
+      sessionId: "ses_1",
+      EventSourceImpl,
+      onEvent: vi.fn(),
+      onSnapshot: onSessionSnapshot,
+      onInvalidFrame,
+    })
+
+    FakeEventSource.instances[0]!.emit(
+      "snapshot",
+      JSON.stringify(instancesSnapshotFixture())
+    )
+    FakeEventSource.instances[1]!.emit(
+      "snapshot",
+      JSON.stringify(sessionSnapshotFixture())
+    )
+    FakeEventSource.instances[0]!.emit(
+      "snapshot",
+      JSON.stringify(sessionSnapshotFixture())
+    )
+
+    expect(onInstancesSnapshot).toHaveBeenCalledWith(instancesSnapshotFixture())
+    expect(onSessionSnapshot).toHaveBeenCalledWith(sessionSnapshotFixture())
+    expect(onInvalidFrame).toHaveBeenCalledOnce()
   })
 
   it("forwards connection open and error events", () => {

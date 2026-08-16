@@ -18,6 +18,7 @@ export {
   resolveMcpServer,
   type ResolutionEnvironment,
 } from "./paths"
+export { createConfigRouter } from "./router"
 export {
   ConfigService,
   type ConfigChangeListener,

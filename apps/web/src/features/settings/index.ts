@@ -1,5 +1,6 @@
 export {
   DRIVERS,
+  configToDraft,
   emptyDraft,
   issuesFor,
   newInstance,
@@ -14,3 +15,7 @@ export {
   type SettingsFormProps,
   type SettingsTarget,
 } from "./settings-form"
+export {
+  SettingsBoundary,
+  type SettingsBoundaryProps,
+} from "./settings-boundary"

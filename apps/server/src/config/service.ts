@@ -161,10 +161,6 @@ export class ConfigService {
       return event
     })
 
-    if (persisted) {
-      this.#eventService?.broadcastDurable(persisted)
-    }
-
     const effective = this.effective(
       target.kind === "project" ? target.projectId : undefined
     )
@@ -176,6 +172,12 @@ export class ConfigService {
 
     for (const listener of this.#listeners) {
       await listener(effective, target)
+    }
+
+    // Persistence remains atomic with the config write, but live consumers only
+    // hear about it once refetching can observe reconciled supervisor state.
+    if (persisted) {
+      this.#eventService?.broadcastDurable(persisted)
     }
 
     return effective

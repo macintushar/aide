@@ -7,12 +7,20 @@ import type {
   InstanceConfig,
   InstanceRuntimeStatus,
   InstanceSnapshotEntry,
+  McpServerConfig,
+  McpServerStatus,
 } from "@workspace/contracts"
 
 import type { EffectiveConfig } from "../config"
 import type { EventService } from "../events"
 import type { HarnessAdapter, InstanceHandle } from "../harness/types"
 import type { InventoryService } from "../inventory"
+import {
+  partitionByCapability,
+  resolveMcpServers,
+  toServerRecord,
+  unsupportedMcpError,
+} from "../mcp"
 import type { AdapterRegistry } from "../services/adapter-registry"
 import {
   backoffDelay,
@@ -84,6 +92,7 @@ export class InstanceSupervisor {
   readonly #schedule: NonNullable<SupervisorOptions["schedule"]>
   readonly #cancel: NonNullable<SupervisorOptions["cancel"]>
   readonly #instances = new Map<string, SupervisedInstance>()
+  #mcpServers: Record<string, McpServerConfig> = {}
   #shuttingDown = false
 
   constructor({
@@ -119,6 +128,7 @@ export class InstanceSupervisor {
    */
   boot(config: EffectiveConfig): void {
     this.#shuttingDown = false
+    this.#mcpServers = config.mcpServers
     this.reap(config)
 
     for (const instance of Object.values(config.instances)) {
@@ -161,12 +171,15 @@ export class InstanceSupervisor {
    */
   async reconcile(config: EffectiveConfig): Promise<void> {
     const next = config.instances
+    const topLevelMcpChanged = !sameValue(this.#mcpServers, config.mcpServers)
+    this.#mcpServers = config.mcpServers
     const removed = [...this.#instances.keys()].filter((id) => !(id in next))
 
     await Promise.all(removed.map((id) => this.#stop(id, "removed")))
     for (const id of removed) this.#instances.delete(id)
 
     const work: Array<Promise<void>> = []
+    const mcpRefresh = new Set<string>()
     for (const instance of Object.values(next)) {
       const current = this.#instances.get(instance.instanceId)
 
@@ -178,7 +191,14 @@ export class InstanceSupervisor {
         continue
       }
 
-      if (sameInstanceConfig(current.config, instance)) continue
+      const lifecycleChanged = !sameLifecycleConfig(current.config, instance)
+      const instanceMcpChanged = !sameValue(
+        current.config.mcpServers,
+        instance.mcpServers
+      )
+      if (!lifecycleChanged && !instanceMcpChanged && !topLevelMcpChanged) {
+        continue
+      }
 
       current.config = instance
       if (!instance.enabled) {
@@ -186,18 +206,32 @@ export class InstanceSupervisor {
         continue
       }
 
-      // A changed enabled instance restarts; an already-stopped one only starts
-      // if it is meant to be running.
-      const wasRunning =
+      const isRunning =
         current.status === "ready" ||
         current.status === "degraded" ||
         current.status === "starting"
-      if (wasRunning || instance.autoStart) {
+
+      if (!lifecycleChanged && (instanceMcpChanged || topLevelMcpChanged)) {
+        // A start already in flight reads the latest normalized MCP record once
+        // it has a handle, so restarting it would only add churn.
+        if (current.status === "starting" && !current.handle) continue
+        if (current.handle && this.#supportsMcpReconfigure(current)) {
+          mcpRefresh.add(instance.instanceId)
+        } else if (isRunning) {
+          work.push(this.restart(instance.instanceId))
+        }
+        continue
+      }
+
+      // A changed enabled instance restarts; an already-stopped one only starts
+      // if it is meant to be running.
+      if (isRunning || instance.autoStart) {
         work.push(this.restart(instance.instanceId))
       }
     }
 
     await Promise.all(work)
+    await Promise.all([...mcpRefresh].map((id) => this.#configureMcp(id)))
   }
 
   /** Stops every instance and disposes its adapter handle. */
@@ -375,7 +409,8 @@ export class InstanceSupervisor {
       | "harness.disconnected"
       | "harness.reconnecting"
       | "harness.instance_failed"
-      | "harness.auth_changed",
+      | "harness.auth_changed"
+      | "harness.mcp_status_changed",
     data: Record<string, unknown>
   ): void {
     this.#eventService?.appendDurable({
@@ -455,6 +490,7 @@ export class InstanceSupervisor {
       )
 
       await this.#discover(entry, adapter, generation)
+      await this.#configureMcp(instanceId)
     } catch (error) {
       if (generation !== entry.generation) return
       this.#handleStartFailure(entry, toAideError(error, instanceId))
@@ -518,6 +554,63 @@ export class InstanceSupervisor {
       "harness.auth_changed",
       { auth }
     )
+  }
+
+  #supportsMcpReconfigure(entry: SupervisedInstance): boolean {
+    const adapter = this.#adapters(entry.config.driver)
+    return Boolean(
+      adapter &&
+      entry.handle &&
+      adapter.capabilities(entry.handle).mcp.runtimeReconfigure
+    )
+  }
+
+  async #configureMcp(instanceId: string): Promise<void> {
+    const entry = this.#instances.get(instanceId)
+    if (!entry?.handle) return
+    const adapter = this.#adapters(entry.config.driver)
+    if (!adapter) return
+
+    const resolved = toServerRecord(
+      resolveMcpServers({
+        global: this.#mcpServers,
+        instance: entry.config.mcpServers,
+      })
+    )
+    const partition = partitionByCapability(
+      resolved,
+      adapter.capabilities(entry.handle)
+    )
+    const unsupported: McpServerStatus[] = partition.unsupported.map(
+      (server) => ({
+        name: server.name,
+        connected: false,
+        error: unsupportedMcpError(instanceId, server),
+      })
+    )
+    let statuses: McpServerStatus[]
+
+    try {
+      await adapter.setMcpServers({
+        handle: entry.handle,
+        servers: partition.supported,
+      })
+      statuses = await adapter.mcpStatus({ handle: entry.handle })
+    } catch (error) {
+      const aideError = toAideError(error, instanceId)
+      statuses = Object.keys(partition.supported).map((name) => ({
+        name,
+        connected: false,
+        error: {
+          ...aideError,
+          code: "mcp_configuration_failed",
+        },
+      }))
+    }
+
+    this.#emit(instanceId, entry.config.driver, "harness.mcp_status_changed", {
+      servers: [...statuses, ...unsupported],
+    })
   }
 
   #handleStartFailure(entry: SupervisedInstance, error: AideError): void {
@@ -603,11 +696,17 @@ export class SupervisorError extends Error {
   }
 }
 
-/** Two configs are the same when nothing an adapter would observe changed. */
-function sameInstanceConfig(
+/** MCP can be reconfigured independently when the adapter supports it. */
+function sameLifecycleConfig(
   left: InstanceConfig,
   right: InstanceConfig
 ): boolean {
+  const { mcpServers: _leftMcp, ...leftLifecycle } = left
+  const { mcpServers: _rightMcp, ...rightLifecycle } = right
+  return sameValue(leftLifecycle, rightLifecycle)
+}
+
+function sameValue(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right)
 }
 

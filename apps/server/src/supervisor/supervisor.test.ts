@@ -32,6 +32,10 @@ function createStubAdapter(
     stop: [] as string[],
     dispose: [] as string[],
     discover: [] as string[],
+    setMcpServers: [] as Array<{
+      instanceId: string
+      names: string[]
+    }>,
   }
   let failStartTimes = 0
   let startError: { aideError: unknown } | Error | undefined
@@ -126,9 +130,17 @@ function createStubAdapter(
     async respondToInput() {
       throw new Error("not used")
     },
-    async setMcpServers() {},
-    async mcpStatus() {
-      return []
+    async setMcpServers(input) {
+      calls.setMcpServers.push({
+        instanceId: input.handle.instanceId,
+        names: Object.keys(input.servers).sort(),
+      })
+    },
+    async mcpStatus(input) {
+      const latest = [...calls.setMcpServers]
+        .reverse()
+        .find((call) => call.instanceId === input.handle.instanceId)
+      return (latest?.names ?? []).map((name) => ({ name, connected: true }))
     },
     events() {
       throw new Error("not used")
@@ -174,6 +186,13 @@ function effective(...instances: InstanceConfig[]): EffectiveConfig {
     defaults: {},
     failures: [],
   }
+}
+
+function effectiveWithMcp(
+  mcpServers: EffectiveConfig["mcpServers"],
+  ...instances: InstanceConfig[]
+): EffectiveConfig {
+  return { ...effective(...instances), mcpServers }
 }
 
 describe("InstanceSupervisor", () => {
@@ -498,6 +517,30 @@ describe("InstanceSupervisor", () => {
   })
 
   describe("reconcile on config change", () => {
+    it("reconfigures top-level MCP servers without restarting a running instance", async () => {
+      const stub = createStubAdapter()
+      const supervisor = build([stub])
+      supervisor.boot(effective(instance()))
+      await supervisor.settled()
+
+      await supervisor.reconcile(
+        effectiveWithMcp(
+          { docs: { type: "http", url: "https://mcp.example.test" } },
+          instance()
+        )
+      )
+
+      expect(stub.calls.start).toEqual(["opencode"])
+      expect(stub.calls.stop).toEqual([])
+      expect(stub.calls.setMcpServers.at(-1)).toEqual({
+        instanceId: "opencode",
+        names: ["docs"],
+      })
+      expect(instanceEvents().map((event) => event.type)).toContain(
+        "harness.mcp_status_changed"
+      )
+    })
+
     it("starts an added instance", async () => {
       const opencode = createStubAdapter()
       const claude = createStubAdapter({ driver: "claudeAgent" })

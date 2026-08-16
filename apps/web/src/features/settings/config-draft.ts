@@ -4,8 +4,10 @@ import {
   mcpServerConfigSchema,
   type ConfigDefaults,
   type DriverId,
+  type GlobalConfigRecord,
   type InstanceConfig,
   type McpServerConfig,
+  type ProjectConfigRecord,
 } from "@workspace/contracts"
 
 /**
@@ -35,6 +37,22 @@ export function emptyDraft(): ConfigDraft {
     instances: [],
     mcpServers: [],
     defaults: {},
+  }
+}
+
+export function configToDraft(
+  config: GlobalConfigRecord | ProjectConfigRecord
+): ConfigDraft {
+  return {
+    projectsDirectory: config.projectsDirectory ?? "",
+    instances: Object.values(config.instances ?? {}),
+    mcpServers: Object.entries(config.mcpServers ?? {}).map(
+      ([name, value]) => ({
+        name,
+        config: value,
+      })
+    ),
+    defaults: config.defaults ?? {},
   }
 }
 
