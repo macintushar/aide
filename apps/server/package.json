@@ -14,7 +14,7 @@
     "db:generate": "bun --bun drizzle-kit generate",
     "db:migrate": "bun --bun drizzle-kit migrate",
     "db:push": "bun --bun drizzle-kit push",
-    "db:studio": "bun --bun drizzle-kit studio"
+    "db:studio": "bun --bun drizzle-kit studio --host 0.0.0.0"
   },
   "dependencies": {
     "@standard-schema/spec": "^1.1.0",

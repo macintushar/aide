@@ -1,0 +1,54 @@
+---
+import opencodeMark from "../assets/harnesses/opencode.svg?url";
+import claudeMark from "../assets/harnesses/claude.svg?url";
+import codexMark from "../assets/harnesses/openai.svg?url";
+
+interface Harness {
+  name: string;
+  mark: string;
+  desc: string;
+  invertDark?: boolean;
+}
+
+const harnesses: Harness[] = [
+  {
+    name: "opencode",
+    mark: opencodeMark,
+    desc: "Open-source coding agent.",
+  },
+  {
+    name: "Claude",
+    mark: claudeMark,
+    desc: "Anthropic's coding agent.",
+  },
+  {
+    name: "Codex",
+    mark: codexMark,
+    desc: "OpenAI's coding agent.",
+    invertDark: true,
+  },
+];
+---
+
+<div class="harness-grid">
+  {
+    harnesses.map((harness) => (
+      <div class="harness-card">
+        <div class="harness-top">
+          <span class="harness-mark">
+            <img
+              src={harness.mark}
+              alt=""
+              width="28"
+              height="28"
+              loading="eager"
+              class={harness.invertDark ? "mark-invert-dark" : undefined}
+            />
+          </span>
+          <span class="harness-name">{harness.name}</span>
+        </div>
+        <p class="harness-desc">{harness.desc}</p>
+      </div>
+    ))
+  }
+</div>

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import app from "./index"
+import { app } from "./index"
 
 describe("server", () => {
   it("GET / responds with the greeting", async () => {

@@ -1,0 +1,84 @@
+/* Maps aide tokens onto Starlight's --sl-* variables per docs/DESIGN.md §10.1.
+   Loaded only on /docs pages via Starlight's customCss option. */
+
+@import "@fontsource-variable/instrument-sans";
+@import "@fontsource-variable/jetbrains-mono";
+@import "./tokens.css";
+
+:root,
+:root[data-theme="light"],
+:root[data-theme="dark"] {
+  /* accent */
+  --sl-color-accent: var(--accent-base);
+  --sl-color-accent-low: var(--accent-subtle);
+  --sl-color-accent-high: var(--accent-hi);
+  --sl-color-text-invert: var(--accent-fg);
+
+  /* surfaces */
+  --sl-color-bg: var(--n0);
+  --sl-color-bg-nav: color-mix(in oklab, var(--n1) 82%, transparent);
+  --sl-color-bg-sidebar: var(--n1);
+  --sl-color-bg-inline-code: var(--n2);
+
+  /* lines — alpha, never a gray step */
+  --sl-color-hairline: var(--line);
+  --sl-color-hairline-shade: var(--line);
+
+  /* Starlight's gray ramp is indexed strong→faint; ours runs dark→light */
+  --sl-color-gray-1: var(--n7);
+  --sl-color-gray-2: var(--n6);
+  --sl-color-gray-3: var(--n5);
+  --sl-color-gray-4: var(--n4);
+  --sl-color-gray-5: var(--n3);
+  --sl-color-gray-6: var(--n2);
+  --sl-color-gray-7: var(--n0);
+
+  /* text — never pure #fff */
+  --sl-color-text: var(--n7);
+  --sl-color-white: var(--n8);
+
+  /* type */
+  --sl-font:
+    "Instrument Sans Variable", ui-sans-serif, system-ui, -apple-system,
+    sans-serif;
+  --sl-font-mono:
+    "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* layout */
+  --sl-content-width: 45rem;
+  --sl-nav-height: 4rem;
+
+  /* §3.2 heading sizes */
+  --sl-text-h1: 40px;
+  --sl-text-h2: 30px;
+  --sl-text-h3: 20px;
+  --sl-text-h4: 16px;
+}
+
+/* §10.1: header at 0.82 alpha with blur */
+.header {
+  background-color: color-mix(in oklab, var(--n1) 82%, transparent);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+/* §3.2 tracking and heading line height */
+main h1 {
+  letter-spacing: -0.038em;
+  line-height: 1.14;
+}
+
+main h2 {
+  letter-spacing: -0.03em;
+  line-height: 1.14;
+}
+
+main h3 {
+  letter-spacing: -0.02em;
+  line-height: 1.14;
+}
+
+::selection {
+  background: var(--accent-subtle);
+  color: var(--n8);
+}
