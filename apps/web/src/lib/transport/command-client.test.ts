@@ -1,11 +1,9 @@
 import { commandFixtures, type CommandReceipt } from "@workspace/contracts"
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
-import {
-  CommandError,
-  createCommandClient,
-  newCommandId,
-} from "./command-client"
+import { createCommandClient, newCommandId } from "./command-client"
+
+afterEach(() => vi.unstubAllGlobals())
 
 const receipt: CommandReceipt = {
   commandId: "cmd_0001",
@@ -72,12 +70,62 @@ describe("createCommandClient", () => {
       commandFixtures()[0]
     )
 
-    await expect(result).rejects.toMatchObject<CommandError>({
+    await expect(result).rejects.toMatchObject({
       status: 400,
       body,
     })
     expect(fetchImpl).toHaveBeenCalledOnce()
     expect(sleepImpl).not.toHaveBeenCalled()
+  })
+
+  it("preserves a non-JSON error response body", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response("upstream unavailable", { status: 400 }))
+
+    await expect(
+      createCommandClient({ fetchImpl }).send(commandFixtures()[0])
+    ).rejects.toMatchObject({
+      status: 400,
+      body: "upstream unavailable",
+    })
+  })
+
+  it("rejects a malformed successful receipt", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response("not JSON"))
+
+    await expect(
+      createCommandClient({ fetchImpl }).send(commandFixtures()[0])
+    ).rejects.toThrow()
+    expect(fetchImpl).toHaveBeenCalledOnce()
+  })
+
+  it("exhausts retries for 5xx responses", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockImplementation(async () => jsonResponse({ error: "busy" }, 503))
+    const sleepImpl = vi.fn(async () => undefined)
+
+    await expect(
+      createCommandClient({ fetchImpl, sleepImpl }).send(commandFixtures()[0])
+    ).rejects.toMatchObject({
+      status: 503,
+      body: { error: "busy" },
+    })
+    expect(fetchImpl).toHaveBeenCalledTimes(3)
+    expect(sleepImpl.mock.calls).toEqual([[100], [200]])
+  })
+})
+
+describe("newCommandId", () => {
+  it("prefixes a random UUID", () => {
+    vi.stubGlobal("crypto", {
+      randomUUID: vi.fn(() => "12345678-1234-1234-1234-123456789abc"),
+    })
+
+    expect(newCommandId()).toBe("cmd_12345678-1234-1234-1234-123456789abc")
   })
 })
 

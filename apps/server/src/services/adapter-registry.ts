@@ -24,6 +24,12 @@ export class AdapterRegistry {
         `Adapter registration for ${entry.handle.instanceId} has inconsistent identity`
       )
     }
+    if (this.#instances.has(entry.handle.instanceId)) {
+      throw new CoreServiceError(
+        "adapter_instance_already_registered",
+        `Adapter instance ${entry.handle.instanceId} is already registered`
+      )
+    }
     this.#instances.set(entry.handle.instanceId, entry)
     const instances =
       this.#drivers.get(entry.handle.driver) ?? new Set<string>()

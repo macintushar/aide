@@ -1,5 +1,5 @@
 import { eventFixtures } from "@workspace/contracts"
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
   subscribeInstancesEvents,
@@ -10,19 +10,33 @@ import {
 class FakeEventSource {
   static instances: FakeEventSource[] = []
 
+  readonly url: string
   readonly close = vi.fn()
+  onopen: ((event: Event) => void) | null = null
+  onerror: ((event: Event) => void) | null = null
   onmessage: ((event: MessageEvent<string>) => void) | null = null
 
-  constructor(readonly url: string) {
+  constructor(url: string) {
+    this.url = url
     FakeEventSource.instances.push(this)
   }
 
   emit(data: string) {
     this.onmessage?.(new MessageEvent("message", { data }))
   }
+
+  open() {
+    this.onopen?.(new Event("open"))
+  }
+
+  fail() {
+    this.onerror?.(new Event("error"))
+  }
 }
 
 const EventSourceImpl = FakeEventSource as EventSourceConstructor
+
+afterEach(() => vi.unstubAllGlobals())
 
 describe("event source subscriptions", () => {
   it("builds the session URL with an encoded id and cursor", () => {
@@ -57,6 +71,39 @@ describe("event source subscriptions", () => {
     expect(onEvent).toHaveBeenCalledWith(valid)
     expect(onInvalidFrame).toHaveBeenCalledOnce()
     expect(onInvalidFrame.mock.calls[0]?.[0]).toBe('{"type":"unknown"}')
+  })
+
+  it("forwards connection open and error events", () => {
+    FakeEventSource.instances = []
+    const onOpen = vi.fn()
+    const onError = vi.fn()
+    subscribeInstancesEvents({
+      EventSourceImpl,
+      onEvent: vi.fn(),
+      onOpen,
+      onError,
+    })
+    const source = FakeEventSource.instances[0]!
+
+    source.open()
+    source.fail()
+
+    expect(onOpen).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "open" })
+    )
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "error" })
+    )
+  })
+
+  it("uses the default EventSource and instances URL", () => {
+    FakeEventSource.instances = []
+    vi.stubGlobal("EventSource", FakeEventSource)
+
+    const subscription = subscribeInstancesEvents({ onEvent: vi.fn() })
+
+    expect(FakeEventSource.instances[0]?.url).toBe("/instances/events")
+    subscription.close()
   })
 
   it("closes the underlying EventSource", () => {

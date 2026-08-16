@@ -100,12 +100,49 @@ describe("createSessionStore", () => {
     expect(store.getState().requests).toEqual([permissionRequestFixture()])
     expect(store.getState().cursor.sequence).toBe(
       Math.max(
-        queued.delivery.sequence,
-        opened.delivery.sequence,
-        completed.delivery.sequence,
-        resolved.delivery.sequence
+        durableSequence(queued),
+        durableSequence(opened),
+        durableSequence(completed),
+        durableSequence(resolved)
       )
     )
+  })
+
+  it("merges message metadata without discarding existing parts", () => {
+    const store = createSessionStore()
+    store.applySnapshot(sessionSnapshotFixture())
+    const event = fixtureEvent("message.upserted")
+    const message = assistantMessageFixture()
+    const parts = store.getState().messages[1]!.parts
+    event.data.message = {
+      ...message,
+      usage: { outputTokens: 99 },
+      completedAt: "2026-01-02T00:00:00.000Z",
+    }
+
+    store.applyEvent(event)
+
+    expect(store.getState().messages[1]).toMatchObject({
+      usage: { outputTokens: 99 },
+      completedAt: "2026-01-02T00:00:00.000Z",
+    })
+    expect(store.getState().messages[1]?.parts).toEqual(parts)
+  })
+
+  it("ignores part changes for an unknown message", () => {
+    const store = createSessionStore()
+    const upserted = fixtureEvent("part.upserted")
+    upserted.data.part = {
+      ...textPartFixture(),
+      messageId: "msg_missing",
+    }
+    const removed = fixtureEvent("part.removed")
+    removed.data = { messageId: "msg_missing", partId: "part_missing" }
+
+    store.applyEvent(upserted)
+    store.applyEvent(removed)
+
+    expect(store.getState().messages).toEqual([])
   })
 
   it("deduplicates event ids, counts deltas without changing parts, and notifies", () => {
@@ -135,8 +172,22 @@ describe("createSessionStore", () => {
     const listener = vi.fn()
     store.subscribe(listener)
     store.applyEvent({ ...event, eventId: "evt_bound_0" })
+    store.applyEvent({ ...event, eventId: "evt_bound_500" })
 
     expect(listener).toHaveBeenCalledOnce()
+  })
+
+  it("notifies snapshot listeners until they unsubscribe", () => {
+    const store = createSessionStore()
+    const listener = vi.fn()
+    const unsubscribe = store.subscribe(listener)
+
+    store.applySnapshot(sessionSnapshotFixture())
+    unsubscribe()
+    store.applyEvent(fixtureEvent("turn.completed"))
+
+    expect(listener).toHaveBeenCalledOnce()
+    expect(listener).toHaveBeenCalledWith(store.getState())
   })
 })
 
@@ -154,4 +205,10 @@ function partEvent(part: Part, eventId: string, sequence: number): AideEvent {
   event.delivery = { durable: true, sequence }
   event.data = { part }
   return event
+}
+
+function durableSequence(event: AideEvent): number {
+  expect(event.delivery.durable).toBe(true)
+  if (!event.delivery.durable) throw new Error("Expected durable event")
+  return event.delivery.sequence
 }
