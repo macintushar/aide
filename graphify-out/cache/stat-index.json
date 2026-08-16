@@ -1,0 +1,335 @@
+{
+  ".oxfmtrc.json": {
+    "size": 397,
+    "mtime_ns": 1786707023131962012,
+    "word_count": 29,
+    "hashes": {
+      ".oxfmtrc.json": "397011a0008081859fae6895398d4d4e09d0d72051b343a56516a805de2ec4bb"
+    }
+  },
+  ".oxlintrc.json": {
+    "size": 502,
+    "mtime_ns": 1786707023132272016,
+    "word_count": 45,
+    "hashes": {
+      ".oxlintrc.json": "8bdabd319e06c54c12605542bbfca3b473fc68192974b0c1368f9fd42d355712"
+    }
+  },
+  "PLAN.md": {
+    "size": 64709,
+    "mtime_ns": 1786707023252926716,
+    "word_count": 9083,
+    "hashes": {
+      "plan.md": "2652fd832bcd562ac25f78d5e914b89e4e2e8e790346c0bf1a097989d1485bb4"
+    }
+  },
+  "README.md": {
+    "size": 158,
+    "mtime_ns": 1786707023133087983,
+    "word_count": 29,
+    "hashes": {
+      "readme.md": "b871de4d6cbbd6dcdf665fa1eb1c177689c840fb3c46200a9f885e7f884b8572"
+    }
+  },
+  "TASKS.md": {
+    "size": 15461,
+    "mtime_ns": 1786741890442420034,
+    "word_count": 2275,
+    "hashes": {
+      "tasks.md": "5c23ae49ae6611b54dc9b4802ca15cc731249ebda88362cc5a48106b9129c47a"
+    }
+  },
+  "apps/server/README.md": {
+    "size": 108,
+    "mtime_ns": 1786707023133708448,
+    "word_count": 16,
+    "hashes": {
+      "apps/server/readme.md": "9a83ed40cc3d76333444db450b87a51ebae6bbeb69d60f980eaf674baf652c47"
+    }
+  },
+  "apps/server/drizzle.config.ts": {
+    "size": 233,
+    "mtime_ns": 1786707023134148452,
+    "word_count": 23
+  },
+  "apps/server/drizzle/0000_mushy_ozymandias.sql": {
+    "size": 107,
+    "mtime_ns": 1786707023134563373,
+    "word_count": 18,
+    "hashes": {
+      "apps/server/drizzle/0000_mushy_ozymandias.sql": "db32951b92d386b9ea821221931a8685c43a8565c591a0ced7d3dde3363007e6"
+    }
+  },
+  "apps/server/drizzle/meta/0000_snapshot.json": {
+    "size": 262,
+    "mtime_ns": 1786707023253144718,
+    "word_count": 25,
+    "hashes": {
+      "apps/server/drizzle/meta/0000_snapshot.json": "1affd57ec868a5fb570c972dee39dad6ccec6c0d88a6ba5173e711130cc77014"
+    }
+  },
+  "apps/server/drizzle/meta/_journal.json": {
+    "size": 206,
+    "mtime_ns": 1786707023253285386,
+    "word_count": 21,
+    "hashes": {
+      "apps/server/drizzle/meta/_journal.json": "29ad50a56a01469d0101c9541fbcaa940f704d2a94caa7c6965d4a570fd5dd94"
+    }
+  },
+  "apps/server/package.json": {
+    "size": 641,
+    "mtime_ns": 1786707459156053098,
+    "word_count": 65,
+    "hashes": {
+      "apps/server/package.json": "05d02e369cb25b19c8a32b4120251fa17ad2c3f113b3d60cdf599a9a17cc385e"
+    }
+  },
+  "apps/server/src/db/index.ts": {
+    "size": 277,
+    "mtime_ns": 1786707023135548050,
+    "word_count": 38
+  },
+  "apps/server/src/db/schema.ts": {
+    "size": 11,
+    "mtime_ns": 1786707023253447346,
+    "word_count": 3
+  },
+  "apps/server/src/index.test.ts": {
+    "size": 286,
+    "mtime_ns": 1786707443974688460,
+    "word_count": 37
+  },
+  "apps/server/src/index.ts": {
+    "size": 129,
+    "mtime_ns": 1786707023136303934,
+    "word_count": 22
+  },
+  "apps/server/tsconfig.json": {
+    "size": 131,
+    "mtime_ns": 1786707023136690563,
+    "word_count": 13,
+    "hashes": {
+      "apps/server/tsconfig.json": "9f7ff1dccbb377a1f951cb0c47ecd567fbfc1f0809f08567263a827d978efc8d"
+    }
+  },
+  "apps/web/components.json": {
+    "size": 540,
+    "mtime_ns": 1786707023137794241,
+    "word_count": 42,
+    "hashes": {
+      "apps/web/components.json": "79414b9c97707f7ea5244608002ca9eb9b251486a91bc634d9ce9ed9513e608e"
+    }
+  },
+  "apps/web/index.html": {
+    "size": 362,
+    "mtime_ns": 1786707023138239579,
+    "word_count": 28,
+    "hashes": {
+      "apps/web/index.html": "00c916cc0573e3e7bfc64e14d7cef819a5af6735699c0e6f5e2dd71dd6fe0baa"
+    }
+  },
+  "apps/web/package.json": {
+    "size": 974,
+    "mtime_ns": 1786707454528526070,
+    "word_count": 84,
+    "hashes": {
+      "apps/web/package.json": "1061597a30a55b25d217af547988fb59945eac778d3de86ac40fc29049dca143"
+    }
+  },
+  "apps/web/src/App.test.tsx": {
+    "size": 425,
+    "mtime_ns": 1786707433328835558,
+    "word_count": 52
+  },
+  "apps/web/src/App.tsx": {
+    "size": 653,
+    "mtime_ns": 1786707023139317341,
+    "word_count": 62
+  },
+  "apps/web/src/components/theme-provider.test.tsx": {
+    "size": 1789,
+    "mtime_ns": 1786707442138786211,
+    "word_count": 138
+  },
+  "apps/web/src/components/theme-provider.tsx": {
+    "size": 4998,
+    "mtime_ns": 1786707023139990931,
+    "word_count": 468
+  },
+  "apps/web/src/main.tsx": {
+    "size": 355,
+    "mtime_ns": 1786707023140242517,
+    "word_count": 34
+  },
+  "apps/web/src/test/setup.ts": {
+    "size": 646,
+    "mtime_ns": 1786708823115942286,
+    "word_count": 81
+  },
+  "apps/web/tsconfig.app.json": {
+    "size": 738,
+    "mtime_ns": 1786707023140625271,
+    "word_count": 56,
+    "hashes": {
+      "apps/web/tsconfig.app.json": "6937f84506d28e78b04a20fd28d36d47cd30f1bb2b97a54ed882e06a833a08b1"
+    }
+  },
+  "apps/web/tsconfig.json": {
+    "size": 247,
+    "mtime_ns": 1786707023140821398,
+    "word_count": 25,
+    "hashes": {
+      "apps/web/tsconfig.json": "1b700556131b31765785e0906c95b355a75b73002a05deda035fbc1cbd33e25c"
+    }
+  },
+  "apps/web/tsconfig.node.json": {
+    "size": 591,
+    "mtime_ns": 1786707023141035609,
+    "word_count": 44,
+    "hashes": {
+      "apps/web/tsconfig.node.json": "fec9e44a18d18d2a87eced9ba4d281f315ccad7a9ec1c0aa71551c931ef871c2"
+    }
+  },
+  "apps/web/vite.config.ts": {
+    "size": 428,
+    "mtime_ns": 1786708829112938674,
+    "word_count": 43
+  },
+  "package.json": {
+    "size": 645,
+    "mtime_ns": 1786707452018113921,
+    "word_count": 65,
+    "hashes": {
+      "package.json": "a5a0d69f7a31b5096da7bd8373a893af5332e91bb7db81001299835834a6f36d"
+    }
+  },
+  "packages/contracts/package.json": {
+    "size": 489,
+    "mtime_ns": 1786873675693288655,
+    "word_count": 50,
+    "hashes": {
+      "packages/contracts/package.json": "26f96c9e5c46b884ff4f6c8af4178eeaff1a29dbcc1969e24feafef99ffb3888"
+    }
+  },
+  "packages/contracts/src/config.ts": {
+    "size": 2867,
+    "mtime_ns": 1786873720646097381,
+    "word_count": 223
+  },
+  "packages/contracts/src/domain.ts": {
+    "size": 8046,
+    "mtime_ns": 1786873933642236846,
+    "word_count": 643
+  },
+  "packages/contracts/src/inventory.ts": {
+    "size": 2411,
+    "mtime_ns": 1786873932607752735,
+    "word_count": 180
+  },
+  "packages/contracts/src/primitives.ts": {
+    "size": 1113,
+    "mtime_ns": 1786873675693294322,
+    "word_count": 102
+  },
+  "packages/contracts/tsconfig.json": {
+    "size": 521,
+    "mtime_ns": 1786873942802869284,
+    "word_count": 39,
+    "hashes": {
+      "packages/contracts/tsconfig.json": "ff0f57019d657657035c48adf35bda0cad888d14867fe141ea467ffee031467b"
+    }
+  },
+  "packages/contracts/vitest.config.ts": {
+    "size": 119,
+    "mtime_ns": 1786873675693289280,
+    "word_count": 15
+  },
+  "packages/ui/components.json": {
+    "size": 558,
+    "mtime_ns": 1786707023142203830,
+    "word_count": 42,
+    "hashes": {
+      "packages/ui/components.json": "d786c70dc81619f3ab33b78f278020c07ca2d0ac9f7c8959712c8764977672a2"
+    }
+  },
+  "packages/ui/package.json": {
+    "size": 1392,
+    "mtime_ns": 1786707456840109335,
+    "word_count": 102,
+    "hashes": {
+      "packages/ui/package.json": "3abba56d653e01c76f1ba3cb839a6cca934a5696434d4bf2b7451e10dfdd07f8"
+    }
+  },
+  "packages/ui/src/components/button.test.tsx": {
+    "size": 1444,
+    "mtime_ns": 1786707429578077968,
+    "word_count": 147
+  },
+  "packages/ui/src/components/button.tsx": {
+    "size": 2853,
+    "mtime_ns": 1786707023142983921,
+    "word_count": 181
+  },
+  "packages/ui/src/lib/utils.ts": {
+    "size": 166,
+    "mtime_ns": 1786707023143771555,
+    "word_count": 22
+  },
+  "packages/ui/src/test/setup.ts": {
+    "size": 248,
+    "mtime_ns": 1786708825671896948,
+    "word_count": 33
+  },
+  "packages/ui/tsconfig.json": {
+    "size": 367,
+    "mtime_ns": 1786707023145293904,
+    "word_count": 33,
+    "hashes": {
+      "packages/ui/tsconfig.json": "ef575cb4c42bb33313fe9fb0db51f9df7da7d0e944b9255c3427264fe157450c"
+    }
+  },
+  "packages/ui/tsconfig.lint.json": {
+    "size": 321,
+    "mtime_ns": 1786707023145536448,
+    "word_count": 29,
+    "hashes": {
+      "packages/ui/tsconfig.lint.json": "995d9beee093ba28c69bf912fd4b78ef99f31d8ee0881dff2bb4172f59a19867"
+    }
+  },
+  "packages/ui/vitest.config.ts": {
+    "size": 353,
+    "mtime_ns": 1786708827910901533,
+    "word_count": 36
+  },
+  "tsconfig.json": {
+    "size": 159,
+    "mtime_ns": 1786707023145940994,
+    "word_count": 15,
+    "hashes": {
+      "tsconfig.json": "bdc633cfe7a41d59dfbe90a808692b371f4b2cf769fdf8bb1d35e8d60c75402f"
+    }
+  },
+  "turbo.json": {
+    "size": 660,
+    "mtime_ns": 1786707461388293812,
+    "word_count": 60,
+    "hashes": {
+      "turbo.json": "f58bc197d20f62d69e8d8395f35cf8749d8900364c22058a851467761f1dfd8a"
+    }
+  },
+  "packages/contracts/src/commands.ts": {
+    "size": 5047,
+    "mtime_ns": 1786873974810848599,
+    "word_count": 349
+  },
+  "packages/contracts/src/events.ts": {
+    "size": 8279,
+    "mtime_ns": 1786873974810655222,
+    "word_count": 626
+  },
+  "packages/contracts/src/snapshots.ts": {
+    "size": 2147,
+    "mtime_ns": 1786873974810841515,
+    "word_count": 168
+  }
+}

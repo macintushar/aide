@@ -22,8 +22,6 @@ dist-ssr
 .vscode/*
 !.vscode/extensions.json
 .idea
-.cursor
-.opencode
 .DS_Store
 *.suo
 *.ntvs*
@@ -39,6 +37,3 @@ dist-ssr
 *.sqlite-wal
 *.sqlite-shm
 *.sqlite-journal
-
-# graphify
-graphify-out
