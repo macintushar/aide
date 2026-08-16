@@ -10,6 +10,7 @@
     "lint": "oxlint .",
     "lint:fix": "oxlint --fix .",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
     "format": "oxfmt",
     "format:check": "oxfmt --check",
@@ -19,6 +20,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@vitest/coverage-istanbul": "^4.1.10",
     "typescript": "~6",
     "vitest": "^4.1.10"
   }

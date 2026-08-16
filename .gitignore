@@ -37,3 +37,6 @@ dist-ssr
 *.sqlite-wal
 *.sqlite-shm
 *.sqlite-journal
+
+# coverage
+coverage

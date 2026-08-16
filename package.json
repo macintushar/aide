@@ -13,6 +13,7 @@
     "lint:check": "oxlint .",
     "lint:fix": "oxlint --fix .",
     "test": "turbo test",
+    "test:coverage": "turbo test:coverage",
     "format": "oxfmt",
     "format:check": "oxfmt --check",
     "typecheck": "turbo typecheck"
