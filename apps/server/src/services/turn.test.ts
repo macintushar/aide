@@ -71,22 +71,30 @@ function commandContext() {
 }
 
 function eventStream() {
-  const queued: AideEvent[] = []
-  const waiting: Array<(event: AideEvent) => void> = []
+  type StreamItem = { event: AideEvent } | { error: unknown }
+  const queued: StreamItem[] = []
+  const waiting: Array<(item: StreamItem) => void> = []
   return {
     emit(event: AideEvent) {
       const resolve = waiting.shift()
-      if (resolve) resolve(event)
-      else queued.push(event)
+      const item = { event }
+      if (resolve) resolve(item)
+      else queued.push(item)
+    },
+    fail(error: unknown) {
+      const resolve = waiting.shift()
+      const item = { error }
+      if (resolve) resolve(item)
+      else queued.push(item)
     },
     iterable: {
       async *[Symbol.asyncIterator]() {
         for (;;) {
-          const event = queued.shift()
-          yield (
-            event ??
-              (await new Promise<AideEvent>((resolve) => waiting.push(resolve)))
-          )
+          const item =
+            queued.shift() ??
+            (await new Promise<StreamItem>((resolve) => waiting.push(resolve)))
+          if ("error" in item) throw item.error
+          yield item.event
         }
       },
     },
@@ -427,6 +435,52 @@ describe("TurnService", () => {
     await waitFor(() => (send.mock.calls.length === 2 ? true : undefined))
     expect(turnsRepo.get(subject.db, first.turn.id)?.status).toBe("interrupted")
     expect(subject.services.turns.hasActiveStream(first.turn.id)).toBe(false)
+    expect(turnsRepo.get(subject.db, second.turn.id)?.status).toBe("running")
+  })
+
+  it("keeps an ambiguous turn locked when its event stream fails", async () => {
+    const subject = await boot({ controlled: true })
+    const send = vi
+      .fn()
+      .mockRejectedValueOnce({
+        aideError: {
+          code: "execution_outcome_unknown",
+          message: "send may have taken effect",
+          retryable: false,
+        },
+      })
+      .mockResolvedValue(undefined)
+    subject.adapter.send = send
+    subject.adapter.interrupt = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("automatic cancellation failed"))
+      .mockResolvedValue(undefined)
+
+    const first = await submit(subject, "stream-failure-first")
+    await waitFor(() =>
+      vi.mocked(subject.adapter.interrupt).mock.calls.length === 1
+        ? true
+        : undefined
+    )
+    const second = await submit(subject, "stream-failure-second")
+
+    subject.stream.fail(new Error("adapter event stream disconnected"))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(turnsRepo.get(subject.db, first.turn.id)?.status).toBe("running")
+    expect(subject.services.turns.hasActiveStream(first.turn.id)).toBe(true)
+    expect(turnsRepo.get(subject.db, second.turn.id)?.status).toBe("queued")
+    expect(send).toHaveBeenCalledTimes(1)
+
+    await subject.dispatcher.dispatch({
+      commandId: "stream-failure-interrupt",
+      name: "turn.interrupt",
+      sessionId: subject.session.id,
+      turnId: first.turn.id,
+    })
+
+    await waitFor(() => (send.mock.calls.length === 2 ? true : undefined))
+    expect(turnsRepo.get(subject.db, first.turn.id)?.status).toBe("interrupted")
     expect(turnsRepo.get(subject.db, second.turn.id)?.status).toBe("running")
   })
 

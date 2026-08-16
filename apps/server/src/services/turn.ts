@@ -52,7 +52,7 @@ type ActiveTurn = {
   instanceId: string
   native: NativeSession
   stop: AbortController
-  phase: "starting" | "dispatching" | "cancellation_failed"
+  phase: "starting" | "dispatching" | "cancelling" | "cancellation_failed"
 }
 
 function errorOf(error: unknown, instanceId?: string): AideError {
@@ -522,6 +522,7 @@ export class TurnService {
         )
         const active = this.#active.get(turn.sessionId)
         if (active?.turnId !== turn.id) return
+        active.phase = "cancelling"
         try {
           await entry.adapter.interrupt({
             handle: entry.handle,
@@ -560,6 +561,14 @@ export class TurnService {
     } catch (error) {
       const current = turnsRepo.get(this.#db, turn.id)
       if (current?.status === "running") {
+        const active = this.#active.get(turn.sessionId)
+        if (
+          active?.turnId === turn.id &&
+          (active.phase === "cancelling" ||
+            active.phase === "cancellation_failed")
+        ) {
+          return
+        }
         this.#failPersistedTurn(
           current,
           errorOf(error, turn.execution.selection.instanceId)
