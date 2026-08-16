@@ -14,6 +14,17 @@ import { receiptsRepo } from "../db"
 type MaybePromise<T> = T | Promise<T>
 type CommandFor<Name extends CommandName> = Extract<Command, { name: Name }>
 
+const safeErrorNames = new Set([
+  "AggregateError",
+  "Error",
+  "EvalError",
+  "RangeError",
+  "ReferenceError",
+  "SyntaxError",
+  "TypeError",
+  "URIError",
+])
+
 export type LocalCommandHandler<Name extends CommandName = CommandName> = {
   kind: "local"
   handle(command: CommandFor<Name>): MaybePromise<unknown>
@@ -91,14 +102,25 @@ export function normalizeCommandError(
   const parsed = aideErrorSchema.safeParse(error)
   if (parsed.success) return parsed.data
 
-  const message = error instanceof Error ? error.message : String(error)
+  const code = options.code ?? "command_handler_failed"
+  const message =
+    code === "execution_outcome_unknown"
+      ? "Command execution outcome is unknown"
+      : "Command handler failed"
   const detail =
     error instanceof Error
-      ? { name: error.name, ...(error.stack ? { stack: error.stack } : {}) }
-      : { value: error }
+      ? { name: safeErrorNames.has(error.name) ? error.name : "Error" }
+      : {
+          type:
+            error === null
+              ? "null"
+              : Array.isArray(error)
+                ? "array"
+                : typeof error,
+        }
 
   return {
-    code: options.code ?? "command_handler_failed",
+    code,
     message,
     retryable: options.retryable,
     detail,

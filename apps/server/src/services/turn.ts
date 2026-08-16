@@ -52,6 +52,7 @@ type ActiveTurn = {
   instanceId: string
   native: NativeSession
   stop: AbortController
+  phase: "starting" | "dispatching"
 }
 
 function errorOf(error: unknown, instanceId?: string): AideError {
@@ -228,12 +229,22 @@ export class TurnService {
     if (turn.status === "running") {
       const active = this.#active.get(sessionId)
       if (active?.turnId === turnId) {
-        const entry = this.#registry.get(active.instanceId)
-        await entry.adapter.interrupt({
-          handle: entry.handle,
-          nativeSession: active.native,
-          turnId,
-        })
+        if (active.phase === "starting") {
+          await this.#finishLocally(turn, "interrupted")
+          this.#clearActive(sessionId, turnId)
+        } else {
+          const entry = this.#registry.get(active.instanceId)
+          await entry.adapter.interrupt({
+            handle: entry.handle,
+            nativeSession: active.native,
+            turnId,
+          })
+        }
+      } else {
+        throw new CoreServiceError(
+          "turn_not_active",
+          `Turn ${turn.id} has no active adapter stream`
+        )
       }
     } else {
       await this.#finishLocally(turn, "interrupted")
@@ -335,12 +346,13 @@ export class TurnService {
   }
 
   async #pump(sessionId: string): Promise<void> {
-    if (this.#active.has(sessionId)) return
-    const turn = turnsRepo
-      .listOpenBySession(this.#db, sessionId)
-      .find((candidate) => candidate.status === "queued")
-    if (!turn) return
-    await this.#start(turn)
+    while (!this.#active.has(sessionId)) {
+      const turn = turnsRepo
+        .listOpenBySession(this.#db, sessionId)
+        .find((candidate) => candidate.status === "queued")
+      if (!turn) return
+      await this.#start(turn)
+    }
   }
 
   async #start(turn: Turn): Promise<void> {
@@ -394,6 +406,16 @@ export class TurnService {
         unsafe: false,
       })
 
+      const stop = new AbortController()
+      const active: ActiveTurn = {
+        turnId: turn.id,
+        instanceId: entry.handle.instanceId,
+        native,
+        stop,
+        phase: "starting",
+      }
+      this.#active.set(session.id, active)
+
       const assistantId = `${turn.id}-assistant`
       const now = this.#now()
       let startedEvent: DurableEvent | undefined
@@ -421,18 +443,17 @@ export class TurnService {
       })
       this.#events.broadcastDurable(startedEvent!)
 
-      const stop = new AbortController()
-      this.#active.set(session.id, {
-        turnId: turn.id,
-        instanceId: entry.handle.instanceId,
-        native,
-        stop,
-      })
+      if (turnsRepo.get(this.#db, turn.id)?.status !== "running") {
+        this.#clearActive(session.id, turn.id)
+        return
+      }
+
       const stream = entry.adapter.events({
         handle: entry.handle,
         nativeSession: native,
       })
       void this.#consume(running, project.id, stream, stop.signal)
+      active.phase = "dispatching"
       await entry.adapter.send({
         handle: entry.handle,
         nativeSession: native,
@@ -452,6 +473,27 @@ export class TurnService {
       const normalized = errorOf(error, entry.handle.instanceId)
       if (normalized.code === "execution_outcome_unknown") {
         pending?.context.markUncertain(normalized)
+        nativeMappingsRepo.markUnsafe(
+          this.#db,
+          turn.sessionId,
+          entry.handle.instanceId
+        )
+        const active = this.#active.get(turn.sessionId)
+        if (active?.turnId !== turn.id) return
+        try {
+          await entry.adapter.interrupt({
+            handle: entry.handle,
+            nativeSession: active.native,
+            turnId: turn.id,
+          })
+        } catch {
+          return
+        }
+        const current = turnsRepo.get(this.#db, turn.id)
+        if (current?.status === "running") {
+          this.#failPersistedTurn(current, normalized)
+          this.#clearActive(turn.sessionId, turn.id)
+        }
         return
       }
       if (pending) pending.context.markUncertain(normalized)

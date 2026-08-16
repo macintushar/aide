@@ -12,6 +12,7 @@ import type { ExternalCommandContext } from "../commands"
 import {
   createDb,
   messagesRepo,
+  nativeMappingsRepo,
   partsRepo,
   projectsRepo,
   receiptsRepo,
@@ -259,7 +260,7 @@ describe("TurnService", () => {
     expect(subject.services.turns.hasActiveStream(turn.id)).toBe(false)
   })
 
-  it("keeps an ambiguous dispatch active for reconciliation", async () => {
+  it("cancels an ambiguous dispatch before releasing its queued successor", async () => {
     const subject = await boot()
     subject.control.setNextDispatchOutcome("ambiguous-after-effect")
     const { turn, context } = await submit(subject)
@@ -270,9 +271,92 @@ describe("TurnService", () => {
     expect(context.markUncertain).toHaveBeenCalledWith(
       expect.objectContaining({ code: "execution_outcome_unknown" })
     )
-    expect(turnsRepo.get(subject.db, turn.id)?.status).toBe("running")
-    expect(subject.services.turns.hasActiveStream(turn.id)).toBe(true)
+    await waitFor(() => {
+      const status = turnsRepo.get(subject.db, turn.id)?.status
+      return status && status !== "running" ? status : undefined
+    })
+    expect(subject.services.turns.hasActiveStream(turn.id)).toBe(false)
     expect(subject.control.effectCount(turn.userMessageId)).toBe(1)
+    expect(
+      nativeMappingsRepo.get(subject.db, subject.session.id, "fake-primary")
+        ?.unsafe
+    ).toBe(true)
+  })
+
+  it("does not release an ambiguous dispatch until adapter cancellation succeeds", async () => {
+    const subject = await boot({ controlled: true })
+    let confirmCancellation!: () => void
+    const cancellation = new Promise<void>((resolve) => {
+      confirmCancellation = resolve
+    })
+    const send = vi
+      .fn()
+      .mockRejectedValueOnce({
+        aideError: {
+          code: "execution_outcome_unknown",
+          message: "send may have taken effect",
+          retryable: false,
+        },
+      })
+      .mockResolvedValue(undefined)
+    subject.adapter.send = send
+    subject.adapter.interrupt = vi.fn(() => cancellation)
+
+    const first = await submit(subject, "first")
+    await waitFor(() =>
+      vi.mocked(subject.adapter.interrupt).mock.calls.length > 0
+        ? true
+        : undefined
+    )
+    const second = await submit(subject, "second")
+
+    expect(send).toHaveBeenCalledTimes(1)
+    expect(turnsRepo.get(subject.db, first.turn.id)?.status).toBe("running")
+    expect(turnsRepo.get(subject.db, second.turn.id)?.status).toBe("queued")
+
+    confirmCancellation()
+    await waitFor(() => (send.mock.calls.length === 2 ? true : undefined))
+    expect(turnsRepo.get(subject.db, first.turn.id)).toMatchObject({
+      status: "failed",
+      error: { code: "execution_outcome_unknown" },
+    })
+    expect(turnsRepo.get(subject.db, second.turn.id)?.status).toBe("running")
+  })
+
+  it("interrupts a turn persisted as running before adapter send", async () => {
+    const subject = await boot({ controlled: true })
+    const send = vi.mocked(subject.adapter.send)
+    const interrupt = vi.spyOn(subject.adapter, "interrupt")
+    const interruptContext = commandContext()
+    let interruption: Promise<Turn> | undefined
+    const broadcast = subject.eventService.broadcastDurable.bind(
+      subject.eventService
+    )
+    vi.spyOn(subject.eventService, "broadcastDurable").mockImplementation(
+      (event) => {
+        broadcast(event)
+        if (event.type === "turn.started") {
+          interruption = subject.services.turns.interrupt(
+            subject.session.id,
+            event.data.turn.id,
+            interruptContext
+          )
+        }
+      }
+    )
+
+    const { turn } = await submit(subject)
+    await waitFor(() => interruption)
+    await interruption
+
+    expect(turnsRepo.get(subject.db, turn.id)?.status).toBe("interrupted")
+    expect(send).not.toHaveBeenCalled()
+    expect(interrupt).not.toHaveBeenCalled()
+    expect(subject.services.turns.hasActiveStream(turn.id)).toBe(false)
+    expect(interruptContext.complete).toHaveBeenCalledWith({
+      turnId: turn.id,
+      status: "interrupted",
+    })
   })
 
   it("interrupts queued turns locally and reports unknown and terminal turns", async () => {

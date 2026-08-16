@@ -123,10 +123,108 @@ describe("command dispatcher", () => {
     expect(receipt.state).toBe("failed")
     expect(receipt.error).toMatchObject({
       code: "command_handler_failed",
-      message: "known failure",
+      message: "Command handler failed",
       retryable: true,
       detail: { name: "Error" },
     })
+  })
+
+  it("redacts generic errors from returned and persisted receipts", async () => {
+    const secret = "/Users/operator/aide/src/private-handler.ts"
+    const subject = dispatcher({
+      "session.delete": {
+        kind: "local",
+        handle: () => {
+          const error = new TypeError(`Failed while reading ${secret}`)
+          error.stack = `TypeError: Failed while reading ${secret}\n    at ${secret}:1:1`
+          throw error
+        },
+      },
+    })
+
+    const receipt = await subject.dispatch(command)
+    const persisted = receiptsRepo.get(db, command.commandId)
+
+    expect(receipt.error).toEqual({
+      code: "command_handler_failed",
+      message: "Command handler failed",
+      retryable: true,
+      detail: { name: "TypeError" },
+    })
+    expect(persisted).toEqual(receipt)
+    expect(JSON.stringify(receipt)).not.toContain(secret)
+    expect(JSON.stringify(persisted)).not.toContain(secret)
+  })
+
+  it("does not persist arbitrary non-Error thrown values", async () => {
+    const secret = "/private/config/credentials.json"
+    const subject = dispatcher({
+      "session.delete": {
+        kind: "local",
+        handle: () => {
+          throw { secret, credentials: { token: "do-not-persist" } }
+        },
+      },
+    })
+
+    const receipt = await subject.dispatch(command)
+
+    expect(receipt.error).toEqual({
+      code: "command_handler_failed",
+      message: "Command handler failed",
+      retryable: true,
+      detail: { type: "object" },
+    })
+    expect(receiptsRepo.get(db, command.commandId)).toEqual(receipt)
+    expect(JSON.stringify(receipt)).not.toContain(secret)
+    expect(JSON.stringify(receipt)).not.toContain("do-not-persist")
+  })
+
+  it("does not trust arbitrary Error names as safe identity", async () => {
+    const secret = "/private/error/name"
+    const subject = dispatcher({
+      "session.delete": {
+        kind: "local",
+        handle: () => {
+          const error = new Error("failure")
+          error.name = secret
+          throw error
+        },
+      },
+    })
+
+    const receipt = await subject.dispatch(command)
+
+    expect(receipt.error?.detail).toEqual({ name: "Error" })
+    expect(JSON.stringify(receipt)).not.toContain(secret)
+    expect(
+      JSON.stringify(receiptsRepo.get(db, command.commandId))
+    ).not.toContain(secret)
+  })
+
+  it("preserves structured domain error details", async () => {
+    const domainError = {
+      code: "session_not_found",
+      message: "Session session-1 was not found",
+      instanceId: "session-1",
+      retryable: false,
+      detail: { resource: "session", requestedId: "session-1" },
+    }
+    const subject = dispatcher({
+      "session.delete": {
+        kind: "local",
+        handle: () => {
+          throw Object.assign(new Error("internal wrapper"), {
+            aideError: domainError,
+          })
+        },
+      },
+    })
+
+    const receipt = await subject.dispatch(command)
+
+    expect(receipt.error).toEqual(domainError)
+    expect(receiptsRepo.get(db, command.commandId)?.error).toEqual(domainError)
   })
 
   it("records a throw after dispatch starts as uncertain", async () => {
@@ -145,7 +243,7 @@ describe("command dispatcher", () => {
     expect(receipt.state).toBe("uncertain")
     expect(receipt.error).toMatchObject({
       code: "execution_outcome_unknown",
-      message: "connection dropped",
+      message: "Command execution outcome is unknown",
       retryable: false,
     })
   })
@@ -166,7 +264,7 @@ describe("command dispatcher", () => {
 
     expect(receipt.state).toBe("failed")
     expect(receipt.error).toMatchObject({
-      message: "terminal failure",
+      message: "Command handler failed",
       retryable: false,
     })
   })
@@ -187,7 +285,7 @@ describe("command dispatcher", () => {
     const receipt = await subject.dispatch(command)
 
     expect(receipt.state).toBe("uncertain")
-    expect(receipt.error?.message).toBe("ambiguous terminal event")
+    expect(receipt.error?.message).toBe("Command execution outcome is unknown")
   })
 
   it("rejects illegal receipt transitions", () => {
