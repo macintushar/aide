@@ -52,7 +52,7 @@ type ActiveTurn = {
   instanceId: string
   native: NativeSession
   stop: AbortController
-  phase: "starting" | "dispatching"
+  phase: "starting" | "dispatching" | "cancellation_failed"
 }
 
 function errorOf(error: unknown, instanceId?: string): AideError {
@@ -226,19 +226,38 @@ export class TurnService {
     }
 
     context.markDispatching(turn.commandId)
+    let result = turn
     if (turn.status === "running") {
       const active = this.#active.get(sessionId)
       if (active?.turnId === turnId) {
         if (active.phase === "starting") {
-          await this.#finishLocally(turn, "interrupted")
+          result = await this.#finishLocally(turn, "interrupted")
           this.#clearActive(sessionId, turnId)
         } else {
           const entry = this.#registry.get(active.instanceId)
-          await entry.adapter.interrupt({
-            handle: entry.handle,
-            nativeSession: active.native,
-            turnId,
-          })
+          try {
+            await entry.adapter.interrupt({
+              handle: entry.handle,
+              nativeSession: active.native,
+              turnId,
+            })
+          } catch (error) {
+            active.phase = "cancellation_failed"
+            const failure = new CoreServiceError(
+              "turn_cancellation_failed",
+              `Cancellation of turn ${turn.id} was not acknowledged`,
+              true,
+              errorOf(error, active.instanceId)
+            )
+            context.markUncertain(failure)
+            throw failure
+          }
+          const current = turnsRepo.get(this.#db, turnId)
+          result =
+            current?.status === "running"
+              ? await this.#finishLocally(current, "interrupted")
+              : current!
+          this.#clearActive(sessionId, turnId)
         }
       } else {
         throw new CoreServiceError(
@@ -247,11 +266,11 @@ export class TurnService {
         )
       }
     } else {
-      await this.#finishLocally(turn, "interrupted")
+      result = await this.#finishLocally(turn, "interrupted")
     }
     context.markDispatched({ turnId })
-    context.complete({ turnId, status: "interrupted" })
-    return turnsRepo.get(this.#db, turnId)!
+    context.complete({ turnId, status: result.status })
+    return result
   }
 
   async respondToPermission(
@@ -380,7 +399,9 @@ export class TurnService {
             nativeSessionId: mapping.nativeSessionId,
             resumeCursor: mapping.resumeCursor,
           })
+          if (this.#stopTerminalStart(turn)) return
         } catch {
+          if (this.#stopTerminalStart(turn)) return
           mapping = undefined
           native = await entry.adapter.openSession({
             handle: entry.handle,
@@ -388,6 +409,7 @@ export class TurnService {
             projectDirectory: project.directory,
             execution: turn.execution,
           })
+          if (this.#stopTerminalStart(turn)) return
         }
       } else {
         native = await entry.adapter.openSession({
@@ -396,7 +418,9 @@ export class TurnService {
           projectDirectory: project.directory,
           execution: turn.execution,
         })
+        if (this.#stopTerminalStart(turn)) return
       }
+      if (this.#stopTerminalStart(turn)) return
       nativeMappingsRepo.upsert(this.#db, {
         sessionId: session.id,
         instanceId: entry.handle.instanceId,
@@ -406,6 +430,7 @@ export class TurnService {
         unsafe: false,
       })
 
+      if (this.#stopTerminalStart(turn)) return
       const stop = new AbortController()
       const active: ActiveTurn = {
         turnId: turn.id,
@@ -416,10 +441,15 @@ export class TurnService {
       }
       this.#active.set(session.id, active)
 
+      if (this.#stopTerminalStart(turn)) {
+        this.#clearActive(session.id, turn.id)
+        return
+      }
       const assistantId = `${turn.id}-assistant`
       const now = this.#now()
       let startedEvent: DurableEvent | undefined
       const running = withTransaction(this.#db, (tx) => {
+        if (turnsRepo.get(tx, turn.id)?.status !== "queued") return undefined
         if (!messagesRepo.get(tx, assistantId)) {
           messagesRepo.createAssistant(tx, {
             id: assistantId,
@@ -441,6 +471,10 @@ export class TurnService {
         )
         return value
       })
+      if (!running) {
+        this.#clearActive(session.id, turn.id)
+        return
+      }
       this.#events.broadcastDurable(startedEvent!)
 
       if (turnsRepo.get(this.#db, turn.id)?.status !== "running") {
@@ -470,6 +504,14 @@ export class TurnService {
         nativeSessionId: native.nativeSessionId,
       })
     } catch (error) {
+      const current = turnsRepo.get(this.#db, turn.id)
+      if (
+        !current ||
+        ["completed", "interrupted", "failed"].includes(current.status)
+      ) {
+        this.#clearActive(turn.sessionId, turn.id)
+        return
+      }
       const normalized = errorOf(error, entry.handle.instanceId)
       if (normalized.code === "execution_outcome_unknown") {
         pending?.context.markUncertain(normalized)
@@ -487,6 +529,7 @@ export class TurnService {
             turnId: turn.id,
           })
         } catch {
+          active.phase = "cancellation_failed"
           return
         }
         const current = turnsRepo.get(this.#db, turn.id)
@@ -673,15 +716,31 @@ export class TurnService {
     const endedAt = this.#now()
     let persisted: DurableEvent | undefined
     const updated = withTransaction(this.#db, (tx) => {
+      const current = turnsRepo.get(tx, turn.id)!
+      if (["completed", "interrupted", "failed"].includes(current.status)) {
+        return current
+      }
       const value = turnsRepo.update(tx, turn.id, { status, endedAt })!
+      receiptsRepo.updateState(tx, turn.commandId, "completed", {
+        updatedAt: endedAt,
+        result: { turnId: turn.id, status },
+        error: null,
+      })
       persisted = this.#events.persistDurable(
         tx,
         this.#localEvent(project.id, value, "turn.interrupted")
       )
       return value
     })
-    this.#events.broadcastDurable(persisted!)
+    if (persisted) this.#events.broadcastDurable(persisted)
+    this.#pending.delete(turn.id)
     return updated
+  }
+
+  #stopTerminalStart(turn: Turn): boolean {
+    if (turnsRepo.get(this.#db, turn.id)?.status === "queued") return false
+    this.#pending.delete(turn.id)
+    return true
   }
 
   #failPersistedTurn(turn: Turn, error: AideError): Turn {

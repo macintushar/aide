@@ -323,6 +323,215 @@ describe("TurnService", () => {
     expect(turnsRepo.get(subject.db, second.turn.id)?.status).toBe("running")
   })
 
+  it("keeps an ambiguously running turn locked until an explicit cancellation retry succeeds", async () => {
+    const subject = await boot({ controlled: true })
+    const send = vi
+      .fn()
+      .mockRejectedValueOnce({
+        aideError: {
+          code: "execution_outcome_unknown",
+          message: "send may have taken effect",
+          retryable: false,
+        },
+      })
+      .mockResolvedValue(undefined)
+    subject.adapter.send = send
+    subject.adapter.interrupt = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("internal cancellation failed"))
+      .mockRejectedValueOnce(new Error("explicit cancellation failed"))
+      .mockResolvedValue(undefined)
+
+    const first = await submit(subject, "ambiguous-first")
+    await waitFor(() =>
+      vi.mocked(subject.adapter.interrupt).mock.calls.length === 1
+        ? true
+        : undefined
+    )
+    const second = await submit(subject, "queued-second")
+
+    const failedRetry = await subject.dispatcher.dispatch({
+      commandId: "interrupt-failed",
+      name: "turn.interrupt",
+      sessionId: subject.session.id,
+      turnId: first.turn.id,
+    })
+    expect(failedRetry).toMatchObject({
+      state: "uncertain",
+      error: {
+        code: "turn_cancellation_failed",
+        retryable: true,
+      },
+    })
+    expect(subject.services.turns.hasActiveStream(first.turn.id)).toBe(true)
+    expect(turnsRepo.get(subject.db, second.turn.id)?.status).toBe("queued")
+    expect(send).toHaveBeenCalledTimes(1)
+
+    const successfulRetry = await subject.dispatcher.dispatch({
+      commandId: "interrupt-succeeded",
+      name: "turn.interrupt",
+      sessionId: subject.session.id,
+      turnId: first.turn.id,
+    })
+    expect(successfulRetry).toMatchObject({
+      state: "completed",
+      result: { turnId: first.turn.id, status: "interrupted" },
+    })
+    await waitFor(() => (send.mock.calls.length === 2 ? true : undefined))
+    expect(turnsRepo.get(subject.db, first.turn.id)?.status).toBe("interrupted")
+    expect(subject.services.turns.hasActiveStream(first.turn.id)).toBe(false)
+    expect(turnsRepo.get(subject.db, second.turn.id)?.status).toBe("running")
+  })
+
+  it("releases an ambiguous turn on a late terminal event after cancellation fails", async () => {
+    const subject = await boot({ controlled: true })
+    const send = vi
+      .fn()
+      .mockRejectedValueOnce({
+        aideError: {
+          code: "execution_outcome_unknown",
+          message: "send may have taken effect",
+          retryable: false,
+        },
+      })
+      .mockResolvedValue(undefined)
+    subject.adapter.send = send
+    subject.adapter.interrupt = vi
+      .fn()
+      .mockRejectedValue(new Error("cancellation failed"))
+
+    const first = await submit(subject, "late-terminal-first")
+    await waitFor(() =>
+      vi.mocked(subject.adapter.interrupt).mock.calls.length === 1
+        ? true
+        : undefined
+    )
+    const second = await submit(subject, "late-terminal-second")
+    const running = turnsRepo.get(subject.db, first.turn.id)!
+
+    subject.stream.emit(
+      adapterEvent(
+        running,
+        "turn.interrupted",
+        {
+          turn: {
+            ...running,
+            status: "interrupted",
+            endedAt: "2026-01-01T01:00:00.000Z",
+          },
+        },
+        "late-interrupted-event"
+      )
+    )
+
+    await waitFor(() => (send.mock.calls.length === 2 ? true : undefined))
+    expect(turnsRepo.get(subject.db, first.turn.id)?.status).toBe("interrupted")
+    expect(subject.services.turns.hasActiveStream(first.turn.id)).toBe(false)
+    expect(turnsRepo.get(subject.db, second.turn.id)?.status).toBe("running")
+  })
+
+  it("does not restart a queued turn interrupted during native session acquisition", async () => {
+    const subject = await boot({ controlled: true })
+    const originalOpen = subject.adapter.openSession.bind(subject.adapter)
+    let releaseOpen!: () => void
+    const openGate = new Promise<void>((resolve) => {
+      releaseOpen = resolve
+    })
+    let firstOpenReturned!: () => void
+    const firstOpenDone = new Promise<void>((resolve) => {
+      firstOpenReturned = resolve
+    })
+    subject.adapter.openSession = vi
+      .fn()
+      .mockImplementationOnce(async (input) => {
+        await openGate
+        const native = await originalOpen(input)
+        firstOpenReturned()
+        return native
+      })
+      .mockImplementation(originalOpen)
+    const started: string[] = []
+    const broadcast = subject.eventService.broadcastDurable.bind(
+      subject.eventService
+    )
+    vi.spyOn(subject.eventService, "broadcastDurable").mockImplementation(
+      (event) => {
+        broadcast(event)
+        if (event.type === "turn.started") started.push(event.data.turn.id)
+      }
+    )
+
+    const first = await submit(subject, "startup-first")
+    await waitFor(() =>
+      vi.mocked(subject.adapter.openSession).mock.calls.length === 1
+        ? true
+        : undefined
+    )
+    await subject.services.turns.interrupt(
+      subject.session.id,
+      first.turn.id,
+      commandContext()
+    )
+    expect(receiptsRepo.get(subject.db, first.turn.commandId)).toMatchObject({
+      state: "completed",
+      result: { turnId: first.turn.id, status: "interrupted" },
+    })
+
+    releaseOpen()
+    await firstOpenDone
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(turnsRepo.get(subject.db, first.turn.id)?.status).toBe("interrupted")
+    expect(
+      messagesRepo.get(subject.db, `${first.turn.id}-assistant`)
+    ).toBeUndefined()
+    expect(
+      nativeMappingsRepo.get(subject.db, subject.session.id, "fake-primary")
+    ).toBeUndefined()
+    expect(started).not.toContain(first.turn.id)
+    expect(subject.adapter.send).not.toHaveBeenCalled()
+    expect(subject.services.turns.hasActiveStream(first.turn.id)).toBe(false)
+
+    const second = await submit(subject, "startup-second")
+    await waitFor(() =>
+      vi.mocked(subject.adapter.send).mock.calls.length === 1 ? true : undefined
+    )
+    expect(turnsRepo.get(subject.db, second.turn.id)?.status).toBe("running")
+    expect(vi.mocked(subject.adapter.send).mock.calls[0]?.[0].turnId).toBe(
+      second.turn.id
+    )
+  })
+
+  it("does not fail an interrupted turn when native session acquisition later rejects", async () => {
+    const subject = await boot({ controlled: true })
+    let rejectOpen!: (error: Error) => void
+    const open = new Promise<never>((_resolve, reject) => {
+      rejectOpen = reject
+    })
+    subject.adapter.openSession = vi.fn(() => open)
+
+    const { turn } = await submit(subject, "startup-rejection")
+    await waitFor(() =>
+      vi.mocked(subject.adapter.openSession).mock.calls.length === 1
+        ? true
+        : undefined
+    )
+    await subject.services.turns.interrupt(
+      subject.session.id,
+      turn.id,
+      commandContext()
+    )
+    rejectOpen(new Error("session setup failed late"))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(turnsRepo.get(subject.db, turn.id)?.status).toBe("interrupted")
+    expect(receiptsRepo.get(subject.db, turn.commandId)).toMatchObject({
+      state: "completed",
+      result: { turnId: turn.id, status: "interrupted" },
+    })
+    expect(subject.adapter.send).not.toHaveBeenCalled()
+    expect(subject.services.turns.hasActiveStream(turn.id)).toBe(false)
+  })
+
   it("interrupts a turn persisted as running before adapter send", async () => {
     const subject = await boot({ controlled: true })
     const send = vi.mocked(subject.adapter.send)
