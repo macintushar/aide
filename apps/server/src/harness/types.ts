@@ -69,6 +69,7 @@ export type ResumeSessionInput = {
 export type SendTurnInput = {
   handle: InstanceHandle
   nativeSession: NativeSession
+  commandId: string
   turnId: string
   userMessage: UserMessage
   execution: ResolvedExecution

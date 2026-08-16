@@ -4,7 +4,12 @@
   "categories": {
     "correctness": "error"
   },
-  "ignorePatterns": ["**/dist/**", "**/.turbo/**", "**/coverage/**"],
+  "ignorePatterns": [
+    "**/dist/**",
+    "**/.turbo/**",
+    "**/coverage/**",
+    "graphify-out/**"
+  ],
   "env": {
     "builtin": true
   },
