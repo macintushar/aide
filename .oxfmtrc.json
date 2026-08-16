@@ -9,7 +9,8 @@
     "**/dist/**",
     "**/.turbo/**",
     "**/coverage/**",
-    "**/node_modules/**"
+    "**/node_modules/**",
+    "graphify-out/**"
   ],
   "sortTailwindcss": {
     "stylesheet": "packages/ui/src/styles/globals.css",

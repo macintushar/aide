@@ -4,12 +4,16 @@ import { describe, expect, it } from "vitest"
 import { App } from "./App"
 
 describe("App", () => {
-  it("renders the ready message and example button", () => {
+  it("renders the fixture session transcript and requests", () => {
     render(<App />)
 
+    expect(screen.getByRole("heading", { name: "Aide" })).toBeInTheDocument()
     expect(
-      screen.getByRole("heading", { name: "Project ready!" })
+      screen.getByText("Implement the settings panel.")
     ).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Button" })).toBeInTheDocument()
+    expect(
+      screen.getByRole("heading", { name: "Requests" })
+    ).toBeInTheDocument()
+    expect(screen.getByText("Run bun test?")).toBeInTheDocument()
   })
 })
