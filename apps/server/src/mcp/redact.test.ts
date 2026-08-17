@@ -4,6 +4,7 @@ import {
   REDACTED,
   redactMcpServer,
   redactSecrets,
+  restoreRedactedDriverConfig,
   restoreRedactedMcpServers,
 } from "./redact"
 
@@ -79,6 +80,27 @@ describe("MCP redaction", () => {
     ).toEqual({
       token: REDACTED,
       nested: [{ apiKey: REDACTED }, { visible: "value" }],
+    })
+  })
+
+  it("redacts and restores opaque driver environment values at matching paths", () => {
+    const stored = {
+      env: { ANTHROPIC_API_KEY: "driver-secret", LABEL: "private" },
+      accessToken: "token-secret",
+      model: "claude",
+    }
+    expect(redactSecrets(stored)).toEqual({
+      env: { ANTHROPIC_API_KEY: REDACTED, LABEL: REDACTED },
+      accessToken: REDACTED,
+      model: "claude",
+    })
+    expect(
+      restoreRedactedDriverConfig(
+        { env: { ANTHROPIC_API_KEY: REDACTED, NEW: REDACTED } },
+        stored
+      )
+    ).toEqual({
+      env: { ANTHROPIC_API_KEY: "driver-secret", NEW: REDACTED },
     })
   })
 })

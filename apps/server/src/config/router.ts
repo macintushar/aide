@@ -7,7 +7,7 @@ import {
 } from "@workspace/contracts"
 import { Hono } from "hono"
 
-import { redactMcpServers } from "../mcp"
+import { redactDriverConfig, redactMcpServers } from "../mcp"
 import type { ConfigService } from "./service"
 
 export function createConfigRouter({
@@ -56,6 +56,7 @@ function redactConfig<T extends AideConfig | ProjectConfigRecord>(
 function redactInstanceMcpServers(instance: InstanceConfig): InstanceConfig {
   return {
     ...instance,
+    config: redactDriverConfig(instance.config),
     ...(instance.mcpServers
       ? { mcpServers: redactMcpServers(instance.mcpServers) }
       : {}),

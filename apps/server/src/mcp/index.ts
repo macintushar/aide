@@ -11,8 +11,10 @@ export {
 export {
   redactMcpServer,
   redactMcpServers,
+  redactDriverConfig,
   redactSecrets,
   REDACTED,
+  restoreRedactedDriverConfig,
   restoreRedactedMcpServers,
 } from "./redact"
 export {

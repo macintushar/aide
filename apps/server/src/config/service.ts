@@ -12,7 +12,7 @@ type ConfigUpdateCommand = Extract<Command, { name: "config.update" }>
 import type { AideDb } from "../db"
 import { configRepo, withTransaction } from "../db"
 import type { EventService } from "../events"
-import { restoreRedactedMcpServers } from "../mcp"
+import { restoreRedactedDriverConfig, restoreRedactedMcpServers } from "../mcp"
 import {
   emptyGlobalConfig,
   mergeConfig,
@@ -232,6 +232,10 @@ function restoreRedactedInstanceMcpServers(
       instanceId,
       {
         ...instance,
+        config: restoreRedactedDriverConfig(
+          instance.config,
+          current?.[instanceId]?.config
+        ),
         ...(instance.mcpServers
           ? {
               mcpServers: restoreRedactedMcpServers(

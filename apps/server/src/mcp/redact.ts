@@ -67,6 +67,53 @@ export function restoreRedactedMcpServers(
   )
 }
 
+/**
+ * Redacts opaque driver config before it leaves the server. Driver schemas use
+ * `env` for account selection, so every value in an environment or headers map
+ * is sensitive regardless of its key name.
+ */
+export function redactDriverConfig(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(redactDriverConfig)
+  if (!isRecord(value)) return value
+
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => {
+      if ((key === "env" || key === "headers") && isStringRecord(entry)) {
+        return [key, redactValues(entry)]
+      }
+      if (SECRET_KEY_PATTERN.test(key)) return [key, REDACTED]
+      return [key, redactDriverConfig(entry)]
+    })
+  )
+}
+
+/** Restores only markers backed by a string at the identical stored path. */
+export function restoreRedactedDriverConfig(
+  value: unknown,
+  current: unknown
+): unknown {
+  if (value === REDACTED && typeof current === "string") return current
+  if (Array.isArray(value)) {
+    return value.map((entry, index) =>
+      restoreRedactedDriverConfig(
+        entry,
+        Array.isArray(current) ? current[index] : undefined
+      )
+    )
+  }
+  if (!isRecord(value)) return value
+
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => [
+      key,
+      restoreRedactedDriverConfig(
+        entry,
+        isRecord(current) ? current[key] : undefined
+      ),
+    ])
+  )
+}
+
 function restoreRedactedMcpServer(
   config: McpServerConfig,
   current: McpServerConfig | undefined
@@ -130,14 +177,16 @@ const SECRET_KEY_PATTERN =
  * shape of.
  */
 export function redactSecrets(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(redactSecrets)
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).map(([key, entry]) => [
-        key,
-        SECRET_KEY_PATTERN.test(key) ? REDACTED : redactSecrets(entry),
-      ])
-    )
-  }
-  return value
+  return redactDriverConfig(value)
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return (
+    isRecord(value) &&
+    Object.values(value).every((entry) => typeof entry === "string")
+  )
 }

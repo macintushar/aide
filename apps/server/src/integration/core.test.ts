@@ -147,7 +147,7 @@ describe("Gate G1 core integration", () => {
     return (sessionReceipt.result as { id: string }).id
   }
 
-  it("guards config reads and redacts top-level and instance MCP secrets", async () => {
+  it("guards config reads and redacts configuration secrets", async () => {
     const created = createTestDb()
     try {
       const integration = createAideTestApp({
@@ -173,7 +173,7 @@ describe("Gate G1 core integration", () => {
               driver: "opencode",
               enabled: true,
               autoStart: false,
-              config: {},
+              config: { env: { ANTHROPIC_API_KEY: "driver-secret" } },
               mcpServers: {
                 instance: {
                   type: "stdio",
@@ -214,6 +214,7 @@ describe("Gate G1 core integration", () => {
         },
         instances: {
           opencode: {
+            config: { env: { ANTHROPIC_API_KEY: REDACTED } },
             mcpServers: { instance: { env: { TOKEN: REDACTED } } },
           },
         },
