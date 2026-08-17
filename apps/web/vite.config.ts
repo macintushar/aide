@@ -9,6 +9,11 @@ export default defineConfig({
   server: {
     host: "0.0.0.0",
     allowedHosts: true,
+    proxy: Object.fromEntries(
+      ["/commands", "/instances", "/config", "/sessions", "/projects"].map(
+        (route) => [route, "http://localhost:3000"]
+      )
+    ),
   },
   preview: {
     host: "0.0.0.0",
@@ -18,13 +23,6 @@ export default defineConfig({
     alias: {
       "@": path.resolve(import.meta.dirname, "./src"),
     },
-  },
-  server: {
-    proxy: Object.fromEntries(
-      ["/commands", "/instances", "/config", "/sessions", "/projects"].map(
-        (route) => [route, "http://localhost:3000"]
-      )
-    ),
   },
   test: {
     environment: "jsdom",
