@@ -102,5 +102,8 @@ describe("MCP redaction", () => {
     ).toEqual({
       env: { ANTHROPIC_API_KEY: "driver-secret", NEW: REDACTED },
     })
+    expect(restoreRedactedDriverConfig([REDACTED], ["array-secret"])).toEqual([
+      "array-secret",
+    ])
   })
 })
