@@ -8,7 +8,7 @@ if (process.env.AIDE_BEARER_TOKEN === undefined) {
 
 export const env = createEnv({
   server: {
-    HOST: z.string().min(1).default("127.0.0.1"),
+    HOST: z.string().min(1).default("0.0.0.0"),
     PORT: z.coerce.number().int().min(1).max(65535).default(3000),
     AIDE_BEARER_TOKEN: z.string().min(1),
     DB_FILE_NAME: z.string().min(1).default("./data/aide.sqlite"),
