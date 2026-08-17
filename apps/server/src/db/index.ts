@@ -1,5 +1,9 @@
-import type { Database as BunDatabase } from "bun:sqlite"
+import { mkdirSync } from "node:fs"
+import { dirname } from "node:path"
+import { fileURLToPath } from "node:url"
+import { Database, type Database as BunDatabase } from "bun:sqlite"
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite/driver"
+import { migrate } from "drizzle-orm/bun-sqlite/migrator"
 import { SQLiteBunSession } from "drizzle-orm/bun-sqlite/session"
 import {
   createTableRelationsHelpers,
@@ -40,15 +44,41 @@ export type AideDb = ReturnType<typeof createDb>
 
 let db: AideDb | undefined
 
-export function getDb(): AideDb {
-  if (db) return db
+const migrationsFolder = fileURLToPath(
+  new URL("../../drizzle", import.meta.url)
+)
 
-  const { Database } = require("bun:sqlite") as typeof import("bun:sqlite")
-  const client = new Database(env.DB_FILE_NAME, { create: true })
+export function initializeDb(fileName = env.DB_FILE_NAME): AideDb {
+  if (fileName !== ":memory:") mkdirSync(dirname(fileName), { recursive: true })
+
+  const client = new Database(fileName, { create: true })
   client.exec("PRAGMA journal_mode = WAL")
   client.exec("PRAGMA foreign_keys = ON")
-  db = createDb(client)
+  const initialized = createDb(client)
+  try {
+    migrate(initialized, { migrationsFolder })
+    return initialized
+  } catch (error) {
+    client.close()
+    throw error
+  }
+}
+
+export function getDb(): AideDb {
+  if (db) return db
+  db = initializeDb()
   return db
+}
+
+export function closeDb(): void {
+  if (!db) return
+  ;(db.$client as BunDatabase).close()
+  db = undefined
+}
+
+/** Clears the production singleton so tests can initialize it again. */
+export function resetDb(): void {
+  closeDb()
 }
 
 export * from "./repo-error"

@@ -131,6 +131,24 @@ describe("event router", () => {
     }
   })
 
+  it("uses the greater cursor from afterSequence and Last-Event-ID", async () => {
+    const fixtures = eventFixtures()
+    eventService.appendDurable(withoutDelivery(fixtures[0]))
+    eventService.appendDurable(withoutDelivery(fixtures[1]))
+    const third = eventService.appendDurable(withoutDelivery(fixtures[2]))
+
+    const response = await app.request(
+      "/sessions/ses_1/events?afterSequence=1",
+      { headers: { "Last-Event-ID": "2" } }
+    )
+    const reader = response.body!.getReader()
+    try {
+      expect(await readChunk(reader)).toBe(eventSseFrame(third))
+    } finally {
+      await reader.cancel()
+    }
+  })
+
   it("streams the first replay frame and closes when the reader cancels", async () => {
     const fixtures = eventFixtures()
     const firstEvent = eventService.appendDurable(withoutDelivery(fixtures[0]))
@@ -254,6 +272,36 @@ describe("event router", () => {
       expect(await readChunk(reader)).toBe(
         snapshotSseFrame(snapshotService.instancesSnapshot())
       )
+    } finally {
+      await reader.cancel()
+    }
+  })
+
+  it("uses the canonical supervisor projection for instances fallback", async () => {
+    const fixture = eventFixtures().find(
+      (event) => event.type === "harness.connected"
+    )!
+    eventService.appendDurable(withoutDelivery(fixture))
+    const canonical = {
+      schemaVersion: 1 as const,
+      scope: { kind: "instances" as const },
+      cursor: { sequence: 1 },
+      instances: [],
+    }
+    app = new Hono().route(
+      "/",
+      createEventRouter({
+        eventService,
+        snapshotService,
+        maxReplay: 0,
+        instancesSnapshot: () => canonical,
+      })
+    )
+
+    const response = await app.request("/instances/events")
+    const reader = response.body!.getReader()
+    try {
+      expect(await readChunk(reader)).toBe(snapshotSseFrame(canonical))
     } finally {
       await reader.cancel()
     }

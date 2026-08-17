@@ -13,7 +13,9 @@ import { createDb } from "../db"
 import { Database } from "../db/test/bun-sqlite-shim"
 import { eventSseFrame } from "../events"
 import { createFakeHarnessAdapter } from "../harness/fake"
+import { REDACTED } from "../mcp"
 import { AdapterRegistry } from "../services"
+import { createTestDb } from "../test/db"
 import { createAideTestApp } from "./app"
 
 const migrationsFolder = fileURLToPath(
@@ -144,6 +146,94 @@ describe("Gate G1 core integration", () => {
     })
     return (sessionReceipt.result as { id: string }).id
   }
+
+  it("guards config reads and redacts configuration secrets", async () => {
+    const created = createTestDb()
+    try {
+      const integration = createAideTestApp({
+        db: created.db,
+        bearerToken: token,
+        allowedOrigins: [origin],
+      })
+      await integration.services.config.update({
+        commandId: "command_global_config",
+        name: "config.update",
+        target: { kind: "global" },
+        config: {
+          mcpServers: {
+            global: {
+              type: "http",
+              url: "https://global.example.test",
+              headers: { Authorization: "global-secret" },
+            },
+          },
+          instances: {
+            opencode: {
+              instanceId: "opencode",
+              driver: "opencode",
+              enabled: true,
+              autoStart: false,
+              config: { env: { ANTHROPIC_API_KEY: "driver-secret" } },
+              mcpServers: {
+                instance: {
+                  type: "stdio",
+                  command: "instance-mcp",
+                  env: { TOKEN: "instance-secret" },
+                },
+              },
+            },
+          },
+        },
+      })
+      await integration.services.config.update({
+        commandId: "command_project_config",
+        name: "config.update",
+        target: { kind: "project", projectId: "project_1" },
+        config: {
+          mcpServers: {
+            project: {
+              type: "sse",
+              url: "https://project.example.test/sse",
+              headers: { "X-Token": "project-secret" },
+            },
+          },
+        },
+      })
+
+      expect((await integration.app.request("/config")).status).toBe(401)
+      expect(
+        (await integration.app.request("/projects/project_1/config")).status
+      ).toBe(401)
+
+      const headers = { authorization: `Bearer ${token}`, origin }
+      await expect(
+        (await integration.app.request("/config", { headers })).json()
+      ).resolves.toMatchObject({
+        mcpServers: {
+          global: { headers: { Authorization: REDACTED } },
+        },
+        instances: {
+          opencode: {
+            config: { env: { ANTHROPIC_API_KEY: REDACTED } },
+            mcpServers: { instance: { env: { TOKEN: REDACTED } } },
+          },
+        },
+      })
+      await expect(
+        (
+          await integration.app.request("/projects/project_1/config", {
+            headers,
+          })
+        ).json()
+      ).resolves.toMatchObject({
+        mcpServers: {
+          project: { headers: { "X-Token": REDACTED } },
+        },
+      })
+    } finally {
+      created.client.close()
+    }
+  })
 
   it("drives commands, scheduling, requests, snapshots, replay, and ephemeral deltas", async () => {
     const subject = await boot()

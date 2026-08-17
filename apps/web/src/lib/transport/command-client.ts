@@ -13,6 +13,8 @@ export type CommandClientOptions = {
   baseUrl?: string
   fetchImpl?: typeof fetch
   sleepImpl?: Sleep
+  bearerToken?: string
+  headers?: HeadersInit
 }
 
 export class CommandError extends Error {
@@ -50,7 +52,7 @@ export function createCommandClient(options: CommandClientOptions = {}) {
             `${baseUrl}/commands/${encodeURIComponent(name)}`,
             {
               method: "POST",
-              headers: { "content-type": "application/json" },
+              headers: commandHeaders(options),
               body: requestBody,
             }
           )
@@ -71,6 +73,15 @@ export function createCommandClient(options: CommandClientOptions = {}) {
       throw new Error("Command retry loop exhausted")
     },
   }
+}
+
+function commandHeaders(options: CommandClientOptions): Headers {
+  const headers = new Headers(options.headers)
+  headers.set("content-type", "application/json")
+  if (options.bearerToken) {
+    headers.set("authorization", `Bearer ${options.bearerToken}`)
+  }
+  return headers
 }
 
 async function readResponseBody(response: Response): Promise<unknown> {

@@ -38,6 +38,23 @@ describe("createCommandClient", () => {
     expect(newCommandId()).toMatch(/^cmd_[0-9a-f-]{36}$/)
   })
 
+  it("merges custom headers and bearer authentication", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(jsonResponse(receipt))
+
+    await createCommandClient({
+      fetchImpl,
+      bearerToken: "secret-token",
+      headers: { "x-aide-client": "web" },
+    }).send(commandFixtures()[0])
+
+    const headers = new Headers(fetchImpl.mock.calls[0]![1]?.headers)
+    expect(headers.get("authorization")).toBe("Bearer secret-token")
+    expect(headers.get("x-aide-client")).toBe("web")
+    expect(headers.get("content-type")).toBe("application/json")
+  })
+
   it("retries network and server failures with the same command id", async () => {
     const fetchImpl = vi
       .fn<typeof fetch>()

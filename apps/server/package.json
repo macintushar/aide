@@ -17,6 +17,8 @@
     "db:studio": "bun --bun drizzle-kit studio"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.3.228",
+    "@opencode-ai/sdk": "1.18.16",
     "@standard-schema/spec": "^1.1.0",
     "@t3-oss/env-core": "^0.13.11",
     "@workspace/contracts": "workspace:*",
