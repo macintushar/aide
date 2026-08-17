@@ -490,6 +490,7 @@ export class InstanceSupervisor {
       )
 
       await this.#discover(entry, adapter, generation)
+      if (generation !== entry.generation) return
       await this.#configureMcp(instanceId)
     } catch (error) {
       if (generation !== entry.generation) return

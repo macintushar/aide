@@ -6,6 +6,7 @@ import type { AideEvent, Command } from "@workspace/contracts"
 import type { AideDb } from "../db"
 import { configRepo } from "../db"
 import { EventService } from "../events"
+import { REDACTED } from "../mcp"
 import type { Database } from "../db/test/bun-sqlite-shim"
 import { createTestDb } from "../test/db"
 import { createDriverConfigValidator } from "./driver-config"
@@ -138,6 +139,154 @@ describe("ConfigService", () => {
     expect(service.effective("proj_0001").projectsDirectory).toBe(
       "/project-only"
     )
+  })
+
+  it("preserves redacted MCP secrets when a config form is saved", async () => {
+    await service.update(
+      updateCommand({
+        config: {
+          mcpServers: {
+            global: {
+              type: "stdio",
+              command: "global-mcp",
+              env: { TOKEN: "global-secret", REGION: "us-east-1" },
+            },
+          },
+          instances: {
+            opencode: {
+              instanceId: "opencode",
+              driver: "opencode",
+              enabled: true,
+              autoStart: true,
+              config: {},
+              mcpServers: {
+                instance: {
+                  type: "http",
+                  url: "https://instance.example.test",
+                  headers: { Authorization: "instance-secret" },
+                },
+              },
+            },
+          },
+        },
+      })
+    )
+    await service.update(
+      updateCommand({
+        config: {
+          mcpServers: {
+            global: {
+              type: "stdio",
+              command: "global-mcp",
+              env: { TOKEN: REDACTED, REGION: "eu-west-1" },
+            },
+          },
+          instances: {
+            opencode: {
+              instanceId: "opencode",
+              driver: "opencode",
+              enabled: true,
+              autoStart: true,
+              config: {},
+              mcpServers: {
+                instance: {
+                  type: "http",
+                  url: "https://instance.example.test",
+                  headers: { Authorization: REDACTED },
+                },
+              },
+            },
+          },
+        },
+      })
+    )
+
+    expect(service.globalConfig()).toMatchObject({
+      mcpServers: {
+        global: {
+          env: { TOKEN: "global-secret", REGION: "eu-west-1" },
+        },
+      },
+      instances: {
+        opencode: {
+          mcpServers: {
+            instance: { headers: { Authorization: "instance-secret" } },
+          },
+        },
+      },
+    })
+
+    await service.update(
+      updateCommand({
+        target: { kind: "project", projectId: "proj_0001" },
+        config: {
+          mcpServers: {
+            project: {
+              type: "sse",
+              url: "https://project.example.test/sse",
+              headers: { "X-Token": "project-secret" },
+            },
+          },
+          instances: {
+            claude: {
+              instanceId: "claude",
+              driver: "claudeAgent",
+              enabled: true,
+              autoStart: false,
+              config: {},
+              mcpServers: {
+                instance: {
+                  type: "stdio",
+                  command: "project-mcp",
+                  env: { TOKEN: "project-instance-secret" },
+                },
+              },
+            },
+          },
+        },
+      })
+    )
+    await service.update(
+      updateCommand({
+        target: { kind: "project", projectId: "proj_0001" },
+        config: {
+          mcpServers: {
+            project: {
+              type: "sse",
+              url: "https://project.example.test/sse",
+              headers: { "X-Token": REDACTED },
+            },
+          },
+          instances: {
+            claude: {
+              instanceId: "claude",
+              driver: "claudeAgent",
+              enabled: true,
+              autoStart: false,
+              config: {},
+              mcpServers: {
+                instance: {
+                  type: "stdio",
+                  command: "project-mcp",
+                  env: { TOKEN: REDACTED },
+                },
+              },
+            },
+          },
+        },
+      })
+    )
+
+    expect(service.projectConfig("proj_0001")).toMatchObject({
+      mcpServers: { project: { headers: { "X-Token": "project-secret" } } },
+      instances: {
+        claude: {
+          mcpServers: {
+            instance: { env: { TOKEN: "project-instance-secret" } },
+          },
+        },
+      },
+    })
   })
 
   it("disables only the instance whose driver config is invalid, and reports it", async () => {

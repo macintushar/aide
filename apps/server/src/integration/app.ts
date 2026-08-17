@@ -100,8 +100,11 @@ export function createAideTestApp(options: CoreIntegrationOptions) {
     ...(eventId ? { id: eventId } : {}),
   })
 
-  // Config change is reconciled, not restarted wholesale.
-  config.onChange((effective) => supervisor.reconcile(effective))
+  // The supervisor owns the global runtime; project records are persisted for
+  // project-scoped execution and must not alter that shared runtime.
+  config.onChange((effective, target) => {
+    if (target.kind === "global") return supervisor.reconcile(effective)
+  })
 
   const dispatcher = createCommandDispatcher({
     db: options.db,
@@ -118,13 +121,13 @@ export function createAideTestApp(options: CoreIntegrationOptions) {
 
   const app = new Hono()
   if (options.bearerToken) {
-    app.use(
-      "/commands/*",
-      createCommandGuard({
-        bearerToken: options.bearerToken,
-        allowedOrigins: options.allowedOrigins ?? [],
-      })
-    )
+    const guard = createCommandGuard({
+      bearerToken: options.bearerToken,
+      allowedOrigins: options.allowedOrigins ?? [],
+    })
+    app.use("/commands/*", guard)
+    app.use("/config", guard)
+    app.use("/projects/:projectId/config", guard)
   }
   app.route("/", createCommandRouter({ dispatcher }))
   app.route("/", createConfigRouter({ config }))

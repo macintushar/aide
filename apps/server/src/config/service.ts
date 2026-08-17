@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto"
 import type {
   AideConfig,
   Command,
+  InstanceConfig,
   ProjectConfigRecord,
 } from "@workspace/contracts"
 
@@ -11,6 +12,7 @@ type ConfigUpdateCommand = Extract<Command, { name: "config.update" }>
 import type { AideDb } from "../db"
 import { configRepo, withTransaction } from "../db"
 import type { EventService } from "../events"
+import { restoreRedactedMcpServers } from "../mcp"
 import {
   emptyGlobalConfig,
   mergeConfig,
@@ -127,8 +129,20 @@ export class ConfigService {
               ? {}
               : { projectsDirectory: current.projectsDirectory }
             : { projectsDirectory: command.config.projectsDirectory }),
-          instances: command.config.instances ?? current?.instances ?? {},
-          mcpServers: command.config.mcpServers ?? current?.mcpServers ?? {},
+          instances:
+            restoreRedactedInstanceMcpServers(
+              command.config.instances,
+              current?.instances
+            ) ??
+            current?.instances ??
+            {},
+          mcpServers:
+            restoreRedactedMcpServers(
+              command.config.mcpServers,
+              current?.mcpServers
+            ) ??
+            current?.mcpServers ??
+            {},
           defaults: command.config.defaults ?? current?.defaults ?? {},
         }
         configRepo.put(tx, next, timestamp)
@@ -142,8 +156,16 @@ export class ConfigService {
           ...pickDefined({
             projectsDirectory:
               command.config.projectsDirectory ?? current?.projectsDirectory,
-            instances: command.config.instances ?? current?.instances,
-            mcpServers: command.config.mcpServers ?? current?.mcpServers,
+            instances:
+              restoreRedactedInstanceMcpServers(
+                command.config.instances,
+                current?.instances
+              ) ?? current?.instances,
+            mcpServers:
+              restoreRedactedMcpServers(
+                command.config.mcpServers,
+                current?.mcpServers
+              ) ?? current?.mcpServers,
             defaults: command.config.defaults ?? current?.defaults,
           }),
         }
@@ -198,6 +220,29 @@ export class ConfigService {
       })
     }
   }
+}
+
+function restoreRedactedInstanceMcpServers(
+  instances: Record<string, InstanceConfig> | undefined,
+  current: Record<string, InstanceConfig> | undefined
+): Record<string, InstanceConfig> | undefined {
+  if (!instances) return undefined
+  return Object.fromEntries(
+    Object.entries(instances).map(([instanceId, instance]) => [
+      instanceId,
+      {
+        ...instance,
+        ...(instance.mcpServers
+          ? {
+              mcpServers: restoreRedactedMcpServers(
+                instance.mcpServers,
+                current?.[instanceId]?.mcpServers
+              ),
+            }
+          : {}),
+      },
+    ])
+  )
 }
 
 function pickDefined<T extends Record<string, unknown>>(

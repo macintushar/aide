@@ -10,6 +10,7 @@ import {
 export type ReadClientOptions = {
   baseUrl?: string
   fetchImpl?: typeof fetch
+  bearerToken?: string
   headers?: HeadersInit
 }
 
@@ -31,7 +32,7 @@ export function createReadClient(options: ReadClientOptions = {}) {
 
   async function get(path: string): Promise<unknown> {
     const response = await fetchImpl(`${baseUrl}${path}`, {
-      headers: options.headers,
+      headers: readHeaders(options),
     })
     const body = await readResponseBody(response)
     if (!response.ok) throw new ReadError(response.status, body)
@@ -53,6 +54,14 @@ export function createReadClient(options: ReadClientOptions = {}) {
       )
     },
   }
+}
+
+function readHeaders(options: ReadClientOptions): Headers {
+  const headers = new Headers(options.headers)
+  if (options.bearerToken) {
+    headers.set("authorization", `Bearer ${options.bearerToken}`)
+  }
+  return headers
 }
 
 async function readResponseBody(response: Response): Promise<unknown> {

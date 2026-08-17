@@ -24,8 +24,8 @@ export type AppProps = {
   subscribeInstances?: InstancesBoundaryProps["subscribe"]
 }
 
-const readClient = createReadClient()
 const token = import.meta.env.VITE_AIDE_BEARER_TOKEN
+const readClient = createReadClient(token ? { bearerToken: token } : {})
 const commandClient = createCommandClient(token ? { bearerToken: token } : {})
 
 export function App({

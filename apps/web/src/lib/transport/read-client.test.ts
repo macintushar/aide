@@ -46,6 +46,22 @@ describe("createReadClient", () => {
     expect(fetchImpl.mock.calls[0]?.[0]).toBe("/projects/project%2Fone/config")
   })
 
+  it("merges custom headers and bearer authentication", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(jsonResponse(globalConfig))
+
+    await createReadClient({
+      fetchImpl,
+      bearerToken: "secret-token",
+      headers: { "x-aide-client": "web" },
+    }).getConfig()
+
+    const headers = new Headers(fetchImpl.mock.calls[0]?.[1]?.headers)
+    expect(headers.get("authorization")).toBe("Bearer secret-token")
+    expect(headers.get("x-aide-client")).toBe("web")
+  })
+
   it("rejects malformed successful responses and preserves HTTP errors", async () => {
     const malformed = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({}))
     await expect(

@@ -41,6 +41,9 @@ function createStubAdapter(
   let startError: { aideError: unknown } | Error | undefined
   let discoverError: Error | undefined
   let inventory: HarnessInventory | undefined
+  let deferredDiscovery:
+    | { started: () => void; wait: Promise<void> }
+    | undefined
 
   const adapter: HarnessAdapter = {
     driver,
@@ -103,6 +106,8 @@ function createStubAdapter(
     },
     async discover(input) {
       calls.discover.push(input.handle.instanceId)
+      deferredDiscovery?.started()
+      await deferredDiscovery?.wait
       if (discoverError) throw discoverError
       return (
         inventory ?? {
@@ -159,6 +164,18 @@ function createStubAdapter(
     },
     failDiscoverWith(error: Error | undefined) {
       discoverError = error
+    },
+    deferDiscovery() {
+      let release!: () => void
+      let started!: () => void
+      const wait = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      const startedPromise = new Promise<void>((resolve) => {
+        started = resolve
+      })
+      deferredDiscovery = { started, wait }
+      return { started: startedPromise, release }
     },
     setInventory(next: HarnessInventory | undefined) {
       inventory = next
@@ -539,6 +556,26 @@ describe("InstanceSupervisor", () => {
       expect(instanceEvents().map((event) => event.type)).toContain(
         "harness.mcp_status_changed"
       )
+    })
+
+    it("does not configure MCP after discovery completes for a stale generation", async () => {
+      const stub = createStubAdapter()
+      const supervisor = build([stub])
+      const discovery = stub.deferDiscovery()
+
+      supervisor.boot(
+        effectiveWithMcp(
+          { shared: { type: "http", url: "https://mcp.example.test" } },
+          instance()
+        )
+      )
+      await discovery.started
+
+      const stopping = supervisor.stop("opencode")
+      discovery.release()
+      await stopping
+
+      expect(stub.calls.setMcpServers).toEqual([])
     })
 
     it("starts an added instance", async () => {

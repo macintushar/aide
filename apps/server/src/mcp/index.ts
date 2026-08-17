@@ -13,6 +13,7 @@ export {
   redactMcpServers,
   redactSecrets,
   REDACTED,
+  restoreRedactedMcpServers,
 } from "./redact"
 export {
   translateMcpServers,

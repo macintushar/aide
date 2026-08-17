@@ -135,6 +135,7 @@ describe("Gate G2 production integration", () => {
     const order: string[] = []
     const opencode = lifecycleAdapter("opencode", order)
     const claude = lifecycleAdapter("claudeAgent", order)
+    const bearerToken = "production-config-token"
     configRepo.put(db, {
       instances: {
         opencode: instance("opencode", "opencode"),
@@ -151,6 +152,7 @@ describe("Gate G2 production integration", () => {
     const server = await startProductionServer({
       db,
       adapters: [opencode.adapter, claude.adapter],
+      bearerToken,
       serve: () => {
         order.push("bind")
         return {
@@ -200,12 +202,14 @@ describe("Gate G2 production integration", () => {
         )
     ).toBeDefined()
 
-    const configResponse = await server.app.request("/config")
+    const headers = { authorization: `Bearer ${bearerToken}` }
+    const configResponse = await server.app.request("/config", { headers })
     await expect(configResponse.json()).resolves.toMatchObject({
       instances: { claudeA: { driver: "claudeAgent" } },
     })
     const emptyProjectResponse = await server.app.request(
-      "/projects/project-empty/config"
+      "/projects/project-empty/config",
+      { headers }
     )
     await expect(emptyProjectResponse.json()).resolves.toEqual({
       projectId: "project-empty",
@@ -228,6 +232,46 @@ describe("Gate G2 production integration", () => {
     expect(
       claude.calls.mcp.filter((call) => call.names[0] === "replacement")
     ).toHaveLength(2)
+
+    const runtimeBeforeProjectUpdate = server.supervisor.snapshot()
+    const mcpCallsBeforeProjectUpdate = {
+      opencode: opencode.calls.mcp.length,
+      claude: claude.calls.mcp.length,
+    }
+    await server.services.config.update({
+      commandId: "command_project_config",
+      name: "config.update",
+      target: { kind: "project", projectId: "project_1" },
+      config: {
+        mcpServers: {
+          projectOnly: { type: "http", url: "https://project.example.test" },
+        },
+      },
+    })
+
+    expect(server.services.config.projectConfig("project_1")).toMatchObject({
+      mcpServers: {
+        projectOnly: { type: "http", url: "https://project.example.test" },
+      },
+    })
+    expect(server.supervisor.snapshot()).toEqual(runtimeBeforeProjectUpdate)
+    expect(opencode.calls.mcp).toHaveLength(
+      mcpCallsBeforeProjectUpdate.opencode
+    )
+    expect(claude.calls.mcp).toHaveLength(mcpCallsBeforeProjectUpdate.claude)
+    expect(
+      server.eventService
+        .listDurable({
+          scope: { kind: "instances" },
+          cursor: server.eventService.cursor({ kind: "instances" }, 0),
+        })
+        .some(
+          (event) =>
+            event.type === "config.updated" &&
+            event.data.target.kind === "project" &&
+            event.data.target.projectId === "project_1"
+        )
+    ).toBe(true)
 
     await Promise.all([server.shutdown(), server.shutdown()])
     expect(stopCount).toBe(1)
