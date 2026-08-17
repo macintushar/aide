@@ -36,12 +36,16 @@ function createStubAdapter(
       instanceId: string
       names: string[]
     }>,
+    mcpStatus: [] as string[],
   }
   let failStartTimes = 0
   let startError: { aideError: unknown } | Error | undefined
   let discoverError: Error | undefined
   let inventory: HarnessInventory | undefined
   let deferredDiscovery:
+    | { started: () => void; wait: Promise<void> }
+    | undefined
+  let deferredMcpServers:
     | { started: () => void; wait: Promise<void> }
     | undefined
 
@@ -140,8 +144,11 @@ function createStubAdapter(
         instanceId: input.handle.instanceId,
         names: Object.keys(input.servers).sort(),
       })
+      deferredMcpServers?.started()
+      await deferredMcpServers?.wait
     },
     async mcpStatus(input) {
+      calls.mcpStatus.push(input.handle.instanceId)
       const latest = [...calls.setMcpServers]
         .reverse()
         .find((call) => call.instanceId === input.handle.instanceId)
@@ -175,6 +182,18 @@ function createStubAdapter(
         started = resolve
       })
       deferredDiscovery = { started, wait }
+      return { started: startedPromise, release }
+    },
+    deferMcpServers() {
+      let release!: () => void
+      let started!: () => void
+      const wait = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      const startedPromise = new Promise<void>((resolve) => {
+        started = resolve
+      })
+      deferredMcpServers = { started, wait }
       return { started: startedPromise, release }
     },
     setInventory(next: HarnessInventory | undefined) {
@@ -576,6 +595,36 @@ describe("InstanceSupervisor", () => {
       await stopping
 
       expect(stub.calls.setMcpServers).toEqual([])
+    })
+
+    it("does not report MCP status after a pending configuration becomes stale", async () => {
+      const stub = createStubAdapter()
+      const supervisor = build([stub])
+      const mcpServers = stub.deferMcpServers()
+
+      supervisor.boot(
+        effectiveWithMcp(
+          { shared: { type: "http", url: "https://mcp.example.test" } },
+          instance()
+        )
+      )
+      await mcpServers.started
+
+      const mcpStatusCalls = stub.calls.mcpStatus.length
+      const mcpStatusEvents = instanceEvents().filter(
+        (event) => event.type === "harness.mcp_status_changed"
+      ).length
+      const stopping = supervisor.stop("opencode")
+      mcpServers.release()
+      await stopping
+      await supervisor.settled()
+
+      expect(stub.calls.mcpStatus).toHaveLength(mcpStatusCalls)
+      expect(
+        instanceEvents().filter(
+          (event) => event.type === "harness.mcp_status_changed"
+        )
+      ).toHaveLength(mcpStatusEvents)
     })
 
     it("starts an added instance", async () => {

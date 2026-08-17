@@ -571,6 +571,7 @@ export class InstanceSupervisor {
     if (!entry?.handle) return
     const adapter = this.#adapters(entry.config.driver)
     if (!adapter) return
+    const { generation, handle } = entry
 
     const resolved = toServerRecord(
       resolveMcpServers({
@@ -580,7 +581,7 @@ export class InstanceSupervisor {
     )
     const partition = partitionByCapability(
       resolved,
-      adapter.capabilities(entry.handle)
+      adapter.capabilities(handle)
     )
     const unsupported: McpServerStatus[] = partition.unsupported.map(
       (server) => ({
@@ -593,11 +594,13 @@ export class InstanceSupervisor {
 
     try {
       await adapter.setMcpServers({
-        handle: entry.handle,
+        handle,
         servers: partition.supported,
       })
-      statuses = await adapter.mcpStatus({ handle: entry.handle })
+      if (!this.#isCurrent(entry, generation, handle)) return
+      statuses = await adapter.mcpStatus({ handle })
     } catch (error) {
+      if (!this.#isCurrent(entry, generation, handle)) return
       const aideError = toAideError(error, instanceId)
       statuses = Object.keys(partition.supported).map((name) => ({
         name,
@@ -609,9 +612,18 @@ export class InstanceSupervisor {
       }))
     }
 
+    if (!this.#isCurrent(entry, generation, handle)) return
     this.#emit(instanceId, entry.config.driver, "harness.mcp_status_changed", {
       servers: [...statuses, ...unsupported],
     })
+  }
+
+  #isCurrent(
+    entry: SupervisedInstance,
+    generation: number,
+    handle: InstanceHandle
+  ): boolean {
+    return entry.generation === generation && entry.handle === handle
   }
 
   #handleStartFailure(entry: SupervisedInstance, error: AideError): void {
