@@ -16,7 +16,7 @@ export * from "./mcp"
 export * from "./services"
 export * from "./supervisor"
 
-const app = new Hono()
+export const app = new Hono()
 
 app.use(
   "/commands/*",
@@ -30,7 +30,12 @@ app.get("/", (c) => {
   return c.text("Hello Hono!")
 })
 
-export default app
+export default {
+  hostname: env.HOST,
+  port: env.PORT,
+  fetch: app.fetch,
+}
+
 export { env }
 export type { HarnessAdapter }
 

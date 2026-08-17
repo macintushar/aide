@@ -1,0 +1,103 @@
+---
+interface Props {
+  size?: 32 | 20 | 16;
+  tile?: boolean;
+  wordmark?: boolean;
+}
+
+const { size = 20, tile = false, wordmark = false } = Astro.props;
+
+const marks = {
+  32: { stroke: 3.2, legs: "M6 26 L16 6 L26 26", bar: "M11 19 H21" },
+  20: { stroke: 3.6, legs: "M6 26 L16 6 L26 26", bar: "M11 19 H21" },
+  16: { stroke: 4.2, legs: "M6.5 26 L16 6.5 L25.5 26", bar: "M11.5 19 H20.5" },
+} as const;
+
+const mark = marks[size];
+const lockupGap = `${mark.stroke * 3}px`;
+---
+
+{
+  tile ? (
+    <svg
+      class="logo-tile"
+      viewBox="0 0 64 64"
+      width={size * 2}
+      height={size * 2}
+      fill="none"
+      aria-hidden="true"
+    >
+      <defs>
+        <linearGradient id="aide-tile-gradient" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="oklch(0.80 0.13 200)" />
+          <stop offset="1" stop-color="oklch(0.60 0.13 210)" />
+        </linearGradient>
+      </defs>
+      <rect width="64" height="64" rx="15" fill="url(#aide-tile-gradient)" />
+      <path
+        d="M12 52 L32 12 L52 52"
+        stroke="var(--accent-fg)"
+        stroke-width="6.4"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      />
+      <path
+        d="M22 38 H42"
+        stroke="var(--accent-fg)"
+        stroke-width="6.4"
+        stroke-linecap="round"
+      />
+    </svg>
+  ) : wordmark ? (
+    <span class="logo-lockup" style={`gap: ${lockupGap}`}>
+      <svg
+        class="logo-mark"
+        viewBox="0 0 32 32"
+        width={size}
+        height={size}
+        fill="none"
+        aria-hidden="true"
+      >
+        <path
+          d={mark.legs}
+          stroke="var(--n8)"
+          stroke-width={mark.stroke}
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+        <path
+          class="logo-bar"
+          d={mark.bar}
+          stroke="var(--accent-base)"
+          stroke-width={mark.stroke}
+          stroke-linecap="round"
+        />
+      </svg>
+      <span class="logo-wordmark">aide</span>
+    </span>
+  ) : (
+    <svg
+      class="logo-mark"
+      viewBox="0 0 32 32"
+      width={size}
+      height={size}
+      fill="none"
+      aria-hidden="true"
+    >
+      <path
+        d={mark.legs}
+        stroke="var(--n8)"
+        stroke-width={mark.stroke}
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      />
+      <path
+        class="logo-bar"
+        d={mark.bar}
+        stroke="var(--accent-base)"
+        stroke-width={mark.stroke}
+        stroke-linecap="round"
+      />
+    </svg>
+  )
+}

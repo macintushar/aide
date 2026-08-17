@@ -1,0 +1,125 @@
+---
+interface Command {
+  id: string;
+  label: string;
+  command: string;
+}
+
+interface Props {
+  commands?: Command[];
+  idPrefix?: string;
+}
+
+const { idPrefix = "install", commands = [
+  { id: "curl", label: "curl", command: "curl -fsSL https://aide.sh/install.sh | sh" },
+  { id: "npm", label: "npm", command: "npm install -g aide" },
+  { id: "bun", label: "bun", command: "bun install -g aide" },
+  { id: "brew", label: "brew", command: "brew install aide" },
+] } = Astro.props;
+---
+
+<div class="install">
+  <div class="install-tabs" role="tablist" aria-label="Install with">
+    {
+      commands.map((command, index) => (
+        <button
+          type="button"
+          role="tab"
+          id={`${idPrefix}-tab-${command.id}`}
+          aria-controls={`${idPrefix}-panel-${command.id}`}
+          aria-selected={index === 0 ? "true" : "false"}
+          tabindex={index === 0 ? 0 : -1}
+          data-tab={command.id}
+          class="install-tab"
+        >
+          {command.label}
+        </button>
+      ))
+    }
+  </div>
+  {
+    commands.map((command, index) => (
+      <div
+        role="tabpanel"
+        id={`${idPrefix}-panel-${command.id}`}
+        aria-labelledby={`${idPrefix}-tab-${command.id}`}
+        hidden={index !== 0}
+        data-panel={command.id}
+        class="install-panel"
+      >
+        <code class="install-cmd" tabindex="0">
+          <span class="prompt">$</span>
+          {command.command}
+        </code>
+        <button
+          type="button"
+          class="install-copy"
+          data-copy={command.command}
+          data-copy-label="Copy"
+        >
+          Copy
+        </button>
+      </div>
+    ))
+  }
+</div>
+
+<script>
+  function initInstallTabs(root: ParentNode) {
+    const tabs = Array.from(root.querySelectorAll<HTMLButtonElement>("[data-tab]"));
+    const panels = Array.from(root.querySelectorAll<HTMLElement>("[data-panel]"));
+
+    function activate(id: string, focus = true) {
+      for (const tab of tabs) {
+        const selected = tab.dataset.tab === id;
+        tab.setAttribute("aria-selected", selected ? "true" : "false");
+        tab.tabIndex = selected ? 0 : -1;
+        if (selected && focus) tab.focus();
+      }
+      for (const panel of panels) {
+        panel.hidden = panel.dataset.panel !== id;
+      }
+    }
+
+    for (const tab of tabs) {
+      tab.addEventListener("click", () => activate(tab.dataset.tab!));
+      tab.addEventListener("keydown", (event) => {
+        const index = tabs.indexOf(tab);
+        if (event.key === "ArrowRight") {
+          event.preventDefault();
+          const next = tabs[(index + 1) % tabs.length]!;
+          activate(next.dataset.tab!);
+        } else if (event.key === "ArrowLeft") {
+          event.preventDefault();
+          const prev = tabs[(index - 1 + tabs.length) % tabs.length]!;
+          activate(prev.dataset.tab!);
+        }
+      });
+    }
+
+    for (const button of root.querySelectorAll<HTMLButtonElement>("[data-copy]")) {
+      button.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(button.dataset.copy!);
+          const label = button.dataset.copyLabel ?? "Copy";
+          button.textContent = "Copied";
+          button.dataset.copied = "true";
+          setTimeout(() => {
+            button.textContent = label;
+            button.dataset.copied = "false";
+          }, 1200);
+        } catch {
+          const hint = navigator.platform.toLowerCase().includes("mac")
+            ? "Press ⌘C"
+            : "Press Ctrl+C";
+          button.textContent = hint;
+          setTimeout(() => {
+            button.textContent = button.dataset.copyLabel ?? "Copy";
+          }, 1200);
+        }
+      });
+    }
+  }
+
+  document.querySelectorAll(".install").forEach(initInstallTabs);
+</script>

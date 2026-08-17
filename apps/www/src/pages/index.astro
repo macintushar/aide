@@ -1,0 +1,308 @@
+---
+import "@fontsource-variable/instrument-sans";
+import "@fontsource-variable/jetbrains-mono";
+import "@fontsource/instrument-serif/400.css";
+import "@fontsource/instrument-serif/400-italic.css";
+import "../styles/tokens.css";
+import "../styles/marketing.css";
+import Logo from "../components/Logo.astro";
+import InstallTabs from "../components/InstallTabs.astro";
+import HarnessGrid from "../components/HarnessGrid.astro";
+import opencodeMark from "../assets/harnesses/opencode.svg?url";
+import claudeMark from "../assets/harnesses/claude.svg?url";
+import codexMark from "../assets/harnesses/openai.svg?url";
+
+const repo = "https://github.com/macintushar/aide";
+const metaDescription =
+  "aide lets you switch between coding agents without starting over.";
+
+const diffRows = [
+  { type: "del", text: "- await worker.start();" },
+  { type: "add", text: "+ await db.transaction(async (tx) => {" },
+  { type: "add", text: "+   await seed(tx);" },
+  { type: "add", text: "+   await worker.start(tx);" },
+  { type: "add", text: "+ });" },
+];
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>aide — one conversation across coding agents</title>
+    <meta name="description" content={metaDescription} />
+    <meta name="generator" content={Astro.generator} />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="aide — one conversation. Any agent." />
+    <meta property="og:description" content={metaDescription} />
+    <meta name="twitter:card" content="summary" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="oklch(0.145 0.005 250)" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="oklch(0.995 0.001 250)" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  </head>
+  <body>
+    <header class="nav">
+      <div class="container nav-inner">
+        <a href="/" aria-label="aide">
+          <Logo size={20} wordmark />
+        </a>
+        <nav class="nav-links" aria-label="Site">
+          <a href="#how-it-works">How it works</a>
+          <a href="/docs/">Docs</a>
+          <a class="nav-chip" href={repo}>GitHub</a>
+        </nav>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="hero-grid" aria-hidden="true"></div>
+        <div class="container hero-inner">
+          <p class="eyebrow">An open-source home for coding agents</p>
+          <h1 class="display">One conversation.<br />Any agent.</h1>
+          <p class="hero-sub">
+            Start in OpenCode, continue in Claude, and finish in Codex. Switch whenever
+            you want without explaining everything again.
+          </p>
+          <div class="hero-install">
+            <InstallTabs idPrefix="hero-install" />
+          </div>
+          <p class="hero-note">
+            Free and open source. <a href="/docs/">Read the docs →</a>
+          </p>
+        </div>
+        <div class="container">
+          <div class="hero-demo" id="how-it-works">
+            <div class="hero-demo-intro">
+              <p class="eyebrow">How it works</p>
+              <h2 class="display">Change agents without starting over.</h2>
+              <p>
+                Choose who handles each message. aide passes along the conversation so
+                the next agent can keep going.
+              </p>
+            </div>
+            <div class="demo">
+              <div class="demo-bar">
+              <span class="demo-title">fixing a flaky test</span>
+              <span class="demo-chip">OpenCode → Claude → Codex</span>
+            </div>
+            <div class="demo-body">
+              <article class="msg">
+                <span class="msg-avatar"><img src={opencodeMark} alt="" width="20" height="20" /></span>
+                <div class="msg-main">
+                  <p class="msg-head"><span class="msg-name">you</span> → opencode</p>
+                  <p class="msg-text">The queue test fails on the third run. Find out why.</p>
+                </div>
+              </article>
+              <article class="msg">
+                <span class="msg-avatar"><img src={opencodeMark} alt="" width="20" height="20" /></span>
+                <div class="msg-main">
+                  <p class="msg-head"><span class="msg-name">opencode</span></p>
+                  <p class="tool"><span class="tool-name">read</span> · tests/queue/worker.test.ts</p>
+                  <p class="msg-text">
+                    The test seeds the queue inside a transaction that hasn't committed
+                    when the worker polls. On a fast machine the worker wins the race
+                    and sees an empty queue.
+                  </p>
+                </div>
+              </article>
+              <p class="switch">Switched to Claude — same conversation</p>
+              <article class="msg">
+                <span class="msg-avatar"><img src={claudeMark} alt="" width="20" height="20" /></span>
+                <div class="msg-main">
+                  <p class="msg-head"><span class="msg-name">you</span> → Claude</p>
+                  <p class="msg-text">Patch it.</p>
+                </div>
+              </article>
+              <article class="msg">
+                <span class="msg-avatar"><img src={claudeMark} alt="" width="20" height="20" /></span>
+                <div class="msg-main">
+                  <p class="msg-head"><span class="msg-name">Claude</span></p>
+                  <p class="tool"><span class="tool-name">edit</span> · src/queue/worker.ts</p>
+                  <div class="diff" role="img" tabindex="0" aria-label="Diff moving worker.start inside the seed transaction">
+                    {
+                      diffRows.map((row) => (
+                        <span class={`diff-row diff-${row.type}`}>{row.text}</span>
+                      ))
+                    }
+                  </div>
+                </div>
+              </article>
+              <p class="switch">Switched to Codex — same conversation</p>
+              <article class="msg">
+                <span class="msg-avatar"><img src={codexMark} alt="" width="20" height="20" class="mark-invert-dark" /></span>
+                <div class="msg-main">
+                  <p class="msg-head"><span class="msg-name">you</span> → Codex</p>
+                  <p class="msg-text">Run the suite ten times.</p>
+                </div>
+              </article>
+              <article class="msg">
+                <span class="msg-avatar"><img src={codexMark} alt="" width="20" height="20" class="mark-invert-dark" /></span>
+                <div class="msg-main">
+                  <p class="msg-head"><span class="msg-name">Codex</span></p>
+                  <p class="tool"><span class="tool-name">bash</span> · bun test queue ×10</p>
+                  <p class="msg-text">10 of 10 runs green. The seed commits before any worker can take a job.</p>
+                </div>
+              </article>
+            </div>
+          </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="proof" aria-label="Product facts">
+        <div class="container proof-grid">
+          <div>
+            <strong>Switch anytime</strong>
+            <span>Pick the best agent for the next step.</span>
+          </div>
+          <div>
+            <strong>No starting over</strong>
+            <span>The next agent knows what came before.</span>
+          </div>
+          <div>
+            <strong>Everything together</strong>
+            <span>Messages, changes, and results stay in one place.</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="section explainer" aria-labelledby="what-is-aide">
+        <div class="container explainer-grid">
+          <div class="section-head">
+            <p class="eyebrow">What is aide?</p>
+            <h2 class="display" id="what-is-aide">You choose who works next.</h2>
+            <p>
+              aide brings your coding agents into one place. Ask one agent to investigate,
+              another to make the change, and another to check the work.
+            </p>
+          </div>
+          <ul class="capability-list">
+            <li><strong>Switch anytime</strong><span>Move between agents without starting over.</span></li>
+            <li><strong>Keep the context</strong><span>Each agent can see the work that came before.</span></li>
+            <li><strong>Use familiar tools</strong><span>Bring the coding agents you already know.</span></li>
+            <li><strong>See the whole job</strong><span>Prompts, replies, and changes stay together.</span></li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="section" aria-label="Coding agents">
+        <div class="container">
+          <div class="section-head">
+            <p class="eyebrow">Your tools, one surface</p>
+            <h2 class="display">Use the agents you already know.</h2>
+            <p>
+              OpenCode, Claude, and Codex can all work on the same conversation.
+            </p>
+          </div>
+          <HarnessGrid />
+        </div>
+      </section>
+
+      <section class="section ownership" aria-label="Open source">
+        <div class="container ownership-grid">
+          <div>
+            <div class="section-head">
+              <p class="eyebrow">Open source</p>
+              <h2 class="display">Built in the open.</h2>
+              <p>
+                Read the code, change it, or build your own version. aide is yours to
+                shape around the way you work.
+              </p>
+            </div>
+            <div class="ownership-actions">
+              <a class="btn btn-primary" href={repo}>Browse the source</a>
+              <a class="btn btn-secondary" href="/docs/">Read the docs</a>
+            </div>
+          </div>
+          <div class="local-card">
+            <div class="local-row">
+              <span class="local-index">01</span>
+              <div><h3>Your agents</h3><p>Choose the agent that fits each part of the job.</p></div>
+            </div>
+            <div class="local-row">
+              <span class="local-index">02</span>
+              <div><h3>One clear history</h3><p>See every prompt, reply, and change together.</p></div>
+            </div>
+            <div class="local-row">
+              <span class="local-index">03</span>
+              <div><h3>Open source</h3><p>Inspect it, change it, and contribute back.</p></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section faq" aria-labelledby="faq-heading">
+        <div class="container">
+          <p class="eyebrow">FAQ</p>
+          <h2 class="display" id="faq-heading">Questions.</h2>
+          <div class="faq-list">
+            <details>
+              <summary>What is aide?</summary>
+              <p>
+                aide brings your coding agents into one place. Ask one agent to investigate,
+                another to make the change, and another to check the work.
+              </p>
+            </details>
+            <details>
+              <summary>How do I switch agents?</summary>
+              <p>
+                Choose who handles each message. aide passes along the conversation so
+                the next agent can keep going.
+              </p>
+            </details>
+            <details>
+              <summary>Which agents can I use?</summary>
+              <p>
+                OpenCode, Claude, and Codex can all work on the same conversation.
+              </p>
+            </details>
+            <details>
+              <summary>Do I need an account?</summary>
+              <p>No. Free and open source — nothing to sign up for.</p>
+            </details>
+            <details>
+              <summary>Is it open source?</summary>
+              <p>
+                Yes. MIT licensed. Read the code, change it, or build your own version.
+                <a href={repo}>Browse the source</a>.
+              </p>
+            </details>
+          </div>
+        </div>
+      </section>
+
+      <section class="section cta" aria-label="Get started">
+        <div class="container">
+          <p class="eyebrow">Get started</p>
+          <h2 class="display">Start one conversation.</h2>
+          <p class="ct-sub">Install aide, choose an agent, and switch whenever you need.</p>
+          <div class="cta-install">
+            <InstallTabs idPrefix="cta-install" />
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="container">
+        <div class="footer-inner">
+          <div class="footer-brand">
+            <Logo size={16} wordmark />
+            <span>© 2026 · MIT licensed</span>
+          </div>
+          <nav class="footer-nav" aria-label="Footer">
+            <a href="/docs/">Docs</a>
+            <a href={repo}>GitHub</a>
+          </nav>
+        </div>
+        <p class="footer-note">
+          Claude is a trademark of Anthropic. Codex and the OpenAI logo are trademarks
+          of OpenAI. opencode is an open-source project. aide is not affiliated with
+          any of them.
+        </p>
+      </div>
+    </footer>
+  </body>
+</html>
