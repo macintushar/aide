@@ -1,0 +1,20 @@
+{
+  "0": "fake/index.ts",
+  "1": "service.ts",
+  "2": "app.ts",
+  "3": "turn.ts",
+  "4": "scripts",
+  "5": "repos.ts",
+  "6": "git.ts",
+  "7": "TurnService",
+  "8": "store.ts",
+  "9": "compilerOptions",
+  "10": "turn.test.ts",
+  "11": "schema.ts",
+  "12": "API contracts and Bruno tests",
+  "16": "core.test.ts",
+  "19": "drizzle.config.ts",
+  "20": "README.md",
+  "21": "setup.ts",
+  "22": "vitest.config.ts"
+}
