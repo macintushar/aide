@@ -1,0 +1,72 @@
+info:
+  name: turn-send
+  type: http
+  seq: 3
+  tags:
+    - smoke
+
+http:
+  method: POST
+  url: "{{baseUrl}}/commands/turn.send"
+  headers:
+    - name: Content-Type
+      value: application/json
+    - name: Authorization
+      value: Bearer {{bearerToken}}
+    - name: Origin
+      value: "{{origin}}"
+  body:
+    type: json
+    data: |-
+      {
+        "name": "turn.send",
+        "commandId": "command_turn_send",
+        "sessionId": "{{sessionId}}",
+        "content": "hello from bruno",
+        "execution": {
+          "instanceId": "{{instanceId}}",
+          "driver": "opencode",
+          "model": {
+            "providerId": "fake-provider",
+            "modelId": "fake-standard"
+          },
+          "agent": "build",
+          "interactionMode": "build",
+          "options": {
+            "variant": "stable"
+          }
+        }
+      }
+
+runtime:
+  scripts:
+    - type: after-response
+      code: |-
+        if (res.status === 200 || res.status === 202) {
+          const turnId = res.body?.result?.turnId ?? res.body?.result?.id;
+          if (turnId) {
+            bru.setVar("turnId", turnId);
+          }
+        }
+    - type: tests
+      code: |-
+        test("accepts the command", function () {
+          expect([200, 202]).to.include(res.status);
+        });
+
+        test("returns a turn receipt", function () {
+          expect(res.body).to.have.property("commandName", "turn.send");
+        });
+  assertions:
+    - expression: res.body.commandName
+      operator: eq
+      value: turn.send
+
+settings:
+  encodeUrl: true
+  timeout: 30000
+  followRedirects: true
+  maxRedirects: 5
+
+docs: |-
+  Sends a user turn to the configured harness instance.

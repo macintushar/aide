@@ -1,0 +1,35 @@
+info:
+  name: get-root
+  type: http
+  seq: 1
+  tags:
+    - smoke
+
+http:
+  method: GET
+  url: "{{baseUrl}}/"
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("responds with 200", function () {
+          expect(res.status).to.equal(200);
+        });
+
+        test("returns the greeting", function () {
+          expect(res.body).to.equal("Hello Hono!");
+        });
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: "200"
+
+settings:
+  encodeUrl: true
+  timeout: 5000
+  followRedirects: true
+  maxRedirects: 5
+
+docs: |-
+  Smoke test for the bare server entrypoint.

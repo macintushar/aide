@@ -1,0 +1,64 @@
+info:
+  name: session-create
+  type: http
+  seq: 2
+  tags:
+    - smoke
+
+http:
+  method: POST
+  url: "{{baseUrl}}/commands/session.create"
+  headers:
+    - name: Content-Type
+      value: application/json
+    - name: Authorization
+      value: Bearer {{bearerToken}}
+    - name: Origin
+      value: "{{origin}}"
+  body:
+    type: json
+    data: |-
+      {
+        "name": "session.create",
+        "commandId": "command_session_create",
+        "projectId": "{{projectId}}",
+        "title": "Bruno session"
+      }
+
+runtime:
+  scripts:
+    - type: after-response
+      code: |-
+        if (res.status === 200 || res.status === 202) {
+          const sessionId = res.body?.result?.id;
+          if (sessionId) {
+            bru.setVar("sessionId", sessionId);
+          }
+        }
+    - type: tests
+      code: |-
+        test("accepts the command", function () {
+          expect([200, 202]).to.include(res.status);
+        });
+
+        test("returns a command receipt", function () {
+          expect(res.body).to.have.property("commandId", "command_session_create");
+          expect(res.body).to.have.property("commandName", "session.create");
+        });
+
+        test("creates a session id", function () {
+          expect(res.body.result).to.have.property("id").that.is.a("string");
+        });
+  assertions:
+    - expression: res.body.commandName
+      operator: eq
+      value: session.create
+
+settings:
+  encodeUrl: true
+  timeout: 10000
+  followRedirects: true
+  maxRedirects: 5
+
+docs: |-
+  Creates a session in the project opened by `project-open`.

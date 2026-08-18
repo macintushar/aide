@@ -1,0 +1,64 @@
+info:
+  name: project-open
+  type: http
+  seq: 1
+  tags:
+    - smoke
+
+http:
+  method: POST
+  url: "{{baseUrl}}/commands/project.open"
+  headers:
+    - name: Content-Type
+      value: application/json
+    - name: Authorization
+      value: Bearer {{bearerToken}}
+    - name: Origin
+      value: "{{origin}}"
+  body:
+    type: json
+    data: |-
+      {
+        "name": "project.open",
+        "commandId": "command_project_open",
+        "directory": "{{projectDirectory}}",
+        "projectName": "Bruno Smoke"
+      }
+
+runtime:
+  scripts:
+    - type: after-response
+      code: |-
+        if (res.status === 200 || res.status === 202) {
+          const projectId = res.body?.result?.id;
+          if (projectId) {
+            bru.setVar("projectId", projectId);
+          }
+        }
+    - type: tests
+      code: |-
+        test("accepts the command", function () {
+          expect([200, 202]).to.include(res.status);
+        });
+
+        test("returns a command receipt", function () {
+          expect(res.body).to.have.property("commandId", "command_project_open");
+          expect(res.body).to.have.property("commandName", "project.open");
+        });
+
+        test("creates a project id", function () {
+          expect(res.body.result).to.have.property("id").that.is.a("string");
+        });
+  assertions:
+    - expression: res.body.commandName
+      operator: eq
+      value: project.open
+
+settings:
+  encodeUrl: true
+  timeout: 10000
+  followRedirects: true
+  maxRedirects: 5
+
+docs: |-
+  Opens or creates a project for the given directory.

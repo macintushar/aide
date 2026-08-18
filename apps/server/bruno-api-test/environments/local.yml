@@ -1,0 +1,27 @@
+name: local
+variables:
+  - name: baseUrl
+    value: http://127.0.0.1:3000
+    description: Aide server base URL
+  - name: origin
+    value: http://127.0.0.1:3000
+    description: Origin header required by the command guard
+  - name: bearerToken
+    value: "{{process.env.AIDE_BEARER_TOKEN}}"
+    secret: true
+    description: Must match the server's AIDE_BEARER_TOKEN
+  - name: projectDirectory
+    value: /tmp/aide-bruno
+    description: Directory passed to project.open
+  - name: instanceId
+    value: fake-primary
+    description: Harness instance id for turn.send
+  - name: projectId
+    value: ""
+    description: Set by project.open
+  - name: sessionId
+    value: ""
+    description: Set by session.create
+  - name: turnId
+    value: ""
+    description: Set by turn.send when available

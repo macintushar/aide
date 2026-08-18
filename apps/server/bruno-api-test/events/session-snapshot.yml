@@ -1,0 +1,37 @@
+info:
+  name: session-snapshot
+  type: http
+  seq: 1
+  tags:
+    - smoke
+
+http:
+  method: GET
+  url: "{{baseUrl}}/sessions/{{sessionId}}"
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("returns the session snapshot", function () {
+          expect(res.status).to.equal(200);
+          expect(res.body).to.have.property("session");
+          expect(res.body.session).to.have.property("id", bru.getVar("sessionId"));
+        });
+
+        test("includes cursor metadata", function () {
+          expect(res.body).to.have.property("cursor");
+        });
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: "200"
+
+settings:
+  encodeUrl: true
+  timeout: 10000
+  followRedirects: true
+  maxRedirects: 5
+
+docs: |-
+  Reads the durable session snapshot used for reload and replay.
