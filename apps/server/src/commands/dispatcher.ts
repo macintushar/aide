@@ -9,7 +9,7 @@ import {
 } from "@workspace/contracts"
 
 import type { AideDb } from "../db"
-import { receiptsRepo } from "../db"
+import { receiptsRepo, withTransaction } from "../db"
 
 type MaybePromise<T> = T | Promise<T>
 type CommandFor<Name extends CommandName> = Extract<Command, { name: Name }>
@@ -27,13 +27,22 @@ const safeErrorNames = new Set([
 
 export type LocalCommandHandler<Name extends CommandName = CommandName> = {
   kind: "local"
-  handle(command: CommandFor<Name>): MaybePromise<unknown>
+  /**
+   * When true, the handler must be synchronous and runs inside the receipt
+   * transaction: accepted receipt, domain effects, and the completed receipt
+   * commit (or roll back) together.
+   */
+  transactional?: boolean
+  handle(command: CommandFor<Name>, db: AideDb): MaybePromise<unknown>
 }
 
 export type ExternalCommandContext = {
   defer(): void
   markDispatching(nativeIdempotencyKey?: string): CommandReceipt
-  markDispatched(acknowledgement?: unknown): CommandReceipt
+  markDispatched(
+    acknowledgement?: unknown,
+    persist?: (db: AideDb) => void
+  ): CommandReceipt
   markUncertain(error: unknown): CommandReceipt
   complete(result?: unknown): CommandReceipt
   fail(error: unknown): CommandReceipt
@@ -166,16 +175,43 @@ export function createCommandDispatcher({
           acknowledgement?: unknown
           result?: unknown
           error?: AideError
-        } = {}
+        } = {},
+        persist?: (db: AideDb) => void
       ): CommandReceipt => {
-        assertReceiptTransition(receipt.state, state)
-        const updated = receiptsRepo.updateState(db, command.commandId, state, {
-          ...update,
-          updatedAt: now(),
-        })
-        if (!updated) {
+        const current = receiptsRepo.get(db, command.commandId)
+        if (!current) {
           throw new Error(`Command receipt disappeared: ${command.commandId}`)
         }
+        receipt = current
+        // Adapter terminal events can win the race with a send acknowledgement.
+        // A late acknowledgement must never regress an authoritative terminal receipt.
+        if (
+          state === "dispatched" &&
+          (receipt.state === "completed" || receipt.state === "failed")
+        ) {
+          return receipt
+        }
+        assertReceiptTransition(receipt.state, state)
+        const previousState = receipt.state
+        const updated = withTransaction(db, (tx) => {
+          const transitioned = receiptsRepo.transitionState(
+            tx,
+            command.commandId,
+            previousState,
+            state,
+            {
+              ...update,
+              updatedAt: now(),
+            }
+          )
+          if (!transitioned) {
+            throw new Error(
+              `Command receipt changed concurrently: ${command.commandId}`
+            )
+          }
+          persist?.(tx)
+          return transitioned
+        })
         receipt = updated
         return receipt
       }
@@ -192,8 +228,11 @@ export function createCommandDispatcher({
       }
 
       if (handler.kind === "local") {
+        if (handler.transactional) {
+          return dispatchTransactionalLocal(handler, command)
+        }
         try {
-          const result = await handler.handle(command)
+          const result = await handler.handle(command, db)
           return transition("completed", { result })
         } catch (error) {
           return transition("failed", {
@@ -209,8 +248,8 @@ export function createCommandDispatcher({
         markDispatching(nativeIdempotencyKey = command.commandId) {
           return transition("dispatching", { nativeIdempotencyKey })
         },
-        markDispatched(acknowledgement) {
-          return transition("dispatched", { acknowledgement })
+        markDispatched(acknowledgement, persist) {
+          return transition("dispatched", { acknowledgement }, persist)
         },
         markUncertain(error) {
           return transition("uncertain", {
@@ -268,5 +307,66 @@ export function createCommandDispatcher({
         return receipt
       }
     },
+  }
+
+  function dispatchTransactionalLocal(
+    handler: LocalCommandHandler<CommandName>,
+    command: Command
+  ): CommandReceipt {
+    const acceptedInput = {
+      commandId: command.commandId,
+      commandName: command.name,
+      createdAt: now(),
+      updatedAt: now(),
+    }
+
+    try {
+      return withTransaction(db, (tx) => {
+        const accepted = receiptsRepo.upsertAccepted(tx, acceptedInput)
+        if (
+          accepted.commandName !== command.name ||
+          accepted.state !== "accepted"
+        ) {
+          return accepted
+        }
+        const result = handler.handle(command, tx)
+        if (result instanceof Promise) {
+          throw new Error(
+            `Transactional local handler ${command.name} must be synchronous`
+          )
+        }
+        const completed = receiptsRepo.transitionState(
+          tx,
+          command.commandId,
+          "accepted",
+          "completed",
+          { result, updatedAt: now() }
+        )
+        if (!completed) {
+          throw new Error(`Command receipt disappeared: ${command.commandId}`)
+        }
+        return completed
+      })
+    } catch (error) {
+      // The transaction rolled back: the accepted receipt, handler effects,
+      // and completed receipt are all gone. Record the failure in a fresh
+      // transaction so the commandId stays deduplicated.
+      return withTransaction(db, (tx) => {
+        const accepted = receiptsRepo.upsertAccepted(tx, acceptedInput)
+        if (accepted.state !== "accepted") return accepted
+        return (
+          receiptsRepo.transitionState(
+            tx,
+            command.commandId,
+            "accepted",
+            "failed",
+            {
+              error: normalizeCommandError(error, { retryable: true }),
+              updatedAt: now(),
+            }
+          ) ?? accepted
+        )
+      })
+    }
   }
 }

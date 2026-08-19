@@ -2,9 +2,11 @@ import {
   globalConfigRecordSchema,
   instancesSnapshotSchema,
   projectConfigRecordSchema,
+  sessionSnapshotSchema,
   type GlobalConfigRecord,
   type InstancesSnapshot,
   type ProjectConfigRecord,
+  type SessionSnapshot,
 } from "@workspace/contracts"
 
 export type ReadClientOptions = {
@@ -42,6 +44,12 @@ export function createReadClient(options: ReadClientOptions = {}) {
   return {
     async getInstances(): Promise<InstancesSnapshot> {
       return instancesSnapshotSchema.parse(await get("/instances"))
+    },
+
+    async getSession(sessionId: string): Promise<SessionSnapshot> {
+      return sessionSnapshotSchema.parse(
+        await get(`/sessions/${encodeURIComponent(sessionId)}`)
+      )
     },
 
     async getConfig(): Promise<GlobalConfigRecord> {

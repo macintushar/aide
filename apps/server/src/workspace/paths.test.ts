@@ -1,10 +1,21 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import {
+  mkdir,
+  mkdtemp,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterAll, describe, expect, it } from "vitest"
 
 import { WorkspaceError } from "./errors"
-import { readFileWithinBoundary, resolveWithinBoundary } from "./paths"
+import {
+  readFileWithinBoundary,
+  resolveRealWithinBoundary,
+  resolveWithinBoundary,
+} from "./paths"
 
 const tempDirs: string[] = []
 
@@ -64,6 +75,69 @@ describe("resolveWithinBoundary", () => {
   })
 })
 
+describe("resolveRealWithinBoundary", () => {
+  it("resolves a real path inside the project", async () => {
+    const project = await makeProject()
+    await writeFile(join(project, "notes.txt"), "hello aide")
+    await expect(resolveRealWithinBoundary(project, "notes.txt")).resolves.toBe(
+      join(await realpath(project), "notes.txt")
+    )
+  })
+
+  it("resolves a path that does not exist yet", async () => {
+    const project = await makeProject()
+    await expect(
+      resolveRealWithinBoundary(project, "generated/output.txt")
+    ).resolves.toBe(join(await realpath(project), "generated", "output.txt"))
+  })
+
+  it("follows a symlink that stays inside the project", async () => {
+    const project = await makeProject()
+    await mkdir(join(project, "src"))
+    await writeFile(join(project, "src", "main.ts"), "inside")
+    await symlink(join(project, "src"), join(project, "link"))
+    await expect(
+      resolveRealWithinBoundary(project, "link/main.ts")
+    ).resolves.toBe(join(await realpath(project), "src", "main.ts"))
+  })
+
+  it("rejects a symlinked file that escapes the project", async () => {
+    const project = await makeProject()
+    const outside = await makeProject()
+    await writeFile(join(outside, "secrets.txt"), "secret")
+    await symlink(join(outside, "secrets.txt"), join(project, "secrets.txt"))
+    await expect(
+      resolveRealWithinBoundary(project, "secrets.txt")
+    ).rejects.toMatchObject({ code: "path_outside_boundary" })
+  })
+
+  it("rejects a symlinked directory that escapes the project", async () => {
+    const project = await makeProject()
+    const outside = await makeProject()
+    await writeFile(join(outside, "secrets.txt"), "secret")
+    await symlink(outside, join(project, "escape"))
+    await expect(
+      resolveRealWithinBoundary(project, "escape/secrets.txt")
+    ).rejects.toMatchObject({ code: "path_outside_boundary" })
+  })
+
+  it("rejects a write target under a symlinked directory that escapes", async () => {
+    const project = await makeProject()
+    const outside = await makeProject()
+    await symlink(outside, join(project, "escape"))
+    await expect(
+      resolveRealWithinBoundary(project, "escape/new-file.txt")
+    ).rejects.toMatchObject({ code: "path_outside_boundary" })
+  })
+
+  it("rejects lexical parent traversal before touching the disk", async () => {
+    const project = await makeProject()
+    await expect(
+      resolveRealWithinBoundary(project, "../escape.txt")
+    ).rejects.toMatchObject({ code: "path_outside_boundary" })
+  })
+})
+
 describe("readFileWithinBoundary", () => {
   it("reads a file inside the project", async () => {
     const project = await makeProject()
@@ -81,6 +155,16 @@ describe("readFileWithinBoundary", () => {
       code: "file_not_found",
       retryable: false,
     })
+  })
+
+  it("rejects reads through a symlink that escapes the project", async () => {
+    const project = await makeProject()
+    const outside = await makeProject()
+    await writeFile(join(outside, "secrets.txt"), "secret")
+    await symlink(join(outside, "secrets.txt"), join(project, "secrets.txt"))
+    await expect(
+      readFileWithinBoundary(project, "secrets.txt")
+    ).rejects.toMatchObject({ code: "path_outside_boundary" })
   })
 
   it("rejects reads outside the project boundary", async () => {

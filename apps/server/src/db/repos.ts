@@ -651,14 +651,6 @@ type ReceiptUpdate = {
 function parseReceiptRow(
   row: typeof tables.commandReceipts.$inferSelect
 ): CommandReceipt {
-  optionalJson(
-    row.acknowledgementJson,
-    `command_receipts.${row.commandId}.acknowledgement_json`
-  )
-  optionalJson(
-    row.reconciliationErrorJson,
-    `command_receipts.${row.commandId}.reconciliation_error_json`
-  )
   return parseRecord(
     commandReceiptSchema,
     {
@@ -678,6 +670,34 @@ function parseReceiptRow(
     },
     "command receipt"
   )
+}
+
+/**
+ * Receipt plus the private durable-dispatch metadata that never crosses the
+ * wire. Boot reconciliation reads this to recover native idempotency keys,
+ * acknowledgements, and reconciliation errors without touching raw tables.
+ */
+export type CommandReceiptRecord = CommandReceipt & {
+  nativeIdempotencyKey?: string
+  acknowledgement?: unknown
+  reconciliationError?: AideError
+}
+
+function parseReceiptRecord(
+  row: typeof tables.commandReceipts.$inferSelect
+): CommandReceiptRecord {
+  return {
+    ...parseReceiptRow(row),
+    nativeIdempotencyKey: row.nativeIdempotencyKey ?? undefined,
+    acknowledgement: optionalJson(
+      row.acknowledgementJson,
+      `command_receipts.${row.commandId}.acknowledgement_json`
+    ),
+    reconciliationError: optionalJson(
+      row.reconciliationErrorJson,
+      `command_receipts.${row.commandId}.reconciliation_error_json`
+    ) as AideError | undefined,
+  }
 }
 
 function getReceipt(
@@ -727,6 +747,32 @@ export const receiptsRepo = {
     return getReceipt(db, commandId)
   },
 
+  getRecord(db: AideDb, commandId: string): CommandReceiptRecord | undefined {
+    const row = db
+      .select()
+      .from(tables.commandReceipts)
+      .where(eq(tables.commandReceipts.commandId, commandId))
+      .get()
+    return row ? parseReceiptRecord(row) : undefined
+  },
+
+  listRecordsByStates(
+    db: AideDb,
+    states: ReceiptState[]
+  ): CommandReceiptRecord[] {
+    if (states.length === 0) return []
+    return db
+      .select()
+      .from(tables.commandReceipts)
+      .where(inArray(tables.commandReceipts.state, states))
+      .orderBy(
+        asc(tables.commandReceipts.createdAt),
+        asc(tables.commandReceipts.commandId)
+      )
+      .all()
+      .map(parseReceiptRecord)
+  },
+
   updateState(
     db: AideDb,
     commandId: string,
@@ -762,6 +808,51 @@ export const receiptsRepo = {
       .where(eq(tables.commandReceipts.commandId, commandId))
       .run()
     return getReceipt(db, commandId)
+  },
+
+  transitionState(
+    db: AideDb,
+    commandId: string,
+    expectedState: ReceiptState,
+    state: ReceiptState,
+    update: ReceiptUpdate
+  ): CommandReceipt | undefined {
+    const changed = db
+      .update(tables.commandReceipts)
+      .set({
+        state,
+        nativeIdempotencyKey: update.nativeIdempotencyKey,
+        acknowledgementJson:
+          update.acknowledgement === undefined
+            ? undefined
+            : JSON.stringify(update.acknowledgement),
+        resultJson:
+          update.result === undefined
+            ? undefined
+            : JSON.stringify(update.result),
+        errorJson:
+          update.error === undefined
+            ? undefined
+            : update.error === null
+              ? null
+              : JSON.stringify(update.error),
+        reconciliationErrorJson:
+          update.reconciliationError === undefined
+            ? undefined
+            : update.reconciliationError === null
+              ? null
+              : JSON.stringify(update.reconciliationError),
+        updatedAt: update.updatedAt,
+      })
+      .where(
+        and(
+          eq(tables.commandReceipts.commandId, commandId),
+          eq(tables.commandReceipts.state, expectedState)
+        )
+      )
+      .returning({ commandId: tables.commandReceipts.commandId })
+      .get()
+    return changed ? getReceipt(db, commandId) : undefined
   },
 
   listByStates(db: AideDb, states: ReceiptState[]): CommandReceipt[] {
@@ -849,6 +940,67 @@ export const nativeMappingsRepo = {
       )
       .run()
     return this.get(db, sessionId, instanceId)
+  },
+
+  completeSync(
+    db: AideDb,
+    input: {
+      sessionId: string
+      instanceId: string
+      nativeSessionId: string
+      syncCursor: number
+      resumeCursor?: string
+    }
+  ): NativeSessionMapping | undefined {
+    const updated = db
+      .update(tables.nativeSessionMappings)
+      .set({
+        syncCursor: input.syncCursor,
+        resumeCursor: input.resumeCursor,
+        unsafe: false,
+      })
+      .where(
+        and(
+          eq(tables.nativeSessionMappings.sessionId, input.sessionId),
+          eq(tables.nativeSessionMappings.instanceId, input.instanceId),
+          eq(
+            tables.nativeSessionMappings.nativeSessionId,
+            input.nativeSessionId
+          ),
+          sql`${tables.nativeSessionMappings.syncCursor} <= ${input.syncCursor}`
+        )
+      )
+      .returning({ sessionId: tables.nativeSessionMappings.sessionId })
+      .get()
+    return updated ? this.get(db, input.sessionId, input.instanceId) : undefined
+  },
+
+  acknowledgeDispatch(
+    db: AideDb,
+    input: {
+      sessionId: string
+      instanceId: string
+      nativeSessionId: string
+      resumeCursor?: string
+    }
+  ): NativeSessionMapping | undefined {
+    const updated = db
+      .update(tables.nativeSessionMappings)
+      .set({ resumeCursor: input.resumeCursor, unsafe: true })
+      .where(
+        and(
+          eq(tables.nativeSessionMappings.sessionId, input.sessionId),
+          eq(tables.nativeSessionMappings.instanceId, input.instanceId),
+          eq(
+            tables.nativeSessionMappings.nativeSessionId,
+            input.nativeSessionId
+          ),
+          eq(tables.nativeSessionMappings.unsafe, true)
+        )
+      )
+      .returning({ sessionId: tables.nativeSessionMappings.sessionId })
+      .get()
+    return updated ? this.get(db, input.sessionId, input.instanceId) : undefined
   },
 
   markUnsafe(
@@ -1143,17 +1295,69 @@ export type ConfigTarget =
   | { kind: "global" }
   | { kind: "project"; projectId: string }
 
+/**
+ * Optional at-rest encryption for configuration secrets. When installed, put
+ * encrypts secret-bearing fields (MCP headers/env) and get decrypts them, so
+ * raw SQLite contents never contain plaintext credentials.
+ */
+export type ConfigSecrets = {
+  encrypt(value: string): string
+  decrypt(value: string): string
+}
+
+const SECRET_FIELDS = new Set(["headers", "env"])
+
+function transformConfigSecrets(
+  value: unknown,
+  secrets: ConfigSecrets | undefined,
+  direction: "encrypt" | "decrypt"
+): unknown {
+  if (!secrets || value === null || typeof value !== "object") return value
+  if (Array.isArray(value)) {
+    return value.map((item) => transformConfigSecrets(item, secrets, direction))
+  }
+  const result: Record<string, unknown> = {
+    ...(value as Record<string, unknown>),
+  }
+  for (const [key, nested] of Object.entries(result)) {
+    if (
+      SECRET_FIELDS.has(key) &&
+      typeof nested === "object" &&
+      nested !== null
+    ) {
+      result[key] = Object.fromEntries(
+        Object.entries(nested as Record<string, unknown>).map(
+          ([secretKey, secretValue]) => [
+            secretKey,
+            typeof secretValue === "string"
+              ? direction === "encrypt"
+                ? secrets.encrypt(secretValue)
+                : secrets.decrypt(secretValue)
+              : secretValue,
+          ]
+        )
+      )
+    } else {
+      result[key] = transformConfigSecrets(nested, secrets, direction)
+    }
+  }
+  return result
+}
+
 function getConfig(
   db: AideDb,
-  target: { kind: "global" }
+  target: { kind: "global" },
+  secrets?: ConfigSecrets
 ): AideConfig | undefined
 function getConfig(
   db: AideDb,
-  target: { kind: "project"; projectId: string }
+  target: { kind: "project"; projectId: string },
+  secrets?: ConfigSecrets
 ): ProjectConfigRecord | undefined
 function getConfig(
   db: AideDb,
-  target: ConfigTarget
+  target: ConfigTarget,
+  secrets?: ConfigSecrets
 ): AideConfig | ProjectConfigRecord | undefined {
   const projectId = target.kind === "global" ? "" : target.projectId
   const row = db
@@ -1167,7 +1371,8 @@ function getConfig(
     )
     .get()
   if (!row) return undefined
-  const value = parseJson(row.configJson, "config_records.config_json")
+  const raw = parseJson(row.configJson, "config_records.config_json")
+  const value = transformConfigSecrets(raw, secrets, "decrypt")
   return target.kind === "global"
     ? parseRecord(aideConfigSchema, value, "config")
     : parseRecord(projectConfigRecordSchema, value, "config")
@@ -1179,25 +1384,29 @@ export const configRepo = {
   put(
     db: AideDb,
     config: AideConfig | ProjectConfigRecord,
-    updatedAt = new Date().toISOString()
+    updatedAt = new Date().toISOString(),
+    secrets?: ConfigSecrets
   ): AideConfig | ProjectConfigRecord {
     const isProject = "projectId" in config
     const value = isProject
       ? parseRecord(projectConfigRecordSchema, config, "config input")
       : parseRecord(aideConfigSchema, config, "config input")
+    const stored = transformConfigSecrets(value, secrets, "encrypt") as
+      | AideConfig
+      | ProjectConfigRecord
     const kind = isProject ? "project" : "global"
     const projectId = isProject ? config.projectId : ""
     db.insert(tables.configRecords)
       .values({
         kind,
         projectId,
-        configJson: JSON.stringify(value),
+        configJson: JSON.stringify(stored),
         createdAt: updatedAt,
         updatedAt,
       })
       .onConflictDoUpdate({
         target: [tables.configRecords.kind, tables.configRecords.projectId],
-        set: { configJson: JSON.stringify(value), updatedAt },
+        set: { configJson: JSON.stringify(stored), updatedAt },
       })
       .run()
     return value
@@ -1233,5 +1442,104 @@ export const artifactsRepo = {
       { ...row, data: Buffer.from(row.data) },
       "artifact"
     )
+  },
+}
+
+const workspaceChangeStatusSchema = z.enum([
+  "added",
+  "modified",
+  "deleted",
+  "renamed",
+  "unmodified",
+])
+
+export const sessionFileChangeSchema = z.object({
+  sessionId: z.string().min(1),
+  path: z.string().min(1),
+  turnId: z.string().min(1).optional(),
+  staged: workspaceChangeStatusSchema,
+  unstaged: workspaceChangeStatusSchema,
+  untracked: z.boolean(),
+  firstSeenAt: z.iso.datetime(),
+  lastSeenAt: z.iso.datetime(),
+})
+
+export type SessionFileChange = z.infer<typeof sessionFileChangeSchema>
+
+function parseSessionFileChangeRow(
+  row: typeof tables.sessionFileChanges.$inferSelect
+): SessionFileChange {
+  return parseRecord(
+    sessionFileChangeSchema,
+    {
+      sessionId: row.sessionId,
+      path: row.path,
+      turnId: row.turnId ?? undefined,
+      staged: row.staged,
+      unstaged: row.unstaged,
+      untracked: row.untracked,
+      firstSeenAt: row.firstSeenAt,
+      lastSeenAt: row.lastSeenAt,
+    },
+    "session file change"
+  )
+}
+
+export const sessionFileChangesRepo = {
+  put(db: AideDb, change: SessionFileChange): SessionFileChange {
+    const value = parseRecord(
+      sessionFileChangeSchema,
+      change,
+      "session file change input"
+    )
+    db.insert(tables.sessionFileChanges)
+      .values({ ...value, turnId: value.turnId ?? null })
+      .onConflictDoUpdate({
+        target: [
+          tables.sessionFileChanges.sessionId,
+          tables.sessionFileChanges.path,
+        ],
+        set: {
+          turnId: value.turnId ?? null,
+          staged: value.staged,
+          unstaged: value.unstaged,
+          untracked: value.untracked,
+          firstSeenAt: value.firstSeenAt,
+          lastSeenAt: value.lastSeenAt,
+        },
+      })
+      .run()
+    return value
+  },
+
+  listBySession(db: AideDb, sessionId: string): SessionFileChange[] {
+    return db
+      .select()
+      .from(tables.sessionFileChanges)
+      .where(eq(tables.sessionFileChanges.sessionId, sessionId))
+      .orderBy(asc(tables.sessionFileChanges.path))
+      .all()
+      .map(parseSessionFileChangeRow)
+  },
+
+  listByTurn(db: AideDb, turnId: string): SessionFileChange[] {
+    return db
+      .select()
+      .from(tables.sessionFileChanges)
+      .where(eq(tables.sessionFileChanges.turnId, turnId))
+      .orderBy(asc(tables.sessionFileChanges.path))
+      .all()
+      .map(parseSessionFileChangeRow)
+  },
+
+  remove(db: AideDb, sessionId: string, path: string): void {
+    db.delete(tables.sessionFileChanges)
+      .where(
+        and(
+          eq(tables.sessionFileChanges.sessionId, sessionId),
+          eq(tables.sessionFileChanges.path, path)
+        )
+      )
+      .run()
   },
 }

@@ -1,4 +1,12 @@
-import { closeDb, getDb, type AideDb } from "../db"
+import { dirname, join } from "node:path"
+
+import {
+  closeDb,
+  getDb,
+  loadConfigSecrets,
+  type AideDb,
+  type ConfigSecrets,
+} from "../db"
 import { env } from "../env"
 import { createClaudeAdapter } from "../harness/claude"
 import { createOpencodeAdapter } from "../harness/opencode"
@@ -24,6 +32,7 @@ export type ProductionServerOptions = {
   bearerToken?: string
   allowedOrigins?: string[]
   serve?: ProductionServe
+  secrets?: ConfigSecrets
 }
 
 function defaultServe(input: Parameters<ProductionServe>[0]) {
@@ -40,13 +49,22 @@ export function createProductionIntegration(
     createClaudeAdapter(),
   ]
   const port = options.port ?? env.PORT
+  const secrets = options.secrets ?? loadConfigSecrets(secretsKeyPath())
   const integration = createCoreIntegration({
     db,
     adapters,
     bearerToken: options.bearerToken ?? env.AIDE_BEARER_TOKEN,
     allowedOrigins: options.allowedOrigins ?? loopbackOrigins(port),
+    configSecrets: secrets,
+    trackWorkspaceChanges: true,
   })
   return { integration, ownsDb: options.db === undefined }
+}
+
+function secretsKeyPath(): string {
+  return env.DB_FILE_NAME === ":memory:"
+    ? "aide-config.key"
+    : join(dirname(env.DB_FILE_NAME), "aide-config.key")
 }
 
 export async function startProductionServer(
@@ -68,7 +86,7 @@ export async function startProductionServer(
   const effective = integration.services.config.effective()
   integration.services.config.emitInstanceFailures(effective.failures)
   integration.supervisor.boot(effective)
-  integration.services.turns.reconcileRunningTurns()
+  await integration.services.turns.reconcileRunningTurns()
 
   let shutdownPromise: Promise<void> | undefined
   const shutdown = () => {

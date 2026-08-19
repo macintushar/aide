@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { ExternalCommandContext } from "../commands"
 import {
+  artifactsRepo,
   createDb,
   messagesRepo,
   nativeMappingsRepo,
@@ -484,6 +485,111 @@ describe("TurnService", () => {
     expect(turnsRepo.get(subject.db, second.turn.id)?.status).toBe("running")
   })
 
+  it("revalidates a queued selection immediately before execution", async () => {
+    const subject = await boot({ controlled: true })
+    const first = await submit(subject, "revalidation-first")
+    await waitFor(() =>
+      turnsRepo.get(subject.db, first.turn.id)?.status === "running"
+        ? true
+        : undefined
+    )
+    const second = await submit(subject, "revalidation-second")
+    expect(turnsRepo.get(subject.db, second.turn.id)?.status).toBe("queued")
+
+    const discover = subject.adapter.discover.bind(subject.adapter)
+    subject.adapter.discover = vi.fn(async (input) => ({
+      ...(await discover(input)),
+      models: [],
+    }))
+    await subject.services.turns.interrupt(
+      subject.session.id,
+      first.turn.id,
+      commandContext()
+    )
+
+    const failed = await waitFor(() => {
+      const turn = turnsRepo.get(subject.db, second.turn.id)
+      return turn?.status === "failed" ? turn : undefined
+    })
+    expect(failed.error).toMatchObject({ code: "model_unavailable" })
+    expect(subject.adapter.send).toHaveBeenCalledTimes(1)
+  })
+
+  it("fails a running turn when its instance event stream closes", async () => {
+    const subject = await boot()
+    const { turn } = await submit(subject, "stream-closed")
+    await waitFor(() =>
+      turnsRepo.get(subject.db, turn.id)?.status === "running"
+        ? true
+        : undefined
+    )
+
+    await subject.adapter.stop({ handle: subject.handle })
+
+    const failed = await waitFor(() => {
+      const current = turnsRepo.get(subject.db, turn.id)
+      return current?.status === "failed" ? current : undefined
+    })
+    expect(failed.error).toEqual({
+      code: "instance_event_stream_closed",
+      message:
+        "Instance fake-primary closed its event stream before the turn completed",
+      instanceId: "fake-primary",
+      retryable: false,
+    })
+    expect(subject.services.turns.hasActiveStream(turn.id)).toBe(false)
+    expect(
+      nativeMappingsRepo.get(subject.db, subject.session.id, "fake-primary")
+        ?.unsafe
+    ).toBe(true)
+  })
+
+  it("does not regress a terminal receipt when completion beats send acknowledgement", async () => {
+    const subject = await boot({ controlled: true })
+    let acknowledge!: () => void
+    const acknowledgement = new Promise<void>((resolve) => {
+      acknowledge = resolve
+    })
+    subject.adapter.send = vi.fn(() => acknowledgement)
+    const { turn } = await submit(subject, "terminal-before-ack")
+    const running = await waitFor(() => {
+      const current = turnsRepo.get(subject.db, turn.id)
+      return current?.status === "running" ? current : undefined
+    })
+    await waitFor(() =>
+      vi.mocked(subject.adapter.send).mock.calls.length === 1 ? true : undefined
+    )
+
+    subject.stream.emit(
+      adapterEvent(running, "turn.completed", {
+        turn: {
+          ...running,
+          status: "completed",
+          endedAt: "2026-01-01T01:00:00.000Z",
+        },
+      })
+    )
+    await waitFor(() =>
+      turnsRepo.get(subject.db, turn.id)?.status === "completed"
+        ? true
+        : undefined
+    )
+    expect(receiptsRepo.get(subject.db, turn.commandId)?.state).toBe(
+      "completed"
+    )
+    expect(
+      nativeMappingsRepo.get(subject.db, subject.session.id, "fake-primary")
+    ).toMatchObject({ syncCursor: 1, unsafe: false })
+
+    acknowledge()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(receiptsRepo.get(subject.db, turn.commandId)?.state).toBe(
+      "completed"
+    )
+    expect(turnsRepo.get(subject.db, turn.id)?.status).toBe("completed")
+  })
+
   it("does not restart a queued turn interrupted during native session acquisition", async () => {
     const subject = await boot({ controlled: true })
     const originalOpen = subject.adapter.openSession.bind(subject.adapter)
@@ -759,6 +865,82 @@ describe("TurnService", () => {
     expect(subject.services.turns.hasActiveStream(turn.id)).toBe(false)
   })
 
+  it("announces the assistant placeholder when a turn starts", async () => {
+    const subject = await boot()
+    const { turn } = await submit(subject)
+    const running = await waitFor(() => {
+      const current = turnsRepo.get(subject.db, turn.id)
+      return current?.status === "running" ? current : undefined
+    })
+    const assistantId = running.assistantMessageId!
+
+    const announced = subject.eventService
+      .listDurable({
+        scope: { kind: "session", sessionId: subject.session.id },
+        cursor: subject.eventService.cursor(
+          { kind: "session", sessionId: subject.session.id },
+          0
+        ),
+      })
+      .find(
+        (event) =>
+          event.type === "message.upserted" &&
+          event.data.message.id === assistantId
+      )
+    expect(announced).toBeDefined()
+    expect(messagesRepo.get(subject.db, assistantId)?.role).toBe("assistant")
+  })
+
+  it("routes oversized tool output to an artifact with a bounded preview", async () => {
+    const subject = await boot({ controlled: true })
+    const { turn } = await submit(subject)
+    const running = await waitFor(() => {
+      const current = turnsRepo.get(subject.db, turn.id)
+      return current?.status === "running" ? current : undefined
+    })
+    const assistantId = running.assistantMessageId!
+    const largeOutput = "x".repeat(12_000)
+    subject.stream.emit(
+      adapterEvent(
+        running,
+        "part.upserted",
+        {
+          part: {
+            id: "tool-large",
+            messageId: assistantId,
+            index: 0,
+            type: "tool" as const,
+            name: "big-tool",
+            category: "shell" as const,
+            status: "completed" as const,
+            output: largeOutput,
+          },
+        },
+        "tool-large-event",
+        assistantId,
+        "tool-large"
+      )
+    )
+    await waitFor(() =>
+      partsRepo.listByMessage(subject.db, assistantId).length === 1
+        ? true
+        : undefined
+    )
+
+    const part = partsRepo
+      .listByMessage(subject.db, assistantId)
+      .find((candidate) => candidate.id === "tool-large")!
+    expect(part.type).toBe("tool")
+    if (part.type === "tool") {
+      expect(part.output!.length).toBeLessThan(largeOutput.length)
+      expect(part.output).toContain("tool output truncated")
+      expect(part.artifactId).toBeDefined()
+      const artifact = artifactsRepo.get(subject.db, part.artifactId!)
+      expect(artifact).toBeDefined()
+      expect(artifact!.data.byteLength).toBe(largeOutput.length)
+    }
+  })
+
   it("fails a running turn when an adapter references an unknown message", async () => {
     const subject = await boot({ controlled: true })
     const { turn } = await submit(subject)
@@ -869,7 +1051,7 @@ describe("TurnService", () => {
       const current = turnsRepo.get(subject.db, turn.id)
       return current?.status === "running" ? current : undefined
     })
-    expect(subject.services.turns.reconcileRunningTurns()).toEqual([])
+    expect(await subject.services.turns.reconcileRunningTurns()).toEqual([])
 
     subject.stream.emit(
       adapterEvent(

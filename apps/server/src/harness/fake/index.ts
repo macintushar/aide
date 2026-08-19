@@ -16,6 +16,7 @@ import type {
   HarnessAdapter,
   HarnessEventsInput,
   InstanceHandle,
+  ActiveTurnInput,
   InterruptTurnInput,
   InputResponseInput,
   McpStatusInput,
@@ -278,7 +279,7 @@ export function createFakeHarnessAdapter(
   ): AideEvent => {
     const event = {
       schemaVersion: 1,
-      eventId: nextId("evt"),
+      eventId: `${instanceId}-${nextId("evt")}`,
       timestamp: now(),
       delivery: shape.ephemeral
         ? { durable: false, streamOrdinal: session.streamOrdinal++ }
@@ -834,6 +835,17 @@ export function createFakeHarnessAdapter(
           input.handle.instanceId
         )
       }
+    },
+
+    async activeTurn(input: ActiveTurnInput) {
+      const { session } = requireSession(
+        input.handle,
+        input.nativeSession.nativeSessionId
+      )
+      const turn = session.activeTurn
+      return turn && turn.status === "running" && !turn.cancelled
+        ? { turnId: turn.turnId }
+        : undefined
     },
 
     async interrupt(input: InterruptTurnInput) {

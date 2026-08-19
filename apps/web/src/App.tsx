@@ -1,27 +1,40 @@
 import {
   RiPulseLine,
+  RiQuestionAnswerLine,
   RiSettings3Line,
   RiTerminalBoxLine,
 } from "@remixicon/react"
+import { useState } from "react"
 
 import {
   InstancesBoundary,
   type InstancesBoundaryProps,
 } from "@/features/instances"
 import {
+  SessionBoundary,
+  SessionNavigation,
+  type SessionBoundaryProps,
+} from "@/features/sessions"
+import {
   SettingsBoundary,
   type SettingsBoundaryProps,
 } from "@/features/settings"
 import { createCommandClient } from "@/lib/transport/command-client"
-import { subscribeInstancesEvents } from "@/lib/transport/event-source"
+import {
+  subscribeInstancesEvents,
+  subscribeSessionEvents,
+} from "@/lib/transport/event-source"
 import { createReadClient } from "@/lib/transport/read-client"
 
 export type AppProps = {
   readClient?: InstancesBoundaryProps["readClient"] &
-    SettingsBoundaryProps["readClient"]
+    SettingsBoundaryProps["readClient"] &
+    SessionBoundaryProps["readClient"]
   commandClient?: InstancesBoundaryProps["commandClient"] &
     SettingsBoundaryProps["commandClient"]
   subscribeInstances?: InstancesBoundaryProps["subscribe"]
+  subscribeSession?: SessionBoundaryProps["subscribe"]
+  initialSessionId?: string
 }
 
 const token = import.meta.env.VITE_AIDE_BEARER_TOKEN
@@ -32,7 +45,11 @@ export function App({
   readClient: reads = readClient,
   commandClient: commands = commandClient,
   subscribeInstances = subscribeInstancesEvents,
+  subscribeSession = subscribeSessionEvents,
+  initialSessionId,
 }: AppProps) {
+  const [sessionId, setSessionId] = useState(initialSessionId)
+
   return (
     <div className="min-h-svh bg-[radial-gradient(circle_at_top_left,var(--color-primary)_0,transparent_24rem)] bg-fixed">
       <div className="min-h-svh bg-background/94">
@@ -58,6 +75,49 @@ export function App({
         </header>
 
         <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8 lg:py-12">
+          <section
+            aria-labelledby="workspace-heading"
+            className="mb-10 min-w-0 rounded-3xl border border-border bg-background/90 p-5 shadow-sm sm:p-6 lg:p-8"
+          >
+            <div className="mb-6 flex items-center gap-3 border-b border-border pb-5">
+              <span className="grid size-9 place-items-center rounded-xl bg-primary/10 text-primary">
+                <RiQuestionAnswerLine className="size-5" aria-hidden="true" />
+              </span>
+              <div>
+                <p className="text-xs font-medium text-muted-foreground uppercase">
+                  Project workspace
+                </p>
+                <h2
+                  id="workspace-heading"
+                  className="font-heading text-2xl font-medium"
+                >
+                  Sessions
+                </h2>
+              </div>
+            </div>
+
+            <SessionNavigation
+              commandClient={commands}
+              activeSessionId={sessionId}
+              onSelectSession={setSessionId}
+            />
+
+            {sessionId ? (
+              <div className="mt-8 border-t border-border pt-8">
+                <SessionBoundary
+                  sessionId={sessionId}
+                  readClient={reads}
+                  commandClient={commands}
+                  subscribe={subscribeSession}
+                />
+              </div>
+            ) : (
+              <p className="mt-6 rounded-2xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
+                Open a project or enter a session ID to view its transcript.
+              </p>
+            )}
+          </section>
+
           <div className="mb-8 max-w-2xl">
             <p className="flex items-center gap-2 text-xs font-semibold tracking-[0.16em] text-primary uppercase">
               <RiPulseLine className="size-4" aria-hidden="true" />

@@ -9,7 +9,7 @@ import {
 } from "@workspace/contracts"
 import { afterEach, describe, expect, it } from "vitest"
 
-import { createDb } from "../db"
+import { createDb, nativeMappingsRepo, turnsRepo } from "../db"
 import { Database } from "../db/test/bun-sqlite-shim"
 import { eventSseFrame } from "../events"
 import { createFakeHarnessAdapter } from "../harness/fake"
@@ -497,20 +497,387 @@ describe("Gate G1 core integration", () => {
         ? true
         : undefined
     )
+    // The instance did not survive the restart, so its native session can no
+    // longer be resumed and the turn must be failed rather than rerouted.
+    subject.adapter.resumeSession = async () => {
+      throw new Error("fake instance is gone")
+    }
 
     const restarted = createAideTestApp({
       db: subject.db,
       registry: subject.registry,
     })
-    const reconciled = restarted.services.turns.reconcileRunningTurns()
+    const reconciled = await restarted.services.turns.reconcileRunningTurns()
     expect(reconciled).toHaveLength(1)
     expect(reconciled[0]).toMatchObject({
       status: "failed",
-      error: { code: "orphaned_running_turn", retryable: false },
+      error: {
+        code: "orphaned_running_turn",
+        instanceId: "fake-primary",
+        retryable: false,
+      },
     })
     expect(
       restarted.snapshotService.sessionSnapshot(sessionId).turns[0]?.status
     ).toBe("failed")
+    await subject.adapter.stop({ handle: subject.handle })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+
+  it("reattaches a persisted running turn whose native session survives", async () => {
+    const subject = await boot()
+    const sessionId = await createProjectSession(subject)
+    await command(subject.app, "turn.send", {
+      commandId: "command_reattach_running",
+      sessionId,
+      content: "finish me after the restart",
+      execution: selection,
+    })
+    const permission = await waitFor(() => {
+      const snapshot = subject.snapshotService.sessionSnapshot(sessionId)
+      return snapshot.turns[0]?.status === "running"
+        ? snapshot.requests.find(
+            (request) =>
+              request.kind === "permission" && request.status === "open"
+          )
+        : undefined
+    })
+
+    // The instance outlived the core, so the turn keeps running under a
+    // rebuilt event consumer instead of being failed.
+    const restarted = createAideTestApp({
+      db: subject.db,
+      registry: subject.registry,
+    })
+    expect(await restarted.services.turns.reconcileRunningTurns()).toEqual([])
+    const turnId =
+      subject.snapshotService.sessionSnapshot(sessionId).turns[0]!.id
+    expect(restarted.services.turns.hasActiveStream(turnId)).toBe(true)
+    expect(
+      restarted.snapshotService.sessionSnapshot(sessionId).turns[0]?.status
+    ).toBe("running")
+
+    // The reattached stream still answers requests, so the turn completes on
+    // the new core rather than stranding its session.
+    await command(restarted.app, "permission.respond", {
+      commandId: "command_reattach_permission",
+      requestId: permission.id,
+      resolution: { kind: "permission", optionId: "allow" },
+    })
+    const input = await waitFor(() =>
+      restarted.snapshotService
+        .sessionSnapshot(sessionId)
+        .requests.find(
+          (request) => request.kind === "input" && request.status === "open"
+        )
+    )
+    await command(restarted.app, "input.respond", {
+      commandId: "command_reattach_input",
+      requestId: input.id,
+      resolution: {
+        kind: "input",
+        answers: {
+          approach: { optionIds: ["safe"] },
+          notes: { text: "reattached" },
+        },
+      },
+    })
+    await waitFor(() =>
+      restarted.snapshotService.sessionSnapshot(sessionId).turns[0]?.status ===
+      "completed"
+        ? true
+        : undefined
+    )
+    expect(
+      nativeMappingsRepo.get(subject.db, sessionId, "fake-primary")
+    ).toMatchObject({ unsafe: false })
+    await subject.adapter.stop({ handle: subject.handle })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+
+  it("fails a running turn the harness already finished while disconnected", async () => {
+    const subject = await boot()
+    const sessionId = await createProjectSession(subject)
+    await command(subject.app, "turn.send", {
+      commandId: "command_finished_offline",
+      sessionId,
+      content: "finish while the server is down",
+      execution: selection,
+    })
+    await waitFor(() =>
+      subject.snapshotService.sessionSnapshot(sessionId).turns[0]?.status ===
+      "running"
+        ? true
+        : undefined
+    )
+
+    // The native session survives, but its turn reached a terminal state
+    // while nothing was listening, so the stream will never carry that
+    // event. Reattaching would hold the session's active slot forever.
+    const originalActiveTurn = subject.adapter.activeTurn
+    subject.adapter.activeTurn = async () => undefined
+
+    const restarted = createAideTestApp({
+      db: subject.db,
+      registry: subject.registry,
+    })
+    const reconciled = await restarted.services.turns.reconcileRunningTurns()
+    expect(reconciled).toHaveLength(1)
+    expect(reconciled[0]).toMatchObject({
+      status: "failed",
+      error: { code: "orphaned_running_turn" },
+    })
+    expect(restarted.services.turns.hasActiveStream(reconciled[0]!.id)).toBe(
+      false
+    )
+
+    // The session is still usable: the next turn is not blocked behind the
+    // turn that never came back.
+    subject.adapter.activeTurn = originalActiveTurn
+    await command(restarted.app, "turn.send", {
+      commandId: "command_after_orphan",
+      sessionId,
+      content: "the session still works",
+      execution: selection,
+    })
+    await waitFor(() =>
+      restarted.snapshotService
+        .sessionSnapshot(sessionId)
+        .turns.find((turn) => turn.commandId === "command_after_orphan")
+        ?.status === "running"
+        ? true
+        : undefined
+    )
+    await subject.adapter.stop({ handle: subject.handle })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+
+  it("keeps a terminal event from a lazy stream that lands during reattachment", async () => {
+    const subject = await boot()
+    const sessionId = await createProjectSession(subject)
+    await command(subject.app, "turn.send", {
+      commandId: "command_lazy_stream",
+      sessionId,
+      content: "end me mid-reattach",
+      execution: selection,
+    })
+    await waitFor(() =>
+      subject.snapshotService.sessionSnapshot(sessionId).turns[0]?.status ===
+      "running"
+        ? true
+        : undefined
+    )
+    const turnId =
+      subject.snapshotService.sessionSnapshot(sessionId).turns[0]!.id
+    const mapping = nativeMappingsRepo.get(
+      subject.db,
+      sessionId,
+      "fake-primary"
+    )!
+
+    // An `async *events()` only subscribes once iteration begins, which is
+    // the shape a real adapter is most likely to take.
+    const realEvents = subject.adapter.events.bind(subject.adapter)
+    subject.adapter.events = (input) => ({
+      async *[Symbol.asyncIterator]() {
+        yield* realEvents(input)
+      },
+    })
+
+    // The native turn ends while the liveness check is in flight, so its
+    // terminal event is published before any consumer starts iterating.
+    const realActiveTurn = subject.adapter.activeTurn!.bind(subject.adapter)
+    subject.adapter.activeTurn = async (input) => {
+      const live = await realActiveTurn(input)
+      await subject.adapter.interrupt({
+        handle: subject.handle,
+        nativeSession: { nativeSessionId: mapping.nativeSessionId },
+        turnId,
+      })
+      return live
+    }
+
+    const restarted = createAideTestApp({
+      db: subject.db,
+      registry: subject.registry,
+    })
+    expect(await restarted.services.turns.reconcileRunningTurns()).toEqual([])
+
+    // The event survived the window, so the turn reaches a terminal state
+    // instead of holding the session open forever.
+    const settled = await waitFor(() => {
+      const turn = restarted.snapshotService
+        .sessionSnapshot(sessionId)
+        .turns.find((candidate) => candidate.id === turnId)
+      return turn && turn.status !== "running" ? turn : undefined
+    })
+    expect(settled.status).toBe("interrupted")
+    expect(restarted.services.turns.hasActiveStream(turnId)).toBe(false)
+    await subject.adapter.stop({ handle: subject.handle })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+
+  it("keeps the real outcome when a turn ends just as reattachment checks", async () => {
+    const subject = await boot()
+    const sessionId = await createProjectSession(subject)
+    await command(subject.app, "turn.send", {
+      commandId: "command_settles_late",
+      sessionId,
+      content: "end me during the check",
+      execution: selection,
+    })
+    await waitFor(() =>
+      subject.snapshotService.sessionSnapshot(sessionId).turns[0]?.status ===
+      "running"
+        ? true
+        : undefined
+    )
+    const turnId =
+      subject.snapshotService.sessionSnapshot(sessionId).turns[0]!.id
+    const mapping = nativeMappingsRepo.get(
+      subject.db,
+      sessionId,
+      "fake-primary"
+    )!
+
+    // The turn ends while the liveness check is in flight, so the harness
+    // reports nothing running even though its terminal event is on the way.
+    subject.adapter.activeTurn = async () => {
+      await subject.adapter.interrupt({
+        handle: subject.handle,
+        nativeSession: { nativeSessionId: mapping.nativeSessionId },
+        turnId,
+      })
+      return undefined
+    }
+
+    const restarted = createAideTestApp({
+      db: subject.db,
+      registry: subject.registry,
+    })
+    // Nothing is reported orphaned: the outcome arrived instead.
+    expect(await restarted.services.turns.reconcileRunningTurns()).toEqual([])
+    const settled = restarted.snapshotService
+      .sessionSnapshot(sessionId)
+      .turns.find((turn) => turn.id === turnId)
+    expect(settled?.status).toBe("interrupted")
+    expect(settled?.error).toBeUndefined()
+    await subject.adapter.stop({ handle: subject.handle })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+
+  it("resumes a cleanly completed mapping's session after a restart", async () => {
+    const subject = await boot()
+    const sessionId = await createProjectSession(subject)
+
+    async function resolveOpenRequests() {
+      for (const request of subject.snapshotService
+        .sessionSnapshot(sessionId)
+        .requests.filter((candidate) => candidate.status === "open")) {
+        await command(subject.app, "permission.respond", {
+          commandId: `command_resolve_${request.id}_perm`,
+          requestId: request.id,
+          resolution: { kind: "permission", optionId: "allow" },
+        }).catch(async () => {
+          await command(subject.app, "input.respond", {
+            commandId: `command_resolve_${request.id}_input`,
+            requestId: request.id,
+            resolution: {
+              kind: "input",
+              answers: {
+                approach: { optionIds: ["safe"] },
+                notes: { text: "restart" },
+              },
+            },
+          })
+        })
+      }
+    }
+
+    await command(subject.app, "turn.send", {
+      commandId: "command_reattach_first",
+      sessionId,
+      content: "complete me",
+      execution: selection,
+    })
+    for (;;) {
+      await resolveOpenRequests()
+      if (
+        subject.snapshotService.sessionSnapshot(sessionId).turns[0]?.status ===
+        "completed"
+      ) {
+        break
+      }
+      await new Promise((resolve) => setTimeout(resolve, 5))
+    }
+    expect(
+      nativeMappingsRepo.get(subject.db, sessionId, "fake-primary")
+    ).toMatchObject({ unsafe: false })
+
+    // A second turn is submitted while its native session acquisition is
+    // gated, so it is still persisted as running when the core "restarts".
+    let releaseResume!: () => void
+    const resumeGate = new Promise<void>((resolve) => {
+      releaseResume = resolve
+    })
+    const originalResume = subject.adapter.resumeSession.bind(subject.adapter)
+    subject.adapter.resumeSession = async (input: never) => {
+      await resumeGate
+      return originalResume(input)
+    }
+    await command(subject.app, "turn.send", {
+      commandId: "command_reattach_second",
+      sessionId,
+      content: "queued across restart",
+      execution: selection,
+    })
+    await waitFor(() =>
+      turnsRepo.get(subject.db, "turn_2")?.status === "running" ||
+      turnsRepo.get(subject.db, "turn_2")?.status === "queued"
+        ? true
+        : undefined
+    )
+    releaseResume()
+    const resumed = createAideTestApp({
+      db: subject.db,
+      registry: subject.registry,
+    })
+    const reconciled = await resumed.services.turns.reconcileRunningTurns()
+    expect(reconciled).toEqual([])
+
+    const secondTurn = await waitFor(() => {
+      const turn = resumed.snapshotService
+        .sessionSnapshot(sessionId)
+        .turns.find(
+          (candidate) => candidate.commandId === "command_reattach_second"
+        )
+      return turn ? turn : undefined
+    })
+    expect(
+      resumed.snapshotService
+        .sessionSnapshot(sessionId)
+        .turns.find((turn) => turn.commandId === "command_reattach_first")
+        ?.status
+    ).toBe("completed")
+    expect(secondTurn.status).toBe("queued")
+    // The safe mapping from the first turn is preserved for the resumed core.
+    expect(
+      nativeMappingsRepo.get(subject.db, sessionId, "fake-primary")
+    ).toMatchObject({ unsafe: false })
+
+    // Drain the queued turn so no core touches the closed database later.
+    for (;;) {
+      await resolveOpenRequests()
+      if (
+        resumed.snapshotService
+          .sessionSnapshot(sessionId)
+          .turns.find((turn) => turn.commandId === "command_reattach_second")
+          ?.status === "completed"
+      ) {
+        break
+      }
+      await new Promise((resolve) => setTimeout(resolve, 5))
+    }
     await subject.adapter.stop({ handle: subject.handle })
     await new Promise((resolve) => setTimeout(resolve, 0))
   })

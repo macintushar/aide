@@ -27,26 +27,42 @@ export function createCoreCommandHandlers(
     ...createSupervisionHandlers(services),
     "project.open": {
       kind: "local",
-      handle(command: CommandFor<"project.open">) {
-        return services.projects.open(command.directory, command.projectName)
+      transactional: true,
+      handle(command: CommandFor<"project.open">, db) {
+        return services.projects.open(
+          command.directory,
+          command.projectName,
+          db
+        )
       },
     },
     "session.create": {
       kind: "local",
-      handle(command: CommandFor<"session.create">) {
-        return services.projects.createSession(command.projectId, command.title)
+      transactional: true,
+      handle(command: CommandFor<"session.create">, db) {
+        return services.projects.createSession(
+          command.projectId,
+          command.title,
+          db
+        )
       },
     },
     "session.rename": {
       kind: "local",
-      handle(command: CommandFor<"session.rename">) {
-        return services.projects.renameSession(command.sessionId, command.title)
+      transactional: true,
+      handle(command: CommandFor<"session.rename">, db) {
+        return services.projects.renameSession(
+          command.sessionId,
+          command.title,
+          db
+        )
       },
     },
     "session.delete": {
       kind: "local",
-      handle(command: CommandFor<"session.delete">) {
-        return services.projects.deleteSession(command.sessionId)
+      transactional: true,
+      handle(command: CommandFor<"session.delete">, db) {
+        return services.projects.deleteSession(command.sessionId, db)
       },
     },
     "turn.send": {

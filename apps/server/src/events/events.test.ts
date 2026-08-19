@@ -77,6 +77,77 @@ describe("event and snapshot services", () => {
     sessionsRepo.create(db, sessionFixture())
   }
 
+  it("commits domain rows and events together and broadcasts only after commit", () => {
+    createSessionRecords()
+    const received: AideEvent[] = []
+    const subscription = events.subscribe({
+      kind: "session",
+      sessionId: "ses_1",
+    })
+    const collect = (async () => {
+      for await (const event of subscription) received.push(event)
+    })()
+    const fixtures = eventFixtures()
+
+    const { result, events: persisted } = events.runTransactional(
+      (tx, emit) => {
+        const message = messagesRepo.createUser(tx, {
+          id: "msg_tx_1",
+          sessionId: "ses_1",
+          role: "user",
+          parts: [],
+          execution: resolvedExecutionFixture(),
+          createdAt: timestamp,
+        })
+        emit(withoutDelivery(fixtures[0]))
+        return message.id
+      }
+    )
+
+    expect(result).toBe("msg_tx_1")
+    expect(persisted).toHaveLength(1)
+    expect(messagesRepo.get(db, "msg_tx_1")).toBeDefined()
+    return Promise.all([subscription.return(), collect]).then(() => {
+      expect(received.map((event) => event.eventId)).toEqual(
+        persisted.map((event) => event.eventId)
+      )
+    })
+  })
+
+  it("rolls back domain rows and events together and broadcasts nothing", () => {
+    createSessionRecords()
+    const received: AideEvent[] = []
+    const subscription = events.subscribe({
+      kind: "session",
+      sessionId: "ses_1",
+    })
+    const collect = (async () => {
+      for await (const event of subscription) received.push(event)
+    })()
+    const fixtures = eventFixtures()
+
+    expect(() =>
+      events.runTransactional((tx, emit) => {
+        messagesRepo.createUser(tx, {
+          id: "msg_tx_2",
+          sessionId: "ses_1",
+          role: "user",
+          parts: [],
+          execution: resolvedExecutionFixture(),
+          createdAt: timestamp,
+        })
+        emit(withoutDelivery(fixtures[0]))
+        throw new Error("domain write failed")
+      })
+    ).toThrow("domain write failed")
+
+    expect(messagesRepo.get(db, "msg_tx_2")).toBeUndefined()
+    expect(events.findDurable(fixtures[0].eventId)).toBeUndefined()
+    return Promise.all([subscription.return(), collect]).then(() => {
+      expect(received).toHaveLength(0)
+    })
+  })
+
   it("persists and replays independently sequenced durable scopes", () => {
     const fixtures = eventFixtures()
     const firstSession = events.appendDurable(withoutDelivery(fixtures[0]))

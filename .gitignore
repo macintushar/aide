@@ -40,3 +40,6 @@ dist-ssr
 
 # coverage
 coverage
+
+# config secrets key (generated per install, never committed)
+aide-config.key

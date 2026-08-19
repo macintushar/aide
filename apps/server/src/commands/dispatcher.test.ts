@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url"
 import { commandReceiptSchema } from "@workspace/contracts"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
-import { createDb, receiptsRepo } from "../db"
+import { createDb, projectsRepo, receiptsRepo } from "../db"
 import { Database } from "../db/test/bun-sqlite-shim"
 import {
   ReceiptTransitionError,
@@ -106,6 +106,61 @@ describe("command dispatcher", () => {
     expect(states).toEqual(["dispatching", "dispatched", "completed"])
     expect(receipt).toEqual(receiptsRepo.get(db, command.commandId))
     expect(receipt.result).toEqual({ deleted: true })
+  })
+
+  it("commits acknowledgement persistence with the receipt transition", async () => {
+    const subject = dispatcher({
+      "session.delete": {
+        kind: "external",
+        handle: (_command, context) => {
+          context.markDispatching("native-key")
+          context.markDispatched({ nativeId: "one" }, (tx) => {
+            expect(receiptsRepo.get(tx, command.commandId)?.state).toBe(
+              "dispatched"
+            )
+            projectsRepo.upsertByDirectory(tx, {
+              id: "project-ack",
+              name: "Acknowledged",
+              directory: "/tmp/acknowledged",
+              createdAt: "2026-01-01T00:00:00.000Z",
+              lastOpenedAt: "2026-01-01T00:00:00.000Z",
+            })
+          })
+          context.complete()
+        },
+      },
+    })
+
+    const receipt = await subject.dispatch(command)
+
+    expect(receipt.state).toBe("completed")
+    expect(projectsRepo.get(db, "project-ack")).toBeDefined()
+  })
+
+  it("rolls back acknowledgement when its persistence callback fails", async () => {
+    const subject = dispatcher({
+      "session.delete": {
+        kind: "external",
+        handle: (_command, context) => {
+          context.markDispatching("native-key")
+          context.markDispatched(undefined, (tx) => {
+            projectsRepo.upsertByDirectory(tx, {
+              id: "project-rolled-back",
+              name: "Rolled back",
+              directory: "/tmp/rolled-back",
+              createdAt: "2026-01-01T00:00:00.000Z",
+              lastOpenedAt: "2026-01-01T00:00:00.000Z",
+            })
+            throw new Error("mapping acknowledgement failed")
+          })
+        },
+      },
+    })
+
+    const receipt = await subject.dispatch(command)
+
+    expect(receipt.state).toBe("uncertain")
+    expect(projectsRepo.get(db, "project-rolled-back")).toBeUndefined()
   })
 
   it("records a pre-dispatch throw as a retryable failure", async () => {
@@ -295,5 +350,79 @@ describe("command dispatcher", () => {
     expect(() => assertReceiptTransition("completed", "failed")).toThrow(
       "completed -> failed"
     )
+  })
+
+  it("commits a transactional local command's receipt and effects atomically", async () => {
+    const subject = dispatcher({
+      "session.delete": {
+        kind: "local",
+        transactional: true,
+        handle(_command, tx) {
+          projectsRepo.upsertByDirectory(tx, {
+            id: "project-atomic",
+            name: "Atomic",
+            directory: "/tmp/atomic",
+            createdAt: "2026-01-01T00:00:00.000Z",
+            lastOpenedAt: "2026-01-01T00:00:00.000Z",
+          })
+          return { deleted: true }
+        },
+      },
+    })
+
+    const receipt = await subject.dispatch(command)
+
+    expect(receipt.state).toBe("completed")
+    expect(receipt.result).toEqual({ deleted: true })
+    expect(projectsRepo.get(db, "project-atomic")).toBeDefined()
+    expect(receiptsRepo.get(db, command.commandId)?.state).toBe("completed")
+  })
+
+  it("rolls back a failed transactional local command and records only a failed receipt", async () => {
+    const subject = dispatcher({
+      "session.delete": {
+        kind: "local",
+        transactional: true,
+        handle(_command, tx) {
+          projectsRepo.upsertByDirectory(tx, {
+            id: "project-rolled-back",
+            name: "Rolled back",
+            directory: "/tmp/rolled-back",
+            createdAt: "2026-01-01T00:00:00.000Z",
+            lastOpenedAt: "2026-01-01T00:00:00.000Z",
+          })
+          throw new Error("effect failed")
+        },
+      },
+    })
+
+    const receipt = await subject.dispatch(command)
+
+    expect(receipt.state).toBe("failed")
+    expect(receipt.error).toMatchObject({ retryable: true })
+    expect(projectsRepo.get(db, "project-rolled-back")).toBeUndefined()
+    expect(receiptsRepo.getRecord(db, command.commandId)?.state).toBe("failed")
+  })
+
+  it("exposes private receipt metadata through the record readback", async () => {
+    const subject = dispatcher({
+      "session.delete": {
+        kind: "external",
+        handle(_command, context) {
+          context.markDispatching("native-key-1")
+          context.markDispatched({ nativeId: "one" })
+          context.complete({ deleted: true })
+        },
+      },
+    })
+    await subject.dispatch(command)
+
+    const record = receiptsRepo.getRecord(db, command.commandId)
+    expect(record).toMatchObject({
+      state: "completed",
+      nativeIdempotencyKey: "native-key-1",
+      acknowledgement: { nativeId: "one" },
+    })
+    expect(receiptsRepo.listRecordsByStates(db, ["completed"])).toHaveLength(1)
   })
 })

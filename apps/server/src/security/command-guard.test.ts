@@ -112,6 +112,7 @@ describe("isLoopbackHost", () => {
     expect(isLoopbackHost("sub.localhost")).toBe(false)
     expect(isLoopbackHost("127.0.0.1.evil.example")).toBe(false)
     expect(isLoopbackHost("1270.0.0.1")).toBe(false)
+    expect(isLoopbackHost("127.999.0.1")).toBe(false)
     expect(isLoopbackHost("example.com")).toBe(false)
     expect(isLoopbackHost("")).toBe(false)
   })
