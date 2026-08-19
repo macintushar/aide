@@ -497,11 +497,11 @@ describe("Gate G1 core integration", () => {
         ? true
         : undefined
     )
-    // The in-flight mapping is deliberately unsafe until clean completion, so
-    // boot reconciliation must fail this turn rather than resume it.
-    expect(
-      nativeMappingsRepo.get(subject.db, sessionId, "fake-primary")?.unsafe
-    ).toBe(true)
+    // The instance did not survive the restart, so its native session can no
+    // longer be resumed and the turn must be failed rather than rerouted.
+    subject.adapter.resumeSession = async () => {
+      throw new Error("fake instance is gone")
+    }
 
     const restarted = createAideTestApp({
       db: subject.db,
@@ -520,6 +520,77 @@ describe("Gate G1 core integration", () => {
     expect(
       restarted.snapshotService.sessionSnapshot(sessionId).turns[0]?.status
     ).toBe("failed")
+    await subject.adapter.stop({ handle: subject.handle })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+
+  it("reattaches a persisted running turn whose native session survives", async () => {
+    const subject = await boot()
+    const sessionId = await createProjectSession(subject)
+    await command(subject.app, "turn.send", {
+      commandId: "command_reattach_running",
+      sessionId,
+      content: "finish me after the restart",
+      execution: selection,
+    })
+    const permission = await waitFor(() => {
+      const snapshot = subject.snapshotService.sessionSnapshot(sessionId)
+      return snapshot.turns[0]?.status === "running"
+        ? snapshot.requests.find(
+            (request) =>
+              request.kind === "permission" && request.status === "open"
+          )
+        : undefined
+    })
+
+    // The instance outlived the core, so the turn keeps running under a
+    // rebuilt event consumer instead of being failed.
+    const restarted = createAideTestApp({
+      db: subject.db,
+      registry: subject.registry,
+    })
+    expect(await restarted.services.turns.reconcileRunningTurns()).toEqual([])
+    const turnId =
+      subject.snapshotService.sessionSnapshot(sessionId).turns[0]!.id
+    expect(restarted.services.turns.hasActiveStream(turnId)).toBe(true)
+    expect(
+      restarted.snapshotService.sessionSnapshot(sessionId).turns[0]?.status
+    ).toBe("running")
+
+    // The reattached stream still answers requests, so the turn completes on
+    // the new core rather than stranding its session.
+    await command(restarted.app, "permission.respond", {
+      commandId: "command_reattach_permission",
+      requestId: permission.id,
+      resolution: { kind: "permission", optionId: "allow" },
+    })
+    const input = await waitFor(() =>
+      restarted.snapshotService
+        .sessionSnapshot(sessionId)
+        .requests.find(
+          (request) => request.kind === "input" && request.status === "open"
+        )
+    )
+    await command(restarted.app, "input.respond", {
+      commandId: "command_reattach_input",
+      requestId: input.id,
+      resolution: {
+        kind: "input",
+        answers: {
+          approach: { optionIds: ["safe"] },
+          notes: { text: "reattached" },
+        },
+      },
+    })
+    await waitFor(() =>
+      restarted.snapshotService.sessionSnapshot(sessionId).turns[0]?.status ===
+      "completed"
+        ? true
+        : undefined
+    )
+    expect(
+      nativeMappingsRepo.get(subject.db, sessionId, "fake-primary")
+    ).toMatchObject({ unsafe: false })
     await subject.adapter.stop({ handle: subject.handle })
     await new Promise((resolve) => setTimeout(resolve, 0))
   })

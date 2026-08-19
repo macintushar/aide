@@ -343,19 +343,15 @@ export class TurnService {
 
   /**
    * Boot reconciliation for persisted `running` turns without an active
-   * stream. A turn whose native mapping is safe and whose adapter can still
-   * resume that native session is left running so its session continues from
-   * canonical history; anything else fails with a structured error rather
-   * than silently rerouting.
+   * stream. A turn whose native session still resumes is put back under a
+   * live event consumer so it finishes against canonical history; anything
+   * else fails with a structured error rather than silently rerouting.
    */
   async reconcileRunningTurns(): Promise<Turn[]> {
     const reconciled: Turn[] = []
     for (const turn of turnsRepo.listRunning(this.#db)) {
       if (this.#active.get(turn.sessionId)?.turnId === turn.id) continue
-      if (await this.#canReattach(turn)) {
-        this.#schedule(turn.sessionId)
-        continue
-      }
+      if (await this.#reattach(turn)) continue
       const error: AideError = {
         code: "orphaned_running_turn",
         message:
@@ -369,7 +365,14 @@ export class TurnService {
     return reconciled
   }
 
-  async #canReattach(turn: Turn): Promise<boolean> {
+  /**
+   * Puts a persisted running turn back under a live event consumer. The
+   * dispatch itself already happened before the restart, so only the stream
+   * is rebuilt; the mapping's `unsafe` flag is not a barrier here because it
+   * marks an in-flight turn, which is exactly what is being recovered.
+   * Returns false when the turn cannot be recovered and must be failed.
+   */
+  async #reattach(turn: Turn): Promise<boolean> {
     try {
       const entry = this.#registry.get(
         turn.execution.selection.instanceId,
@@ -377,19 +380,36 @@ export class TurnService {
       )
       const session = sessionsRepo.get(this.#db, turn.sessionId)
       if (!session) return false
+      const project = projectsRepo.get(this.#db, session.projectId)
+      if (!project) return false
       const mapping = nativeMappingsRepo.get(
         this.#db,
         turn.sessionId,
         entry.handle.instanceId
       )
-      if (!mapping || mapping.unsafe) return false
+      if (!mapping) return false
       const native = await entry.adapter.resumeSession({
         handle: entry.handle,
         sessionId: turn.sessionId,
         nativeSessionId: mapping.nativeSessionId,
         resumeCursor: mapping.resumeCursor,
       })
-      return native.nativeSessionId === mapping.nativeSessionId
+      if (native.nativeSessionId !== mapping.nativeSessionId) return false
+      if (turnsRepo.get(this.#db, turn.id)?.status !== "running") return false
+      const stop = new AbortController()
+      this.#active.set(turn.sessionId, {
+        turnId: turn.id,
+        instanceId: entry.handle.instanceId,
+        native,
+        stop,
+        phase: "dispatching",
+      })
+      const stream = entry.adapter.events({
+        handle: entry.handle,
+        nativeSession: native,
+      })
+      void this.#consume(turn, project.id, stream, stop.signal)
+      return true
     } catch {
       return false
     }
