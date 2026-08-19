@@ -46,6 +46,7 @@ import { SessionChangesTracker } from "../workspace/changes"
 import { WorkspaceError } from "../workspace/errors"
 
 const DEFAULT_TOOL_OUTPUT_MAX_CHARACTERS = 8_000
+const DEFAULT_REATTACH_SETTLE_MS = 250
 
 type TurnServiceOptions = {
   db: AideDb
@@ -58,6 +59,11 @@ type TurnServiceOptions = {
   ) => string
   handoffMaxCharacters?: number
   toolOutputMaxCharacters?: number
+  /**
+   * How long boot reconciliation waits for an in-flight terminal event when
+   * the harness reports the turn already finished.
+   */
+  reattachSettleMs?: number
   /** Omit to run without workspace change tracking. */
   changes?: SessionChangesTracker
 }
@@ -127,6 +133,7 @@ export class TurnService {
   readonly #id: NonNullable<TurnServiceOptions["id"]>
   readonly #handoffMaxCharacters: number
   readonly #toolOutputMaxCharacters: number
+  readonly #reattachSettleMs: number
   readonly #changes: SessionChangesTracker | undefined
   readonly #pending = new Map<string, PendingDispatch>()
   readonly #active = new Map<string, ActiveTurn>()
@@ -141,6 +148,7 @@ export class TurnService {
     id = (kind) => `${kind}_${randomUUID()}`,
     handoffMaxCharacters = 32_000,
     toolOutputMaxCharacters = DEFAULT_TOOL_OUTPUT_MAX_CHARACTERS,
+    reattachSettleMs = DEFAULT_REATTACH_SETTLE_MS,
     changes,
   }: TurnServiceOptions) {
     this.#db = db
@@ -151,6 +159,7 @@ export class TurnService {
     this.#id = id
     this.#handoffMaxCharacters = handoffMaxCharacters
     this.#toolOutputMaxCharacters = toolOutputMaxCharacters
+    this.#reattachSettleMs = reattachSettleMs
     this.#changes = changes
   }
 
@@ -440,10 +449,6 @@ export class TurnService {
         handle: entry.handle,
         nativeSession: native,
       })
-      if (live?.turnId !== turn.id) {
-        await iterator.return?.()
-        return false
-      }
       const stop = new AbortController()
       this.#active.set(turn.sessionId, {
         turnId: turn.id,
@@ -458,9 +463,29 @@ export class TurnService {
         startedStream(iterator, first),
         stop.signal
       )
-      return true
+      if (live?.turnId === turn.id) return true
+      // The harness says this turn is over, but events emitted just before
+      // the check may still be in flight — including the one carrying how it
+      // ended. Wait briefly for the stream to settle it rather than
+      // overwriting a finished turn with a failure, then give up so a turn
+      // whose outcome never arrives cannot hold the session open.
+      if (await this.#settles(turn.id)) return true
+      stop.abort()
+      await iterator.return?.()
+      this.#clearActive(turn.sessionId, turn.id)
+      return false
     } catch {
       return false
+    }
+  }
+
+  /** Waits out the reattachment grace for a turn the harness calls finished. */
+  async #settles(turnId: string): Promise<boolean> {
+    const deadline = Date.now() + this.#reattachSettleMs
+    for (;;) {
+      if (turnsRepo.get(this.#db, turnId)?.status !== "running") return true
+      if (Date.now() >= deadline) return false
+      await new Promise((resolve) => setTimeout(resolve, 5))
     }
   }
 

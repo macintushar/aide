@@ -717,6 +717,55 @@ describe("Gate G1 core integration", () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
   })
 
+  it("keeps the real outcome when a turn ends just as reattachment checks", async () => {
+    const subject = await boot()
+    const sessionId = await createProjectSession(subject)
+    await command(subject.app, "turn.send", {
+      commandId: "command_settles_late",
+      sessionId,
+      content: "end me during the check",
+      execution: selection,
+    })
+    await waitFor(() =>
+      subject.snapshotService.sessionSnapshot(sessionId).turns[0]?.status ===
+      "running"
+        ? true
+        : undefined
+    )
+    const turnId =
+      subject.snapshotService.sessionSnapshot(sessionId).turns[0]!.id
+    const mapping = nativeMappingsRepo.get(
+      subject.db,
+      sessionId,
+      "fake-primary"
+    )!
+
+    // The turn ends while the liveness check is in flight, so the harness
+    // reports nothing running even though its terminal event is on the way.
+    subject.adapter.activeTurn = async () => {
+      await subject.adapter.interrupt({
+        handle: subject.handle,
+        nativeSession: { nativeSessionId: mapping.nativeSessionId },
+        turnId,
+      })
+      return undefined
+    }
+
+    const restarted = createAideTestApp({
+      db: subject.db,
+      registry: subject.registry,
+    })
+    // Nothing is reported orphaned: the outcome arrived instead.
+    expect(await restarted.services.turns.reconcileRunningTurns()).toEqual([])
+    const settled = restarted.snapshotService
+      .sessionSnapshot(sessionId)
+      .turns.find((turn) => turn.id === turnId)
+    expect(settled?.status).toBe("interrupted")
+    expect(settled?.error).toBeUndefined()
+    await subject.adapter.stop({ handle: subject.handle })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+
   it("resumes a cleanly completed mapping's session after a restart", async () => {
     const subject = await boot()
     const sessionId = await createProjectSession(subject)
