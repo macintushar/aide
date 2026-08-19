@@ -152,6 +152,13 @@ export interface HarnessAdapter {
   setMcpServers(input: SetMcpServersInput): Promise<void>
   mcpStatus(input: McpStatusInput): Promise<McpServerStatus[]>
 
+  /**
+   * Streams events for an instance, or for one native session. Events emitted
+   * after iteration begins must reach the iterator: boot reconciliation pulls
+   * once before it decides whether to keep a turn, and a stream that drops
+   * whatever arrives before its first `next()` resolves would strand that
+   * turn's completion.
+   */
   events(input: HarnessEventsInput): AsyncIterable<AideEvent>
   dispose(input: DisposeInput): Promise<void>
 }

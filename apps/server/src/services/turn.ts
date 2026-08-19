@@ -86,6 +86,33 @@ function errorOf(error: unknown, instanceId?: string): AideError {
   }
 }
 
+/**
+ * Rewraps an iterator whose first pull has already been issued, so the result
+ * of that pull is not dropped when consumption starts for real.
+ */
+function startedStream(
+  iterator: AsyncIterator<AideEvent>,
+  first: Promise<IteratorResult<AideEvent>>
+): AsyncIterable<AideEvent> {
+  let pending: Promise<IteratorResult<AideEvent>> | undefined = first
+  return {
+    [Symbol.asyncIterator]: () => ({
+      next() {
+        if (!pending) return iterator.next()
+        const result = pending
+        pending = undefined
+        return result
+      },
+      return() {
+        return (
+          iterator.return?.() ??
+          Promise.resolve({ value: undefined, done: true as const })
+        )
+      },
+    }),
+  }
+}
+
 function withoutDelivery(event: AideEvent): DurableEventInput {
   const { delivery: _delivery, ...input } = event
   return input as DurableEventInput
@@ -400,18 +427,21 @@ export class TurnService {
       // already finished while the server was down would be waited on
       // forever, holding the session's active slot against every later turn.
       if (!entry.adapter.activeTurn) return false
-      // Subscribing before the check keeps a turn that ends in between
-      // observable on the stream instead of dropping its terminal event.
-      const stream = entry.adapter.events({
-        handle: entry.handle,
-        nativeSession: native,
-      })
+      // Pull before the check rather than merely calling `events()`: an
+      // adapter that only subscribes once iteration begins would otherwise
+      // miss a terminal event emitted while the check is in flight, which is
+      // the stall this guard exists to prevent.
+      const iterator = entry.adapter
+        .events({ handle: entry.handle, nativeSession: native })
+        [Symbol.asyncIterator]()
+      const first = iterator.next()
+      void first.catch(() => undefined)
       const live = await entry.adapter.activeTurn({
         handle: entry.handle,
         nativeSession: native,
       })
       if (live?.turnId !== turn.id) {
-        await stream[Symbol.asyncIterator]().return?.()
+        await iterator.return?.()
         return false
       }
       const stop = new AbortController()
@@ -422,7 +452,12 @@ export class TurnService {
         stop,
         phase: "dispatching",
       })
-      void this.#consume(turn, project.id, stream, stop.signal)
+      void this.#consume(
+        turn,
+        project.id,
+        startedStream(iterator, first),
+        stop.signal
+      )
       return true
     } catch {
       return false

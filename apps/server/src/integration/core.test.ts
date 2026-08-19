@@ -652,6 +652,71 @@ describe("Gate G1 core integration", () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
   })
 
+  it("keeps a terminal event from a lazy stream that lands during reattachment", async () => {
+    const subject = await boot()
+    const sessionId = await createProjectSession(subject)
+    await command(subject.app, "turn.send", {
+      commandId: "command_lazy_stream",
+      sessionId,
+      content: "end me mid-reattach",
+      execution: selection,
+    })
+    await waitFor(() =>
+      subject.snapshotService.sessionSnapshot(sessionId).turns[0]?.status ===
+      "running"
+        ? true
+        : undefined
+    )
+    const turnId =
+      subject.snapshotService.sessionSnapshot(sessionId).turns[0]!.id
+    const mapping = nativeMappingsRepo.get(
+      subject.db,
+      sessionId,
+      "fake-primary"
+    )!
+
+    // An `async *events()` only subscribes once iteration begins, which is
+    // the shape a real adapter is most likely to take.
+    const realEvents = subject.adapter.events.bind(subject.adapter)
+    subject.adapter.events = (input) => ({
+      async *[Symbol.asyncIterator]() {
+        yield* realEvents(input)
+      },
+    })
+
+    // The native turn ends while the liveness check is in flight, so its
+    // terminal event is published before any consumer starts iterating.
+    const realActiveTurn = subject.adapter.activeTurn!.bind(subject.adapter)
+    subject.adapter.activeTurn = async (input) => {
+      const live = await realActiveTurn(input)
+      await subject.adapter.interrupt({
+        handle: subject.handle,
+        nativeSession: { nativeSessionId: mapping.nativeSessionId },
+        turnId,
+      })
+      return live
+    }
+
+    const restarted = createAideTestApp({
+      db: subject.db,
+      registry: subject.registry,
+    })
+    expect(await restarted.services.turns.reconcileRunningTurns()).toEqual([])
+
+    // The event survived the window, so the turn reaches a terminal state
+    // instead of holding the session open forever.
+    const settled = await waitFor(() => {
+      const turn = restarted.snapshotService
+        .sessionSnapshot(sessionId)
+        .turns.find((candidate) => candidate.id === turnId)
+      return turn && turn.status !== "running" ? turn : undefined
+    })
+    expect(settled.status).toBe("interrupted")
+    expect(restarted.services.turns.hasActiveStream(turnId)).toBe(false)
+    await subject.adapter.stop({ handle: subject.handle })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+
   it("resumes a cleanly completed mapping's session after a restart", async () => {
     const subject = await boot()
     const sessionId = await createProjectSession(subject)
