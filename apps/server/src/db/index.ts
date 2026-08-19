@@ -83,3 +83,5 @@ export function resetDb(): void {
 
 export * from "./repo-error"
 export * from "./repos"
+export { loadConfigSecrets, resetConfigSecrets } from "./config-secrets-key"
+export type { ConfigSecrets } from "./repos"

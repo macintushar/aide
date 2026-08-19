@@ -7,7 +7,7 @@ import {
   createDriverConfigValidator,
   type ResolutionEnvironment,
 } from "../config"
-import type { AideDb } from "../db"
+import type { AideDb, ConfigSecrets } from "../db"
 import { createEventRouter, EventService, SnapshotService } from "../events"
 import type { HarnessAdapter } from "../harness/types"
 import { InventoryService } from "../inventory"
@@ -24,6 +24,7 @@ import {
   InstanceSupervisor,
   type BackoffPolicy,
 } from "../supervisor"
+import { SessionChangesTracker } from "../workspace/changes"
 
 export type CoreIntegrationOptions = {
   db: AideDb
@@ -38,8 +39,24 @@ export type CoreIntegrationOptions = {
   backoff?: BackoffPolicy
   now?: () => string
   id?: (
-    kind: "project" | "session" | "turn" | "message" | "part" | "event"
+    kind:
+      | "project"
+      | "session"
+      | "turn"
+      | "message"
+      | "part"
+      | "event"
+      | "dispatchInput"
+      | "artifact"
   ) => string
+  handoffMaxCharacters?: number
+  toolOutputMaxCharacters?: number
+  configSecrets?: ConfigSecrets
+  /**
+   * Records which files each turn changes. Off by default because it shells
+   * out to git on every turn boundary; production turns it on.
+   */
+  trackWorkspaceChanges?: boolean
 }
 
 export function createAideTestApp(options: CoreIntegrationOptions) {
@@ -52,6 +69,12 @@ export function createAideTestApp(options: CoreIntegrationOptions) {
     id: options.id,
   })
   const executionResolver = new ExecutionResolver(options.db, registry)
+  const changes = options.trackWorkspaceChanges
+    ? new SessionChangesTracker(
+        options.db,
+        options.now ? { now: options.now } : {}
+      )
+    : undefined
   const turns = new TurnService({
     db: options.db,
     registry,
@@ -59,6 +82,9 @@ export function createAideTestApp(options: CoreIntegrationOptions) {
     eventService,
     now: options.now,
     id: options.id,
+    handoffMaxCharacters: options.handoffMaxCharacters,
+    toolOutputMaxCharacters: options.toolOutputMaxCharacters,
+    ...(changes ? { changes } : {}),
   })
 
   const byDriver = new Map(
@@ -69,6 +95,7 @@ export function createAideTestApp(options: CoreIntegrationOptions) {
   const config = new ConfigService({
     db: options.db,
     eventService,
+    secrets: options.configSecrets,
     // Each adapter validates its own driver-specific `config`, so a malformed
     // instance disables only itself.
     validateDriverConfig: createDriverConfigValidator(

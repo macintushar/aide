@@ -4,6 +4,8 @@ import type {
   AideEvent,
   ExecutionSelection,
   InputResolution,
+  NativeDispatchInput,
+  Part,
   PermissionResolution,
   Request,
   Turn,
@@ -13,6 +15,8 @@ import type {
 import type { ExternalCommandContext } from "../commands"
 import type { AideDb } from "../db"
 import {
+  artifactsRepo,
+  dispatchInputsRepo,
   messagesRepo,
   nativeMappingsRepo,
   partsRepo,
@@ -31,8 +35,17 @@ import {
   type PartDeltaEventInput,
 } from "../events"
 import { AdapterRegistry } from "./adapter-registry"
+import {
+  applyPortableHandoffBudget,
+  buildPortableHandoffPacket,
+  renderPortableHandoffPacket,
+} from "./context-builder"
 import { CoreServiceError } from "./errors"
 import { ExecutionResolver } from "./execution"
+import { SessionChangesTracker } from "../workspace/changes"
+import { WorkspaceError } from "../workspace/errors"
+
+const DEFAULT_TOOL_OUTPUT_MAX_CHARACTERS = 8_000
 
 type TurnServiceOptions = {
   db: AideDb
@@ -40,7 +53,13 @@ type TurnServiceOptions = {
   executionResolver: ExecutionResolver
   eventService: EventService
   now?: () => string
-  id?: (kind: "turn" | "message" | "part" | "event") => string
+  id?: (
+    kind: "turn" | "message" | "part" | "event" | "dispatchInput" | "artifact"
+  ) => string
+  handoffMaxCharacters?: number
+  toolOutputMaxCharacters?: number
+  /** Omit to run without workspace change tracking. */
+  changes?: SessionChangesTracker
 }
 
 type PendingDispatch = {
@@ -79,6 +98,9 @@ export class TurnService {
   readonly #events: EventService
   readonly #now: () => string
   readonly #id: NonNullable<TurnServiceOptions["id"]>
+  readonly #handoffMaxCharacters: number
+  readonly #toolOutputMaxCharacters: number
+  readonly #changes: SessionChangesTracker | undefined
   readonly #pending = new Map<string, PendingDispatch>()
   readonly #active = new Map<string, ActiveTurn>()
   readonly #pumping = new Set<string>()
@@ -90,6 +112,9 @@ export class TurnService {
     eventService,
     now = () => new Date().toISOString(),
     id = (kind) => `${kind}_${randomUUID()}`,
+    handoffMaxCharacters = 32_000,
+    toolOutputMaxCharacters = DEFAULT_TOOL_OUTPUT_MAX_CHARACTERS,
+    changes,
   }: TurnServiceOptions) {
     this.#db = db
     this.#registry = registry
@@ -97,6 +122,33 @@ export class TurnService {
     this.#events = eventService
     this.#now = now
     this.#id = id
+    this.#handoffMaxCharacters = handoffMaxCharacters
+    this.#toolOutputMaxCharacters = toolOutputMaxCharacters
+    this.#changes = changes
+  }
+
+  /**
+   * Records what the working tree looks like right now. A capture without a
+   * turn establishes the baseline; one with a turn credits everything that
+   * moved since the previous capture to that turn. Workspaces that git cannot
+   * inspect (no repository, no such directory) are simply not tracked.
+   */
+  async #captureChanges(
+    sessionId: string,
+    directory: string,
+    turnId?: string
+  ): Promise<void> {
+    if (!this.#changes) return
+    try {
+      await this.#changes.capture({
+        sessionId,
+        directory,
+        ...(turnId ? { turnId } : {}),
+      })
+    } catch (error) {
+      if (error instanceof WorkspaceError) return
+      throw error
+    }
   }
 
   async submit(input: {
@@ -289,19 +341,58 @@ export class TurnService {
     return this.#respond(requestId, resolution, "input", context)
   }
 
-  reconcileRunningTurns(): Turn[] {
+  /**
+   * Boot reconciliation for persisted `running` turns without an active
+   * stream. A turn whose native mapping is safe and whose adapter can still
+   * resume that native session is left running so its session continues from
+   * canonical history; anything else fails with a structured error rather
+   * than silently rerouting.
+   */
+  async reconcileRunningTurns(): Promise<Turn[]> {
     const reconciled: Turn[] = []
     for (const turn of turnsRepo.listRunning(this.#db)) {
       if (this.#active.get(turn.sessionId)?.turnId === turn.id) continue
+      if (await this.#canReattach(turn)) {
+        this.#schedule(turn.sessionId)
+        continue
+      }
       const error: AideError = {
         code: "orphaned_running_turn",
-        message: "The adapter stream was not active during boot reconciliation",
+        message:
+          "The native session could not be resumed during boot reconciliation",
+        instanceId: turn.execution.selection.instanceId,
         retryable: false,
       }
       reconciled.push(this.#failPersistedTurn(turn, error))
       this.#schedule(turn.sessionId)
     }
     return reconciled
+  }
+
+  async #canReattach(turn: Turn): Promise<boolean> {
+    try {
+      const entry = this.#registry.get(
+        turn.execution.selection.instanceId,
+        turn.execution.selection.driver
+      )
+      const session = sessionsRepo.get(this.#db, turn.sessionId)
+      if (!session) return false
+      const mapping = nativeMappingsRepo.get(
+        this.#db,
+        turn.sessionId,
+        entry.handle.instanceId
+      )
+      if (!mapping || mapping.unsafe) return false
+      const native = await entry.adapter.resumeSession({
+        handle: entry.handle,
+        sessionId: turn.sessionId,
+        nativeSessionId: mapping.nativeSessionId,
+        resumeCursor: mapping.resumeCursor,
+      })
+      return native.nativeSessionId === mapping.nativeSessionId
+    } catch {
+      return false
+    }
   }
 
   hasActiveStream(turnId: string): boolean {
@@ -378,33 +469,44 @@ export class TurnService {
     const pending = this.#pending.get(turn.id)
     const session = sessionsRepo.get(this.#db, turn.sessionId)!
     const project = projectsRepo.get(this.#db, session.projectId)!
-    const entry = this.#registry.get(
-      turn.execution.selection.instanceId,
-      turn.execution.selection.driver
-    )
+    const instanceId = turn.execution.selection.instanceId
+    let entry: ReturnType<AdapterRegistry["get"]> | undefined
     pending?.context.markDispatching(turn.userMessageId)
 
     try {
+      // Baseline the working tree before the harness can touch it, so edits
+      // that were already there are not credited to this turn.
+      await this.#captureChanges(session.id, project.directory)
+      // A queued turn keeps its captured selection, but admission must prove the
+      // same values are still available in current inventory.
+      await this.#resolver.resolve(turn.execution.selection, project.directory)
+      const adapterEntry = this.#registry.get(
+        instanceId,
+        turn.execution.selection.driver
+      )
+      entry = adapterEntry
       let mapping = nativeMappingsRepo.get(
         this.#db,
         session.id,
-        entry.handle.instanceId
+        adapterEntry.handle.instanceId
       )
       let native: NativeSession
+      let syncCursor = -1
       if (mapping && !mapping.unsafe) {
         try {
-          native = await entry.adapter.resumeSession({
-            handle: entry.handle,
+          native = await adapterEntry.adapter.resumeSession({
+            handle: adapterEntry.handle,
             sessionId: session.id,
             nativeSessionId: mapping.nativeSessionId,
             resumeCursor: mapping.resumeCursor,
           })
+          syncCursor = mapping.syncCursor
           if (this.#stopTerminalStart(turn)) return
         } catch {
           if (this.#stopTerminalStart(turn)) return
           mapping = undefined
-          native = await entry.adapter.openSession({
-            handle: entry.handle,
+          native = await adapterEntry.adapter.openSession({
+            handle: adapterEntry.handle,
             sessionId: session.id,
             projectDirectory: project.directory,
             execution: turn.execution,
@@ -412,8 +514,8 @@ export class TurnService {
           if (this.#stopTerminalStart(turn)) return
         }
       } else {
-        native = await entry.adapter.openSession({
-          handle: entry.handle,
+        native = await adapterEntry.adapter.openSession({
+          handle: adapterEntry.handle,
           sessionId: session.id,
           projectDirectory: project.directory,
           execution: turn.execution,
@@ -421,20 +523,59 @@ export class TurnService {
         if (this.#stopTerminalStart(turn)) return
       }
       if (this.#stopTerminalStart(turn)) return
-      nativeMappingsRepo.upsert(this.#db, {
-        sessionId: session.id,
-        instanceId: entry.handle.instanceId,
-        nativeSessionId: native.nativeSessionId,
-        resumeCursor: native.resumeCursor,
-        syncCursor: mapping?.syncCursor ?? -1,
-        unsafe: false,
+      const userMessage = messagesRepo.get(
+        this.#db,
+        turn.userMessageId
+      ) as UserMessage
+      const currentUserText = userMessage.parts
+        .filter((part) => part.type === "text")
+        .map((part) => part.text)
+        .join("\n")
+      let handoff: NativeDispatchInput | undefined
+      withTransaction(this.#db, (tx) => {
+        nativeMappingsRepo.upsert(tx, {
+          sessionId: session.id,
+          instanceId: adapterEntry.handle.instanceId,
+          nativeSessionId: native.nativeSessionId,
+          resumeCursor: native.resumeCursor,
+          syncCursor,
+          // A mapping is safe only after the native turn completes cleanly.
+          unsafe: true,
+        })
+        const fromMessageSeq = syncCursor + 1
+        const throughMessageSeq = userMessage.seq - 1
+        if (fromMessageSeq > throughMessageSeq) return
+        const packet = applyPortableHandoffBudget(
+          buildPortableHandoffPacket({
+            sessionId: session.id,
+            messages: messagesRepo.listBySession(tx, session.id),
+            workingDirectory: project.directory,
+            fromMessageSeq,
+            throughMessageSeq,
+          }),
+          {
+            maxCharacters: this.#handoffMaxCharacters,
+            currentMessageCharacters: currentUserText.length,
+          }
+        )
+        handoff = dispatchInputsRepo.create(tx, {
+          id: this.#id("dispatchInput"),
+          turnId: turn.id,
+          instanceId: adapterEntry.handle.instanceId,
+          nativeSessionId: native.nativeSessionId,
+          role: "handoff",
+          fromMessageSeq,
+          throughMessageSeq,
+          content: renderPortableHandoffPacket(packet),
+          createdAt: this.#now(),
+        })
       })
 
       if (this.#stopTerminalStart(turn)) return
       const stop = new AbortController()
       const active: ActiveTurn = {
         turnId: turn.id,
-        instanceId: entry.handle.instanceId,
+        instanceId: adapterEntry.handle.instanceId,
         native,
         stop,
         phase: "starting",
@@ -448,16 +589,36 @@ export class TurnService {
       const assistantId = `${turn.id}-assistant`
       const now = this.#now()
       let startedEvent: DurableEvent | undefined
+      let assistantEvent: DurableEvent | undefined
       const running = withTransaction(this.#db, (tx) => {
         if (turnsRepo.get(tx, turn.id)?.status !== "queued") return undefined
         if (!messagesRepo.get(tx, assistantId)) {
-          messagesRepo.createAssistant(tx, {
+          const assistant = messagesRepo.createAssistant(tx, {
             id: assistantId,
             sessionId: session.id,
             role: "assistant",
             parentMessageId: turn.userMessageId,
             parts: [],
             createdAt: now,
+          })
+          // Announce the placeholder immediately so live clients see the
+          // assistant message before its first part arrives.
+          const { parts: _parts, ...metadata } = assistant
+          assistantEvent = this.#events.persistDurable(tx, {
+            schemaVersion: 1,
+            eventId: this.#id("event"),
+            timestamp: now,
+            scope: {
+              kind: "session",
+              projectId: project.id,
+              sessionId: session.id,
+              turnId: turn.id,
+              messageId: assistant.id,
+            },
+            instanceId: turn.execution.selection.instanceId,
+            driver: turn.execution.selection.driver,
+            type: "message.upserted",
+            data: { message: metadata },
           })
         }
         const value = turnsRepo.update(tx, turn.id, {
@@ -475,6 +636,7 @@ export class TurnService {
         this.#clearActive(session.id, turn.id)
         return
       }
+      if (assistantEvent) this.#events.broadcastDurable(assistantEvent)
       this.#events.broadcastDurable(startedEvent!)
 
       if (turnsRepo.get(this.#db, turn.id)?.status !== "running") {
@@ -482,27 +644,41 @@ export class TurnService {
         return
       }
 
-      const stream = entry.adapter.events({
-        handle: entry.handle,
+      const stream = adapterEntry.adapter.events({
+        handle: adapterEntry.handle,
         nativeSession: native,
       })
       void this.#consume(running, project.id, stream, stop.signal)
       active.phase = "dispatching"
-      await entry.adapter.send({
-        handle: entry.handle,
+      await adapterEntry.adapter.send({
+        handle: adapterEntry.handle,
         nativeSession: native,
         commandId: turn.commandId,
         turnId: turn.id,
-        userMessage: messagesRepo.get(
-          this.#db,
-          turn.userMessageId
-        ) as UserMessage,
+        userMessage,
         execution: turn.execution,
+        handoff,
       })
-      pending?.context.markDispatched({
-        turnId: turn.id,
-        nativeSessionId: native.nativeSessionId,
-      })
+      pending?.context.markDispatched(
+        {
+          turnId: turn.id,
+          nativeSessionId: native.nativeSessionId,
+        },
+        (tx) => {
+          const acknowledged = nativeMappingsRepo.acknowledgeDispatch(tx, {
+            sessionId: session.id,
+            instanceId: adapterEntry.handle.instanceId,
+            nativeSessionId: native.nativeSessionId,
+            resumeCursor: native.resumeCursor,
+          })
+          if (!acknowledged) {
+            throw new CoreServiceError(
+              "native_mapping_changed",
+              `Native mapping changed before turn ${turn.id} was acknowledged`
+            )
+          }
+        }
+      )
     } catch (error) {
       const current = turnsRepo.get(this.#db, turn.id)
       if (
@@ -512,16 +688,12 @@ export class TurnService {
         this.#clearActive(turn.sessionId, turn.id)
         return
       }
-      const normalized = errorOf(error, entry.handle.instanceId)
+      const normalized = errorOf(error, instanceId)
       if (normalized.code === "execution_outcome_unknown") {
         pending?.context.markUncertain(normalized)
-        nativeMappingsRepo.markUnsafe(
-          this.#db,
-          turn.sessionId,
-          entry.handle.instanceId
-        )
+        nativeMappingsRepo.markUnsafe(this.#db, turn.sessionId, instanceId)
         const active = this.#active.get(turn.sessionId)
-        if (active?.turnId !== turn.id) return
+        if (active?.turnId !== turn.id || !entry) return
         active.phase = "cancelling"
         try {
           await entry.adapter.interrupt({
@@ -557,6 +729,16 @@ export class TurnService {
         if (signal.aborted) break
         await this.#consumeEvent(turn, projectId, event)
         if (!this.hasActiveStream(turn.id)) break
+      }
+      const current = turnsRepo.get(this.#db, turn.id)
+      if (!signal.aborted && current?.status === "running") {
+        this.#failPersistedTurn(current, {
+          code: "instance_event_stream_closed",
+          message: `Instance ${turn.execution.selection.instanceId} closed its event stream before the turn completed`,
+          instanceId: turn.execution.selection.instanceId,
+          retryable: false,
+        })
+        this.#clearActive(turn.sessionId, turn.id)
       }
     } catch (error) {
       const current = turnsRepo.get(this.#db, turn.id)
@@ -604,7 +786,7 @@ export class TurnService {
     let terminal = false
     withTransaction(this.#db, (tx) => {
       if (normalized.type === "part.upserted") {
-        partsRepo.upsert(tx, normalized.data.part)
+        partsRepo.upsert(tx, this.#boundToolOutput(tx, normalized.data.part))
       } else if (normalized.type === "part.removed") {
         partsRepo.remove(tx, normalized.data.partId)
       } else if (normalized.type === "message.upserted") {
@@ -666,6 +848,25 @@ export class TurnService {
               data: { message: metadata },
             })
           )
+          if (status === "completed") {
+            const active = this.#active.get(turn.sessionId)
+            const mapping =
+              active?.turnId === turn.id
+                ? nativeMappingsRepo.completeSync(tx, {
+                    sessionId: turn.sessionId,
+                    instanceId: active.instanceId,
+                    nativeSessionId: active.native.nativeSessionId,
+                    syncCursor: assistant.seq,
+                    resumeCursor: active.native.resumeCursor,
+                  })
+                : undefined
+            if (!mapping) {
+              throw new CoreServiceError(
+                "native_mapping_changed",
+                `Native mapping changed before turn ${turn.id} completed`
+              )
+            }
+          }
         }
         for (const request of requestsRepo.listOpenBySession(
           tx,
@@ -692,7 +893,13 @@ export class TurnService {
       )
     })
     for (const event of persistedEvents) this.#events.broadcastDurable(event)
-    if (terminal) this.#clearActive(turn.sessionId, turn.id)
+    if (terminal) {
+      this.#clearActive(turn.sessionId, turn.id)
+      const project = projectsRepo.get(this.#db, projectId)
+      if (project) {
+        await this.#captureChanges(turn.sessionId, project.directory, turn.id)
+      }
+    }
   }
 
   #normalizeEvent(source: AideEvent, projectId: string, turn: Turn): AideEvent {
@@ -717,6 +924,30 @@ export class TurnService {
 
   #eventsEventExists(eventId: string): boolean {
     return this.#events.findDurable(eventId) !== undefined
+  }
+
+  /**
+   * Oversized assembled tool output is stored as an artifact; the persisted
+   * part keeps a bounded, explicitly-marked preview plus the artifact
+   * reference. Small output stays inline.
+   */
+  #boundToolOutput(db: AideDb, part: Part): Part {
+    if (part.type !== "tool" || part.output === undefined) return part
+    if (part.output.length <= this.#toolOutputMaxCharacters) return part
+    const artifactId = this.#id("artifact")
+    artifactsRepo.create(db, {
+      id: artifactId,
+      mimeType: "text/plain; charset=utf-8",
+      data: Buffer.from(part.output, "utf8"),
+      byteLength: Buffer.byteLength(part.output, "utf8"),
+      createdAt: this.#now(),
+    })
+    const omitted = part.output.length - this.#toolOutputMaxCharacters
+    return {
+      ...part,
+      output: `${part.output.slice(0, this.#toolOutputMaxCharacters)}\n[tool output truncated: ${omitted} characters stored as artifact ${artifactId}]`,
+      artifactId,
+    }
   }
 
   async #finishLocally(turn: Turn, status: "interrupted"): Promise<Turn> {

@@ -61,6 +61,8 @@ export const messages = sqliteTable(
       table.sessionId,
       table.seq
     ),
+    // Exactly one assistant response per user message.
+    uniqueIndex("messages_parent_message_id_unique").on(table.parentMessageId),
     check("messages_seq_check", sql`${table.seq} >= 0`),
     check("messages_role_check", sql`${table.role} in ('user', 'assistant')`),
     check(
@@ -303,6 +305,35 @@ export const configRecords = sqliteTable(
     check(
       "config_records_target_check",
       sql`(${table.kind} = 'global' and ${table.projectId} = '') or (${table.kind} = 'project' and ${table.projectId} <> '')`
+    ),
+  ]
+)
+
+export const sessionFileChanges = sqliteTable(
+  "session_file_changes",
+  {
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    path: text("path").notNull(),
+    turnId: text("turn_id").references(() => turns.id, {
+      onDelete: "set null",
+    }),
+    staged: text("staged").notNull(),
+    unstaged: text("unstaged").notNull(),
+    untracked: integer("untracked", { mode: "boolean" }).notNull(),
+    firstSeenAt: text("first_seen_at").notNull(),
+    lastSeenAt: text("last_seen_at").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.sessionId, table.path] }),
+    check(
+      "session_file_changes_staged_check",
+      sql`${table.staged} in ('added', 'modified', 'deleted', 'renamed', 'unmodified')`
+    ),
+    check(
+      "session_file_changes_unstaged_check",
+      sql`${table.unstaged} in ('added', 'modified', 'deleted', 'renamed', 'unmodified')`
     ),
   ]
 )

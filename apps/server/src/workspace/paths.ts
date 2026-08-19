@@ -1,7 +1,26 @@
-import { readFile } from "node:fs/promises"
-import { resolve, sep } from "node:path"
+import { readFile, realpath } from "node:fs/promises"
+import { basename, dirname, join, resolve, sep } from "node:path"
 
 import { WorkspaceError } from "./errors"
+
+function outsideBoundary(
+  projectDirectory: string,
+  resolvedPath: string
+): WorkspaceError {
+  return new WorkspaceError({
+    code: "path_outside_boundary",
+    message: `Resolved path is outside the project directory: ${resolvedPath}`,
+    retryable: false,
+    detail: { projectDirectory, resolvedPath },
+  })
+}
+
+function contains(projectDirectory: string, candidate: string): boolean {
+  return (
+    candidate === projectDirectory ||
+    candidate.startsWith(projectDirectory + sep)
+  )
+}
 
 export function resolveWithinBoundary(
   projectDirectory: string,
@@ -9,16 +28,8 @@ export function resolveWithinBoundary(
 ): string {
   const resolvedProject = resolve(projectDirectory)
   const resolvedPath = resolve(resolvedProject, relativePath)
-  if (
-    resolvedPath !== resolvedProject &&
-    !resolvedPath.startsWith(resolvedProject + sep)
-  ) {
-    throw new WorkspaceError({
-      code: "path_outside_boundary",
-      message: `Resolved path is outside the project directory: ${resolvedPath}`,
-      retryable: false,
-      detail: { projectDirectory: resolvedProject, resolvedPath },
-    })
+  if (!contains(resolvedProject, resolvedPath)) {
+    throw outsideBoundary(resolvedProject, resolvedPath)
   }
   return resolvedPath
 }
@@ -32,11 +43,59 @@ function isNotFoundError(error: unknown): boolean {
   )
 }
 
+/**
+ * Canonicalizes as much of `target` as exists on disk, then re-appends the
+ * trailing segments that do not exist yet. Paths that are about to be created
+ * still get their existing ancestors resolved, so a symlinked parent cannot
+ * smuggle a write outside the boundary.
+ */
+async function canonicalize(target: string): Promise<string> {
+  const missing: string[] = []
+  let current = target
+  for (;;) {
+    try {
+      const real = await realpath(current)
+      return missing.length === 0 ? real : join(real, ...missing.reverse())
+    } catch (error) {
+      if (!isNotFoundError(error)) {
+        throw error
+      }
+      const parent = dirname(current)
+      if (parent === current) {
+        return target
+      }
+      missing.push(basename(current))
+      current = parent
+    }
+  }
+}
+
+/**
+ * Boundary check that survives symlinks: both the project directory and the
+ * requested path are canonicalized before comparison, so a link inside the
+ * project that points elsewhere is rejected rather than followed.
+ */
+export async function resolveRealWithinBoundary(
+  projectDirectory: string,
+  relativePath: string
+): Promise<string> {
+  const lexical = resolveWithinBoundary(projectDirectory, relativePath)
+  const realProject = await canonicalize(resolve(projectDirectory))
+  const realPath = await canonicalize(lexical)
+  if (!contains(realProject, realPath)) {
+    throw outsideBoundary(realProject, realPath)
+  }
+  return realPath
+}
+
 export async function readFileWithinBoundary(
   projectDirectory: string,
   relativePath: string
 ): Promise<string> {
-  const resolvedPath = resolveWithinBoundary(projectDirectory, relativePath)
+  const resolvedPath = await resolveRealWithinBoundary(
+    projectDirectory,
+    relativePath
+  )
   try {
     return await readFile(resolvedPath, "utf8")
   } catch (error) {

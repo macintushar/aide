@@ -278,7 +278,7 @@ export function createFakeHarnessAdapter(
   ): AideEvent => {
     const event = {
       schemaVersion: 1,
-      eventId: nextId("evt"),
+      eventId: `${instanceId}-${nextId("evt")}`,
       timestamp: now(),
       delivery: shape.ephemeral
         ? { durable: false, streamOrdinal: session.streamOrdinal++ }

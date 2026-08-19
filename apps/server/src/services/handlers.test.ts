@@ -2,6 +2,7 @@ import { commandFixtures } from "@workspace/contracts"
 import { describe, expect, it, vi } from "vitest"
 
 import type { ExternalCommandContext } from "../commands"
+import type { AideDb } from "../db"
 import { createCoreCommandHandlers } from "./handlers"
 import type { ProjectService } from "./project"
 import type { TurnService } from "./turn"
@@ -14,6 +15,20 @@ const context = {
   complete: vi.fn(),
   fail: vi.fn(),
 } as unknown as ExternalCommandContext
+
+const db = {} as AideDb
+
+function localHandler(handler: unknown): {
+  handle(command: unknown, db: AideDb): unknown
+} {
+  return handler as { handle(command: unknown, db: AideDb): unknown }
+}
+
+function externalHandler(handler: unknown): {
+  handle(command: unknown, context: unknown): unknown
+} {
+  return handler as { handle(command: unknown, context: unknown): unknown }
+}
 
 describe("createCoreCommandHandlers", () => {
   it("maps local project and session commands to their services", async () => {
@@ -29,18 +44,47 @@ describe("createCoreCommandHandlers", () => {
     })
     const commands = commandFixtures()
 
-    await handlers["project.open"]!.handle(commands[0] as never, context)
-    await handlers["session.create"]!.handle(commands[2] as never, context)
-    await handlers["session.rename"]!.handle(commands[3] as never, context)
-    await handlers["session.delete"]!.handle(commands[4] as never, context)
+    await localHandler(handlers["project.open"]).handle(commands[0], db)
+    await localHandler(handlers["session.create"]).handle(commands[2], db)
+    await localHandler(handlers["session.rename"]).handle(commands[3], db)
+    await localHandler(handlers["session.delete"]).handle(commands[4], db)
 
     expect(projects.open).toHaveBeenCalledWith(
       "/Users/tushar/projects/aide",
-      "aide"
+      "aide",
+      db
     )
-    expect(projects.createSession).toHaveBeenCalledWith("proj_1", "New session")
-    expect(projects.renameSession).toHaveBeenCalledWith("ses_1", "Renamed")
-    expect(projects.deleteSession).toHaveBeenCalledWith("ses_1")
+    expect(projects.createSession).toHaveBeenCalledWith(
+      "proj_1",
+      "New session",
+      db
+    )
+    expect(projects.renameSession).toHaveBeenCalledWith("ses_1", "Renamed", db)
+    expect(projects.deleteSession).toHaveBeenCalledWith("ses_1", db)
+  })
+
+  it("marks project and session commands as transactional", () => {
+    const handlers = createCoreCommandHandlers({
+      projects: {} as ProjectService,
+      turns: {} as TurnService,
+    })
+
+    expect(
+      handlers["project.open"]?.kind === "local" &&
+        handlers["project.open"].transactional
+    ).toBe(true)
+    expect(
+      handlers["session.create"]?.kind === "local" &&
+        handlers["session.create"].transactional
+    ).toBe(true)
+    expect(
+      handlers["session.rename"]?.kind === "local" &&
+        handlers["session.rename"].transactional
+    ).toBe(true)
+    expect(
+      handlers["session.delete"]?.kind === "local" &&
+        handlers["session.delete"].transactional
+    ).toBe(true)
   })
 
   it("maps external turn and request commands and defers only turn submission", async () => {
@@ -56,10 +100,19 @@ describe("createCoreCommandHandlers", () => {
     })
     const commands = commandFixtures()
 
-    await handlers["turn.send"]!.handle(commands[5] as never, context)
-    await handlers["turn.interrupt"]!.handle(commands[6] as never, context)
-    await handlers["permission.respond"]!.handle(commands[7] as never, context)
-    await handlers["input.respond"]!.handle(commands[8] as never, context)
+    await externalHandler(handlers["turn.send"]).handle(commands[5], context)
+    await externalHandler(handlers["turn.interrupt"]).handle(
+      commands[6],
+      context
+    )
+    await externalHandler(handlers["permission.respond"]).handle(
+      commands[7],
+      context
+    )
+    await externalHandler(handlers["input.respond"]).handle(
+      commands[8],
+      context
+    )
 
     expect(context.defer).toHaveBeenCalledOnce()
     expect(turns.submit).toHaveBeenCalledWith({ ...commands[5], context })

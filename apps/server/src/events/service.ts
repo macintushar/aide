@@ -1,7 +1,7 @@
 import { aideEventSchema, type AideEvent } from "@workspace/contracts"
 
 import type { AideDb } from "../db"
-import { eventLogRepo, type EventScopeTarget } from "../db"
+import { eventLogRepo, withTransaction, type EventScopeTarget } from "../db"
 
 type WithoutDelivery<T> = T extends AideEvent ? Omit<T, "delivery"> : never
 
@@ -161,6 +161,27 @@ export class EventService {
     const persisted = this.persistDurable(this.#db, input)
     this.broadcastDurable(persisted)
     return persisted
+  }
+
+  /**
+   * Runs a domain mutation with a durable-event collector in one immediate
+   * transaction. Domain rows and event rows commit atomically, and collected
+   * events are broadcast only after the transaction commits. If `fn` throws,
+   * nothing is persisted and nothing is broadcast.
+   */
+  runTransactional<T>(
+    fn: (tx: AideDb, emit: (event: DurableEventInput) => DurableEvent) => T
+  ): { result: T; events: DurableEvent[] } {
+    const collected: DurableEvent[] = []
+    const result = withTransaction(this.#db, (tx) =>
+      fn(tx, (event) => {
+        const persisted = this.persistDurable(tx, event)
+        collected.push(persisted)
+        return persisted
+      })
+    )
+    for (const event of collected) this.broadcastDurable(event)
+    return { result, events: collected }
   }
 
   persistDurable(db: AideDb, input: DurableEventInput): DurableEvent {

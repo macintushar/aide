@@ -1,5 +1,6 @@
 import {
   instancesSnapshotFixture,
+  sessionSnapshotFixture,
   type GlobalConfigRecord,
   type ProjectConfigRecord,
 } from "@workspace/contracts"
@@ -44,6 +45,18 @@ describe("createReadClient", () => {
       createReadClient({ fetchImpl }).getProjectConfig("project/one")
     ).resolves.toEqual(config)
     expect(fetchImpl.mock.calls[0]?.[0]).toBe("/projects/project%2Fone/config")
+  })
+
+  it("reads and validates an encoded session snapshot route", async () => {
+    const snapshot = sessionSnapshotFixture()
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(jsonResponse(snapshot))
+
+    await expect(
+      createReadClient({ fetchImpl }).getSession("session/one")
+    ).resolves.toEqual(snapshot)
+    expect(fetchImpl.mock.calls[0]?.[0]).toBe("/sessions/session%2Fone")
   })
 
   it("merges custom headers and bearer authentication", async () => {

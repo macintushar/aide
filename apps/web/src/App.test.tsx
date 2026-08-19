@@ -1,5 +1,6 @@
 import {
   instancesSnapshotFixture,
+  sessionSnapshotFixture,
   type GlobalConfigRecord,
 } from "@workspace/contracts"
 import { render, screen } from "@testing-library/react"
@@ -19,6 +20,7 @@ describe("App", () => {
       <App
         readClient={{
           getInstances: vi.fn(async () => instancesSnapshotFixture()),
+          getSession: vi.fn(async () => sessionSnapshotFixture()),
           getConfig: vi.fn(async () => config),
           getProjectConfig: vi.fn(),
         }}

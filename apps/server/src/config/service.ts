@@ -9,7 +9,7 @@ import type {
 
 type ConfigUpdateCommand = Extract<Command, { name: "config.update" }>
 
-import type { AideDb } from "../db"
+import type { AideDb, ConfigSecrets } from "../db"
 import { configRepo, withTransaction } from "../db"
 import type { EventService } from "../events"
 import { restoreRedactedDriverConfig, restoreRedactedMcpServers } from "../mcp"
@@ -49,6 +49,8 @@ export type ConfigServiceOptions = {
   environment?: ResolutionEnvironment
   /** Validates each instance's driver-specific `config` against its adapter. */
   validateDriverConfig?: DriverConfigValidator
+  /** Encrypts configuration secrets at rest when provided. */
+  secrets?: ConfigSecrets
   now?: () => string
   id?: () => string
 }
@@ -58,6 +60,7 @@ export class ConfigService {
   readonly #eventService: EventService | undefined
   readonly #environment: ResolutionEnvironment
   readonly #validateDriverConfig: DriverConfigValidator | undefined
+  readonly #secrets: ConfigSecrets | undefined
   readonly #now: () => string
   readonly #id: () => string
   readonly #listeners = new Set<ConfigChangeListener>()
@@ -67,6 +70,7 @@ export class ConfigService {
     eventService,
     environment,
     validateDriverConfig,
+    secrets,
     now = () => new Date().toISOString(),
     id = () => `event_${randomUUID()}`,
   }: ConfigServiceOptions) {
@@ -74,16 +78,24 @@ export class ConfigService {
     this.#eventService = eventService
     this.#environment = environment ?? defaultResolutionEnvironment()
     this.#validateDriverConfig = validateDriverConfig
+    this.#secrets = secrets
     this.#now = now
     this.#id = id
   }
 
   globalConfig(): AideConfig {
-    return configRepo.get(this.#db, { kind: "global" }) ?? emptyGlobalConfig()
+    return (
+      configRepo.get(this.#db, { kind: "global" }, this.#secrets) ??
+      emptyGlobalConfig()
+    )
   }
 
   projectConfig(projectId: string): ProjectConfigRecord | undefined {
-    return configRepo.get(this.#db, { kind: "project", projectId })
+    return configRepo.get(
+      this.#db,
+      { kind: "project", projectId },
+      this.#secrets
+    )
   }
 
   /**
@@ -122,7 +134,7 @@ export class ConfigService {
 
     const persisted = withTransaction(this.#db, (tx) => {
       if (target.kind === "global") {
-        const current = configRepo.get(tx, { kind: "global" })
+        const current = configRepo.get(tx, { kind: "global" }, this.#secrets)
         const next: AideConfig = {
           ...(command.config.projectsDirectory === undefined
             ? current?.projectsDirectory === undefined
@@ -145,12 +157,13 @@ export class ConfigService {
             {},
           defaults: command.config.defaults ?? current?.defaults ?? {},
         }
-        configRepo.put(tx, next, timestamp)
+        configRepo.put(tx, next, timestamp, this.#secrets)
       } else {
-        const current = configRepo.get(tx, {
-          kind: "project",
-          projectId: target.projectId,
-        })
+        const current = configRepo.get(
+          tx,
+          { kind: "project", projectId: target.projectId },
+          this.#secrets
+        )
         const next: ProjectConfigRecord = {
           projectId: target.projectId,
           ...pickDefined({
@@ -169,7 +182,7 @@ export class ConfigService {
             defaults: command.config.defaults ?? current?.defaults,
           }),
         }
-        configRepo.put(tx, next, timestamp)
+        configRepo.put(tx, next, timestamp, this.#secrets)
       }
 
       const event = this.#eventService?.persistDurable(tx, {

@@ -27,10 +27,15 @@ export class ProjectService {
     this.#id = id
   }
 
-  open(directory: string, projectName?: string): Project {
+  /**
+   * All mutating methods accept an optional transaction-scoped database so the
+   * dispatcher's transactional local fast path can commit receipt and domain
+   * effects atomically.
+   */
+  open(directory: string, projectName?: string, db = this.#db): Project {
     const normalized = resolve(directory)
     const now = this.#now()
-    return projectsRepo.upsertByDirectory(this.#db, {
+    return projectsRepo.upsertByDirectory(db, {
       id: this.#id("project"),
       name: projectName ?? basename(normalized),
       directory: normalized,
@@ -39,15 +44,19 @@ export class ProjectService {
     })
   }
 
-  createSession(projectId: string, title = "New session"): Session {
-    if (!projectsRepo.get(this.#db, projectId)) {
+  createSession(
+    projectId: string,
+    title = "New session",
+    db = this.#db
+  ): Session {
+    if (!projectsRepo.get(db, projectId)) {
       throw new CoreServiceError(
         "project_not_found",
         `Project ${projectId} was not found`
       )
     }
     const now = this.#now()
-    return sessionsRepo.create(this.#db, {
+    return sessionsRepo.create(db, {
       id: this.#id("session"),
       projectId,
       title,
@@ -56,8 +65,8 @@ export class ProjectService {
     })
   }
 
-  renameSession(sessionId: string, title: string): Session {
-    const session = sessionsRepo.rename(this.#db, sessionId, title, this.#now())
+  renameSession(sessionId: string, title: string, db = this.#db): Session {
+    const session = sessionsRepo.rename(db, sessionId, title, this.#now())
     if (!session) {
       throw new CoreServiceError(
         "session_not_found",
@@ -67,8 +76,8 @@ export class ProjectService {
     return session
   }
 
-  deleteSession(sessionId: string): { deleted: true } {
-    if (!sessionsRepo.delete(this.#db, sessionId)) {
+  deleteSession(sessionId: string, db = this.#db): { deleted: true } {
+    if (!sessionsRepo.delete(db, sessionId)) {
       throw new CoreServiceError(
         "session_not_found",
         `Session ${sessionId} was not found`

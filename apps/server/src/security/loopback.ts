@@ -1,3 +1,5 @@
+import { isIP } from "node:net"
+
 export function isLoopbackHost(host: string): boolean {
   const normalized = host.trim().toLowerCase()
   const unbracketed =
@@ -7,7 +9,7 @@ export function isLoopbackHost(host: string): boolean {
   if (unbracketed === "localhost" || unbracketed === "::1") {
     return true
   }
-  return /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(unbracketed)
+  return isIP(unbracketed) === 4 && unbracketed.startsWith("127.")
 }
 
 export function loopbackOrigins(port: number): string[] {

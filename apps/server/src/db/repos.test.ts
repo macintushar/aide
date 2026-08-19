@@ -14,6 +14,8 @@ import {
 } from "@workspace/contracts"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
+import { ConfigSecretsCipher } from "./config-secrets"
+
 import {
   adapterMappingsRepo,
   artifactsRepo,
@@ -223,6 +225,44 @@ describe("database repositories", () => {
     }
     dispatchInputsRepo.create(db, dispatchInput)
     expect(dispatchInputsRepo.listByTurn(db, "turn_1")).toEqual([dispatchInput])
+  })
+
+  it("encrypts configuration secrets at rest and round-trips through the repo", () => {
+    const cipher = new ConfigSecretsCipher(ConfigSecretsCipher.generateKey())
+    const secrets = {
+      encrypt: (value: string) => cipher.encrypt(value),
+      decrypt: (value: string) => cipher.decrypt(value),
+    }
+    const config: AideConfig = {
+      mcpServers: {
+        remote: {
+          type: "http",
+          url: "https://example.test",
+          headers: { Authorization: "Bearer plaintext-secret" },
+        },
+      },
+      instances: {
+        opencode: {
+          instanceId: "opencode",
+          driver: "opencode",
+          enabled: true,
+          autoStart: false,
+          config: { env: { ANTHROPIC_API_KEY: "driver-secret" } },
+        },
+      },
+      defaults: {},
+    }
+
+    configRepo.put(db, config, timestamp, secrets)
+
+    const raw = client
+      .prepare("SELECT config_json FROM config_records WHERE kind = 'global'")
+      .get() as { config_json: string }
+    expect(raw.config_json).not.toContain("plaintext-secret")
+    expect(raw.config_json).not.toContain("driver-secret")
+    expect(raw.config_json).toContain("v1.")
+
+    expect(configRepo.get(db, { kind: "global" }, secrets)).toEqual(config)
   })
 
   it("round trips inventory, config, artifacts, and monotonic event scopes", () => {
