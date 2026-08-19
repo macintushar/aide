@@ -396,6 +396,24 @@ export class TurnService {
       })
       if (native.nativeSessionId !== mapping.nativeSessionId) return false
       if (turnsRepo.get(this.#db, turn.id)?.status !== "running") return false
+      // Without a way to ask what the native session is doing, a turn that
+      // already finished while the server was down would be waited on
+      // forever, holding the session's active slot against every later turn.
+      if (!entry.adapter.activeTurn) return false
+      // Subscribing before the check keeps a turn that ends in between
+      // observable on the stream instead of dropping its terminal event.
+      const stream = entry.adapter.events({
+        handle: entry.handle,
+        nativeSession: native,
+      })
+      const live = await entry.adapter.activeTurn({
+        handle: entry.handle,
+        nativeSession: native,
+      })
+      if (live?.turnId !== turn.id) {
+        await stream[Symbol.asyncIterator]().return?.()
+        return false
+      }
       const stop = new AbortController()
       this.#active.set(turn.sessionId, {
         turnId: turn.id,
@@ -403,10 +421,6 @@ export class TurnService {
         native,
         stop,
         phase: "dispatching",
-      })
-      const stream = entry.adapter.events({
-        handle: entry.handle,
-        nativeSession: native,
       })
       void this.#consume(turn, project.id, stream, stop.signal)
       return true

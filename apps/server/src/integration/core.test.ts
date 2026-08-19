@@ -595,6 +595,63 @@ describe("Gate G1 core integration", () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
   })
 
+  it("fails a running turn the harness already finished while disconnected", async () => {
+    const subject = await boot()
+    const sessionId = await createProjectSession(subject)
+    await command(subject.app, "turn.send", {
+      commandId: "command_finished_offline",
+      sessionId,
+      content: "finish while the server is down",
+      execution: selection,
+    })
+    await waitFor(() =>
+      subject.snapshotService.sessionSnapshot(sessionId).turns[0]?.status ===
+      "running"
+        ? true
+        : undefined
+    )
+
+    // The native session survives, but its turn reached a terminal state
+    // while nothing was listening, so the stream will never carry that
+    // event. Reattaching would hold the session's active slot forever.
+    const originalActiveTurn = subject.adapter.activeTurn
+    subject.adapter.activeTurn = async () => undefined
+
+    const restarted = createAideTestApp({
+      db: subject.db,
+      registry: subject.registry,
+    })
+    const reconciled = await restarted.services.turns.reconcileRunningTurns()
+    expect(reconciled).toHaveLength(1)
+    expect(reconciled[0]).toMatchObject({
+      status: "failed",
+      error: { code: "orphaned_running_turn" },
+    })
+    expect(restarted.services.turns.hasActiveStream(reconciled[0]!.id)).toBe(
+      false
+    )
+
+    // The session is still usable: the next turn is not blocked behind the
+    // turn that never came back.
+    subject.adapter.activeTurn = originalActiveTurn
+    await command(restarted.app, "turn.send", {
+      commandId: "command_after_orphan",
+      sessionId,
+      content: "the session still works",
+      execution: selection,
+    })
+    await waitFor(() =>
+      restarted.snapshotService
+        .sessionSnapshot(sessionId)
+        .turns.find((turn) => turn.commandId === "command_after_orphan")
+        ?.status === "running"
+        ? true
+        : undefined
+    )
+    await subject.adapter.stop({ handle: subject.handle })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+
   it("resumes a cleanly completed mapping's session after a restart", async () => {
     const subject = await boot()
     const sessionId = await createProjectSession(subject)

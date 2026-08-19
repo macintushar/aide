@@ -82,6 +82,15 @@ export type InterruptTurnInput = {
   turnId: string
 }
 
+export type ActiveTurnInput = {
+  handle: InstanceHandle
+  nativeSession: NativeSession
+}
+
+export type ActiveNativeTurn = {
+  turnId: string
+}
+
 export type PermissionResponseInput = {
   handle: InstanceHandle
   request: Request
@@ -128,6 +137,15 @@ export interface HarnessAdapter {
 
   send(input: SendTurnInput): Promise<void>
   interrupt(input: InterruptTurnInput): Promise<void>
+  /**
+   * Reports the turn this native session is currently executing, if any.
+   * Boot reconciliation needs it because an event stream only carries what
+   * happens after subscribing: a turn that reached its terminal state while
+   * the server was down would otherwise be waited on forever. Adapters that
+   * cannot answer omit this, and the core refuses to reattach rather than
+   * risk stranding the session.
+   */
+  activeTurn?(input: ActiveTurnInput): Promise<ActiveNativeTurn | undefined>
   respondToPermission(input: PermissionResponseInput): Promise<void>
   respondToInput(input: InputResponseInput): Promise<void>
 
