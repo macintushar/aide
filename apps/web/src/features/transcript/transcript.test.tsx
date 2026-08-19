@@ -109,6 +109,85 @@ describe("ToolPartView", () => {
     expect(screen.getByText("completed")).toBeInTheDocument()
     expect(screen.getByText("done")).toBeInTheDocument()
   })
+
+  it("walks one card through the lifecycle rather than replacing it", () => {
+    const part = {
+      ...toolPartFixture("pending"),
+      input: undefined,
+      output: undefined,
+    }
+    const { rerender } = render(<ToolPartView part={part} />)
+    const card = () => document.querySelector("[data-tool-status]")
+
+    expect(card()?.getAttribute("data-tool-status")).toBe("pending")
+    const pendingCard = card()
+
+    rerender(
+      <ToolPartView
+        part={{ ...part, status: "running", input: { command: "bun test" } }}
+      />
+    )
+    expect(card()?.getAttribute("data-tool-status")).toBe("running")
+    // The same element throughout, so the transcript does not reflow.
+    expect(card()).toBe(pendingCard)
+
+    rerender(
+      <ToolPartView
+        part={{
+          ...part,
+          status: "failed",
+          input: { command: "bun test" },
+          output: "exit 1",
+        }}
+      />
+    )
+    expect(card()?.getAttribute("data-tool-status")).toBe("failed")
+    expect(screen.getByTestId("tool-output")).toHaveTextContent("exit 1")
+  })
+
+  it("shows the streaming partial input verbatim and the settled input as JSON", () => {
+    const part = { ...toolPartFixture("pending"), output: undefined }
+    const { rerender } = render(
+      <ToolPartView part={{ ...part, input: '{"command":' }} />
+    )
+
+    expect(screen.getByTestId("tool-input")).toHaveTextContent('{"command":')
+
+    rerender(<ToolPartView part={{ ...part, input: { command: "ls" } }} />)
+    expect(screen.getByTestId("tool-input")).toHaveTextContent(
+      '"command": "ls"'
+    )
+  })
+
+  it("names the artifact holding output that was too large to inline", () => {
+    render(
+      <ToolPartView
+        part={{
+          ...toolPartFixture("completed"),
+          output: "first page…",
+          artifactId: "art_1",
+        }}
+      />
+    )
+
+    expect(
+      document.querySelector('[data-artifact-id="art_1"]')
+    ).toBeInTheDocument()
+  })
+})
+
+describe("reasoning parts", () => {
+  it("renders reasoning as first-class transcript content", () => {
+    const assistant = assistantMessageFixture()
+
+    render(<Transcript messages={[assistant]} />)
+
+    const reasoning = screen.getByTestId("reasoning-part")
+    expect(reasoning).toBeVisible()
+    expect(reasoning).toHaveTextContent("Considered the component layout.")
+    // Suppressed from transfer, never from display.
+    expect(reasoning.className).not.toMatch(/opacity-/)
+  })
 })
 
 describe("ExecutionDisplay", () => {

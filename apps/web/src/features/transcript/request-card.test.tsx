@@ -32,6 +32,50 @@ describe("RequestCard", () => {
     })
   })
 
+  it("shows the title, detail, diff, and every offered option", () => {
+    render(
+      <RequestCard
+        request={open(permissionRequestFixture())}
+        onResolve={vi.fn()}
+      />
+    )
+
+    expect(screen.getByText("Run bun test?")).toBeInTheDocument()
+    expect(screen.getByText("Executes the test suite.")).toBeInTheDocument()
+    expect(screen.getByText(/\+\+\+ b\/src\/index\.ts/)).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Allow" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Deny" })).toBeInTheDocument()
+  })
+
+  it("keeps a single-select question to one answer", async () => {
+    const user = userEvent.setup()
+    const onResolve = vi.fn()
+    const request = open(inputRequestFixture())
+    if (request.kind !== "input") throw new Error("Expected input request")
+    request.payload.questions = [
+      {
+        id: "approach",
+        prompt: "Which approach?",
+        options: [
+          { id: "fast", label: "Fast" },
+          { id: "safe", label: "Safe" },
+        ],
+        allowMultiple: false,
+        allowFreeText: false,
+      },
+    ]
+    render(<RequestCard request={request} onResolve={onResolve} />)
+
+    await user.click(screen.getByRole("radio", { name: "Fast" }))
+    await user.click(screen.getByRole("radio", { name: "Safe" }))
+    await user.click(screen.getByRole("button", { name: "Submit answers" }))
+
+    expect(onResolve).toHaveBeenCalledWith({
+      kind: "input",
+      answers: { approach: { optionIds: ["safe"] } },
+    })
+  })
+
   it("submits multi-select and free-text answers", async () => {
     const user = userEvent.setup()
     const onResolve = vi.fn()

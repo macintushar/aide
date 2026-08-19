@@ -31,6 +31,9 @@ const MODELS: ClaudeModelInfo[] = [
   },
 ]
 
+/** These lifecycle tests never send, so the message stream simply never yields. */
+const never = new Promise<never>(() => {})
+
 function createHarness(
   overrides: {
     version?: string
@@ -71,7 +74,16 @@ function createHarness(
         async interrupt() {
           return undefined
         },
+        async setModel() {},
+        async setPermissionMode() {},
+        async setMcpServers() {
+          return undefined
+        },
       },
+      messages() {
+        return { [Symbol.asyncIterator]: () => ({ next: () => never }) }
+      },
+      prompt() {},
       async close() {
         closedSessions.push(id)
       },

@@ -14,12 +14,36 @@ export {
   type ClaudeInstanceConfig,
 } from "./config"
 export {
+  createPartSynthesizer,
+  stringifyToolOutput,
+  toolIdentity,
+  type PartSynthesizer,
+  type SynthesizedDelta,
+} from "./parts"
+export {
   createClaudeSession,
   type ClaudeAgentInfo,
+  type ClaudeContentBlock,
+  type ClaudeDialogAsk,
+  type ClaudeDialogResult,
   type ClaudeInitInfo,
   type ClaudeMcpServerStatus,
   type ClaudeModelInfo,
+  type ClaudePermissionAsk,
+  type ClaudePermissionDecision,
+  type ClaudePermissionMode,
   type ClaudeQuery,
+  type ClaudeRawStreamEvent,
   type ClaudeSession,
   type ClaudeSessionFactory,
+  type ClaudeSessionOpenInput,
+  type ClaudeStreamMessage,
 } from "./query"
+export {
+  ClaudeRuntimeFailure,
+  createClaudeRuntime,
+  normalizeDialogQuestions,
+  permissionDiff,
+  type ClaudeRuntime,
+  type ClaudeRuntimeOptions,
+} from "./session"

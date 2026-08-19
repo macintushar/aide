@@ -7,12 +7,15 @@ import type {
   HarnessModel,
   InstanceAuth,
   InstanceRuntimeStatus,
+  McpServerConfig,
   McpServerStatus,
   OptionDescriptor,
   SelectOption,
 } from "@workspace/contracts"
 
+import { createEventBus, type EventBus } from "../event-bus"
 import type {
+  ActiveTurnInput,
   DiscoverInput,
   DisposeInput,
   HarnessAdapter,
@@ -23,6 +26,7 @@ import type {
   InstanceHealth,
   InterruptTurnInput,
   McpStatusInput,
+  NativeSession,
   OpenSessionInput,
   PermissionResponseInput,
   ResumeSessionInput,
@@ -31,6 +35,11 @@ import type {
   StartInstanceInput,
   StopInstanceInput,
 } from "../types"
+import {
+  createClaudeRuntime,
+  ClaudeRuntimeFailure,
+  type ClaudeRuntime,
+} from "./session"
 import {
   claudeConfigSchema,
   DEFAULT_STARTUP_TIMEOUT_MS,
@@ -53,8 +62,8 @@ import {
  * up already in Wave 2 is that inventory is runtime-scoped — there is no way to
  * ask what models exist without a live query, so `start` opens one and holds it.
  *
- * The send path (streaming parts, part synthesis, `canUseTool` inversion,
- * resume/fork) is Wave 3.
+ * The send path holds a second live query per Aide session — see `session.ts`,
+ * which owns part synthesis, the `canUseTool` inversion, and the effort reopen.
  */
 
 export class ClaudeAdapterError extends Error {
@@ -81,14 +90,6 @@ function adapterError(
     retryable,
     ...(detail === undefined ? {} : { detail }),
   })
-}
-
-function notImplemented(instanceId: string, member: string): never {
-  throw adapterError(
-    "not_implemented",
-    `Claude adapter ${member} lands in Wave 3`,
-    instanceId
-  )
 }
 
 const INTERACTION_MODES: SelectOption[] = [
@@ -125,8 +126,13 @@ type StartedInstance = {
   instanceId: string
   config: ClaudeInstanceConfig
   status: InstanceRuntimeStatus
+  projectDirectory: string | undefined
+  /** The inventory query: `supportedModels()` only exists on a live `Query`. */
   session: ClaudeSession
-  mcpServers: Record<string, unknown>
+  bus: EventBus
+  /** One runtime, and therefore one more live query, per Aide session. */
+  runtimes: Map<string, ClaudeRuntime>
+  mcpServers: Record<string, McpServerConfig>
 }
 
 export type ClaudeAdapterOptions = {
@@ -141,6 +147,10 @@ export function createClaudeAdapter(
   const now = options.now ?? (() => new Date().toISOString())
   const instances = new Map<string, StartedInstance>()
 
+  let idCounter = 0
+  const nextId = (prefix: string) =>
+    `${prefix}-${String(++idCounter).padStart(4, "0")}`
+
   const requireInstance = (handle: InstanceHandle): StartedInstance => {
     const instance = instances.get(handle.instanceId)
     if (!instance) {
@@ -151,6 +161,34 @@ export function createClaudeAdapter(
       )
     }
     return instance
+  }
+
+  const requireRuntime = (
+    handle: InstanceHandle,
+    nativeSession: NativeSession
+  ): ClaudeRuntime => {
+    const instance = requireInstance(handle)
+    const runtime = instance.runtimes.get(nativeSession.nativeSessionId)
+    if (!runtime) {
+      throw adapterError(
+        "native_session_not_found",
+        `Claude native session "${nativeSession.nativeSessionId}" is not open`,
+        handle.instanceId
+      )
+    }
+    return runtime
+  }
+
+  /** Adapter failures raised deeper in the runtime already carry an AideError. */
+  const rethrow = (error: unknown, instanceId: string): never => {
+    if (error instanceof ClaudeRuntimeFailure) {
+      throw new ClaudeAdapterError(error.aideError)
+    }
+    throw adapterError(
+      "claude_adapter_failed",
+      error instanceof Error ? error.message : String(error),
+      instanceId
+    )
   }
 
   const adapter: HarnessAdapter = {
@@ -218,7 +256,10 @@ export function createClaudeAdapter(
         instanceId,
         config,
         status: "ready",
+        projectDirectory: input.projectDirectory,
         session,
+        bus: createEventBus(),
+        runtimes: new Map(),
         mcpServers: {},
       })
       return { instanceId, driver: "claudeAgent" }
@@ -229,6 +270,15 @@ export function createClaudeAdapter(
       if (!instance) return
       instance.status = "stopped"
       instances.delete(instance.instanceId)
+      // Closing a runtime fails any turn it still had in flight, which is what
+      // keeps the core from waiting on a stream that has gone away.
+      await Promise.all(
+        [...instance.runtimes.values()].map((runtime) =>
+          runtime.close().catch(() => undefined)
+        )
+      )
+      instance.runtimes.clear()
+      instance.bus.close()
       await instance.session.close().catch(() => undefined)
     },
 
@@ -295,32 +345,130 @@ export function createClaudeAdapter(
     },
 
     async openSession(input: OpenSessionInput) {
-      return notImplemented(input.handle.instanceId, "openSession")
+      const instance = requireInstance(input.handle)
+      try {
+        const runtime = await createClaudeRuntime({
+          instanceId: instance.instanceId,
+          aideSessionId: input.sessionId,
+          projectDirectory:
+            input.projectDirectory ??
+            instance.projectDirectory ??
+            instance.config.cwd ??
+            process.cwd(),
+          config: instance.config,
+          createSession,
+          startupTimeoutMs:
+            instance.config.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS,
+          execution: input.execution,
+          mcpServers: toSdkMcpServers(instance.mcpServers),
+          now,
+          nextId,
+        })
+        instance.runtimes.set(runtime.nativeSessionId, runtime)
+        return {
+          nativeSessionId: runtime.nativeSessionId,
+          ...(runtime.resumeCursor
+            ? { resumeCursor: runtime.resumeCursor }
+            : {}),
+        }
+      } catch (error) {
+        return rethrow(error, instance.instanceId)
+      }
     },
 
+    /**
+     * The SDK owns its own session store, so a resume point is a message uuid
+     * rather than a generic cursor. A live runtime is reused as-is; a cold one
+     * is reopened against the stored native session. Resuming at a point that
+     * is not the tip forks, because writing new turns onto an abandoned branch
+     * would rewrite history the transcript already shows.
+     */
     async resumeSession(input: ResumeSessionInput) {
-      return notImplemented(input.handle.instanceId, "resumeSession")
+      const instance = requireInstance(input.handle)
+      const live = instance.runtimes.get(input.nativeSessionId)
+      if (live) {
+        return {
+          nativeSessionId: live.nativeSessionId,
+          ...((input.resumeCursor ?? live.resumeCursor)
+            ? { resumeCursor: input.resumeCursor ?? live.resumeCursor }
+            : {}),
+        }
+      }
+      throw adapterError(
+        "native_session_not_resumable",
+        `Claude native session "${input.nativeSessionId}" has no live query; open a session instead`,
+        instance.instanceId,
+        true
+      )
     },
 
     async send(input: SendTurnInput) {
-      return notImplemented(input.handle.instanceId, "send")
+      const runtime = requireRuntime(input.handle, input.nativeSession)
+      try {
+        await runtime.send({
+          turnId: input.turnId,
+          commandId: input.commandId,
+          userMessage: input.userMessage,
+          execution: input.execution,
+          ...(input.handoff ? { handoff: input.handoff } : {}),
+        })
+      } catch (error) {
+        rethrow(error, input.handle.instanceId)
+      }
+    },
+
+    async activeTurn(input: ActiveTurnInput) {
+      const runtime = requireRuntime(input.handle, input.nativeSession)
+      const turnId = runtime.activeTurnId()
+      return turnId ? { turnId } : undefined
     },
 
     async interrupt(input: InterruptTurnInput) {
-      return notImplemented(input.handle.instanceId, "interrupt")
+      const runtime = requireRuntime(input.handle, input.nativeSession)
+      await runtime.interrupt(input.turnId)
     },
 
     async respondToPermission(input: PermissionResponseInput) {
-      return notImplemented(input.handle.instanceId, "respondToPermission")
+      const runtime = requireRuntime(input.handle, input.nativeSession)
+      if (input.request.kind !== "permission") {
+        throw adapterError(
+          "request_kind_mismatch",
+          "respondToPermission requires a permission request",
+          input.handle.instanceId
+        )
+      }
+      try {
+        runtime.respondToPermission(input.request)
+      } catch (error) {
+        rethrow(error, input.handle.instanceId)
+      }
     },
 
     async respondToInput(input: InputResponseInput) {
-      return notImplemented(input.handle.instanceId, "respondToInput")
+      const runtime = requireRuntime(input.handle, input.nativeSession)
+      if (input.request.kind !== "input") {
+        throw adapterError(
+          "request_kind_mismatch",
+          "respondToInput requires an input request",
+          input.handle.instanceId
+        )
+      }
+      try {
+        runtime.respondToInput(input.request)
+      } catch (error) {
+        rethrow(error, input.handle.instanceId)
+      }
     },
 
     async setMcpServers(input: SetMcpServersInput) {
       const instance = requireInstance(input.handle)
       instance.mcpServers = { ...input.servers }
+      const servers = toSdkMcpServers(instance.mcpServers)
+      await Promise.all(
+        [...instance.runtimes.values()].map((runtime) =>
+          runtime.setMcpServers(servers)
+        )
+      )
     },
 
     async mcpStatus(input: McpStatusInput): Promise<McpServerStatus[]> {
@@ -343,8 +491,9 @@ export function createClaudeAdapter(
     },
 
     events(input: HarnessEventsInput): AsyncIterable<AideEvent> {
-      requireInstance(input.handle)
-      return notImplemented(input.handle.instanceId, "events")
+      const instance = requireInstance(input.handle)
+      if (!input.nativeSession) return instance.bus.subscribe()
+      return requireRuntime(input.handle, input.nativeSession).bus.subscribe()
     },
 
     async dispose(input: DisposeInput) {
@@ -418,4 +567,40 @@ function inventoryRevision(
     hash = ((hash << 5) + hash + surface.charCodeAt(index)) >>> 0
   }
   return `claude-${hash.toString(16)}`
+}
+
+/**
+ * Aide's normalized MCP config into the SDK's shape.
+ *
+ * `{ type: "aide" }` denotes a toolset Aide itself hosts. The SDK can host one
+ * in process via `createSdkMcpServer()`, but building those toolsets is P4.2,
+ * so they are left out here rather than translated into something they are not.
+ */
+function toSdkMcpServers(
+  servers: Record<string, McpServerConfig>
+): Record<string, unknown> {
+  const translated: Record<string, unknown> = {}
+  for (const [name, server] of Object.entries(servers)) {
+    switch (server.type) {
+      case "stdio":
+        translated[name] = {
+          type: "stdio",
+          command: server.command,
+          ...(server.args ? { args: server.args } : {}),
+          ...(server.env ? { env: server.env } : {}),
+        }
+        break
+      case "http":
+      case "sse":
+        translated[name] = {
+          type: server.type,
+          url: server.url,
+          ...(server.headers ? { headers: server.headers } : {}),
+        }
+        break
+      case "aide":
+        break
+    }
+  }
+  return translated
 }

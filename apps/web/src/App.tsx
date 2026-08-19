@@ -8,6 +8,7 @@ import { useState } from "react"
 
 import {
   InstancesBoundary,
+  useInstancesFeed,
   type InstancesBoundaryProps,
 } from "@/features/instances"
 import {
@@ -49,6 +50,12 @@ export function App({
   initialSessionId,
 }: AppProps) {
   const [sessionId, setSessionId] = useState(initialSessionId)
+  // One feed for both consumers: the operations panel renders it, and the
+  // composer needs the same inventory to describe its controls.
+  const instancesFeed = useInstancesFeed({
+    readClient: reads,
+    subscribe: subscribeInstances,
+  })
 
   return (
     <div className="min-h-svh bg-[radial-gradient(circle_at_top_left,var(--color-primary)_0,transparent_24rem)] bg-fixed">
@@ -69,7 +76,7 @@ export function App({
               </div>
             </div>
             <span className="rounded-full border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground shadow-sm">
-              Wave 2 · Local operations
+              Wave 3 · Local operations
             </span>
           </div>
         </header>
@@ -109,6 +116,7 @@ export function App({
                   readClient={reads}
                   commandClient={commands}
                   subscribe={subscribeSession}
+                  instances={instancesFeed.state.instances}
                 />
               </div>
             ) : (
@@ -157,6 +165,7 @@ export function App({
                 readClient={reads}
                 commandClient={commands}
                 subscribe={subscribeInstances}
+                feed={instancesFeed}
               />
             </section>
 

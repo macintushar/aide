@@ -14,3 +14,4 @@ export {
   InstancesBoundary,
   type InstancesBoundaryProps,
 } from "./instances-boundary"
+export { useInstancesFeed, type InstancesFeed } from "./use-instances-feed"

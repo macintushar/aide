@@ -12,6 +12,18 @@ import type {
 
 const MAX_EVENT_IDS = 500
 
+/**
+ * A `part.delta` fragment. Live-only: it is never written into the persisted
+ * part map and never advances the durable cursor, so a reload or a fresh
+ * snapshot drops it, which is exactly what "not stored" has to mean.
+ */
+type LiveFragment = {
+  field: "text" | "reasoning" | "input"
+  text: string
+  /** Arrival order, used to place live-only parts after the persisted ones. */
+  order: number
+}
+
 export type SessionStoreState = {
   project: Project | undefined
   session: Session | undefined
@@ -28,6 +40,8 @@ type Listener = (state: SessionStoreState) => void
 export function createSessionStore() {
   let state = initialState()
   let partsByMessage = new Map<string, Map<string, Part>>()
+  let liveByMessage = new Map<string, Map<string, LiveFragment>>()
+  let liveOrder = 0
   let eventIds = new Set<string>()
   const listeners = new Set<Listener>()
 
@@ -38,6 +52,9 @@ export function createSessionStore() {
   return {
     applySnapshot(snapshot: SessionSnapshot) {
       partsByMessage = new Map()
+      // The snapshot is the authority on what was persisted, so any fragment
+      // still in flight is discarded rather than layered on top of it.
+      liveByMessage = new Map()
       for (const message of snapshot.messages) {
         partsByMessage.set(
           message.id,
@@ -95,11 +112,14 @@ export function createSessionStore() {
           const parts = partsByMessage.get(part.messageId) ?? new Map()
           parts.set(part.id, part)
           partsByMessage.set(part.messageId, parts)
+          // The durable part supersedes whatever was streamed into it.
+          liveByMessage.get(part.messageId)?.delete(part.id)
           replaceMessageParts(part.messageId)
           break
         }
         case "part.removed": {
           partsByMessage.get(event.data.messageId)?.delete(event.data.partId)
+          liveByMessage.get(event.data.messageId)?.delete(event.data.partId)
           replaceMessageParts(event.data.messageId)
           break
         }
@@ -121,7 +141,20 @@ export function createSessionStore() {
             requests: upsert(state.requests, event.data.request),
           }
           break
-        case "part.delta":
+        case "part.delta": {
+          const { partId, messageId, field, text } = event.data
+          const live =
+            liveByMessage.get(messageId) ?? new Map<string, LiveFragment>()
+          const existing = live.get(partId)
+          live.set(partId, {
+            field,
+            text: (existing?.text ?? "") + text,
+            order: existing?.order ?? liveOrder++,
+          })
+          liveByMessage.set(messageId, live)
+          replaceMessageParts(messageId)
+          break
+        }
         default:
           break
       }
@@ -139,11 +172,50 @@ export function createSessionStore() {
     },
   }
 
+  /**
+   * Persisted parts in index order, with live fragments layered on top: an
+   * in-flight tool's streaming input attaches to its pending part, and a block
+   * whose completed form has not arrived yet renders as a part of its own.
+   */
   function orderedParts(messageId: string): Part[] {
-    return [...(partsByMessage.get(messageId)?.values() ?? [])].sort(
+    const persisted = [...(partsByMessage.get(messageId)?.values() ?? [])].sort(
       (left, right) =>
         left.index - right.index || left.id.localeCompare(right.id)
     )
+    const live = liveByMessage.get(messageId)
+    if (!live || live.size === 0) return persisted
+
+    const merged = [...persisted]
+    let nextIndex = persisted.reduce(
+      (max, part) => Math.max(max, part.index),
+      -1
+    )
+    const fragments = [...live.entries()].sort(
+      ([, left], [, right]) => left.order - right.order
+    )
+
+    for (const [partId, fragment] of fragments) {
+      const position = merged.findIndex((part) => part.id === partId)
+      if (position !== -1) {
+        const part = merged[position]
+        // Only a tool's input streams onto a part that already exists; a text
+        // or reasoning block's persisted form always wins over its fragments.
+        if (fragment.field === "input" && part.type === "tool") {
+          merged[position] = { ...part, input: fragment.text }
+        }
+        continue
+      }
+      if (fragment.field === "input") continue
+      nextIndex += 1
+      merged.push({
+        id: partId,
+        messageId,
+        index: nextIndex,
+        type: fragment.field === "reasoning" ? "reasoning" : "text",
+        text: fragment.text,
+      })
+    }
+    return merged
   }
 
   function withOrderedParts(message: Message): Message {
