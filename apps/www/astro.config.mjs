@@ -8,10 +8,6 @@ export default defineConfig({
     host: "0.0.0.0",
     allowedHosts: true,
   },
-  preview: {
-    host: "0.0.0.0",
-    allowedHosts: true,
-  },
   // esbuild keeps standard `backdrop-filter` — lightningcss strips it for
   // legacy targets, leaving only the -webkit- alias.
   vite: {
