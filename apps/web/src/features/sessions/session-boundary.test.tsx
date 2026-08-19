@@ -151,7 +151,7 @@ describe("SessionBoundary", () => {
       first.options.onEvent(partEvent(7, "advanced cursor"))
     })
     act(() => {
-      first.options.onError(new Event("error"))
+      first.options.onError?.(new Event("error"))
     })
 
     await waitFor(() => expect(stream.subscriptions).toHaveLength(2))

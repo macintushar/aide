@@ -10,7 +10,8 @@
     "**/.turbo/**",
     "**/coverage/**",
     "**/node_modules/**",
-    "graphify-out/**"
+    "**/graphify-out/**",
+    "**/drizzle/meta/**"
   ],
   "sortTailwindcss": {
     "stylesheet": "packages/ui/src/styles/globals.css",
