@@ -22,6 +22,7 @@ export {
 } from "./parts"
 export {
   createClaudeSession,
+  type ClaudeAccountInfo,
   type ClaudeAgentInfo,
   type ClaudeContentBlock,
   type ClaudeDialogAsk,

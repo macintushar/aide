@@ -100,6 +100,8 @@ type SessionEventShape = {
 export type ClaudeRuntimeOptions = {
   instanceId: string
   aideSessionId: string
+  /** UUID pinned as the native session id, known before the first turn. */
+  nativeSessionId: string
   projectDirectory: string
   config: ClaudeInstanceConfig
   createSession: ClaudeSessionFactory
@@ -108,8 +110,14 @@ export type ClaudeRuntimeOptions = {
   mcpServers?: Record<string, unknown>
   now: () => string
   nextId: (prefix: string) => string
+  /**
+   * Called the first time a turn reports the runtime version. The handshake
+   * carries none, so this is the only place it becomes knowable. Returns an
+   * explanation when the version is incompatible, and nothing when it is fine.
+   */
+  onVersion?: (version: string) => string | undefined
   /** Resume an existing native session instead of starting a new one. */
-  resume?: { nativeSessionId: string; resumeSessionAt?: string; fork?: boolean }
+  resume?: { resumeSessionAt?: string; fork?: boolean }
 }
 
 export type ClaudeRuntime = {
@@ -269,6 +277,7 @@ export async function createClaudeRuntime(
   const {
     instanceId,
     aideSessionId,
+    nativeSessionId,
     projectDirectory,
     config,
     createSession,
@@ -511,6 +520,10 @@ export async function createClaudeRuntime(
       config,
       cwd: projectDirectory,
       timeoutMs: startupTimeoutMs,
+      // Pinning the id is what makes the native session addressable before the
+      // first turn; the runtime otherwise reveals it only on `system/init`. A
+      // resume names the session instead, and the SDK rejects setting both.
+      ...(input.resume ? {} : { sessionId: nativeSessionId }),
       ...(model ? { model } : {}),
       permissionMode,
       ...(effort ? { effort } : {}),
@@ -525,20 +538,12 @@ export async function createClaudeRuntime(
     })
 
   let session = await open({
-    ...(options.resume ? { resume: options.resume.nativeSessionId } : {}),
+    ...(options.resume ? { resume: nativeSessionId } : {}),
     ...(options.resume?.resumeSessionAt
       ? { resumeSessionAt: options.resume.resumeSessionAt }
       : {}),
     ...(options.resume?.fork ? { fork: true } : {}),
   })
-
-  /**
-   * The identity the core keys its native mapping by. A reopen resumes the same
-   * conversation, so the mapping must not move even if the SDK hands back a
-   * fresh `session_id` for the new query.
-   */
-  const nativeSessionId =
-    options.resume?.nativeSessionId ?? session.init.sessionId
 
   const handleMessage = (message: ClaudeStreamMessage): void => {
     const turn = active
@@ -602,9 +607,24 @@ export async function createClaudeRuntime(
       }
       case "system": {
         switch (message.subtype) {
+          case "init": {
+            // The handshake carried no version; this message does, and it is
+            // the first moment runtime compatibility can be checked at all.
+            const version = message.claude_code_version
+            if (!version) return
+            const incompatible = options.onVersion?.(version)
+            // The supervisor polls `health()` once at start, so a mismatch
+            // found here would otherwise never reach anyone. The notice is
+            // the one channel that reaches the user on a live turn.
+            if (incompatible) notice("Runtime version", incompatible, "warning")
+            return
+          }
           case "status":
-            if (message.status) {
-              notice("Claude status", `Claude is ${message.status}.`)
+            // `requesting` fires on every API call in a turn — five times in a
+            // short one — and tells the user nothing they cannot see from the
+            // turn being in flight. Compaction is the status worth surfacing.
+            if (message.status === "compacting") {
+              notice("Compacting context", "Claude is compacting its context.")
             }
             return
           case "api_retry":

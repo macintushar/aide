@@ -40,12 +40,31 @@ export type ClaudeMcpServerStatus = {
   status: string
 }
 
+export type ClaudeAccountInfo = {
+  email?: string
+  organization?: string
+  subscriptionType?: string
+  tokenSource?: string
+  apiKeySource?: string
+  apiProvider?: string
+}
+
+/**
+ * What the runtime reports before any turn has run.
+ *
+ * Deliberately missing a version: `initializationResult()` does not carry one,
+ * and the `system/init` *message* that does is only emitted once a turn starts.
+ * The adapter learns it on the first turn instead of blocking start on a fact
+ * the runtime will not give it.
+ */
 export type ClaudeInitInfo = {
-  version: string
-  model: string
-  apiKeySource: string
+  /** The id this session was pinned to, so it is known before the first turn. */
   sessionId: string
-  agents?: string[]
+  /** The model alias the account resolves to, used to mark the default. */
+  defaultModel: string | undefined
+  account: ClaudeAccountInfo
+  models: ClaudeModelInfo[]
+  agents: ClaudeAgentInfo[]
 }
 
 /** The two `PermissionMode` values Aide's interaction modes map onto. */
@@ -102,6 +121,7 @@ export type ClaudeStreamMessage =
       uuid?: string
       subtype: string
       status?: string | null
+      claude_code_version?: string
       attempt?: number
       max_retries?: number
       tool_name?: string
@@ -164,6 +184,12 @@ export type ClaudeSessionOpenInput = {
   config: ClaudeInstanceConfig
   cwd?: string
   timeoutMs: number
+  /**
+   * Pins `options.sessionId` so the caller knows the native session id before
+   * the first turn. Must be a UUID; the runtime otherwise generates one and
+   * only reveals it on the first `system/init` message.
+   */
+  sessionId?: string
   /** Applied as `options.model`; `setModel` handles later changes. */
   model?: string
   permissionMode?: ClaudePermissionMode
@@ -249,12 +275,17 @@ type RawQuery = AsyncIterator<unknown> & {
 }
 
 /**
- * Opens a live query and waits for the runtime's `system/init` message, which
- * is what carries the version, the resolved model, and the auth source.
+ * Opens a live query and completes the initialize handshake.
  *
- * The init read pulls the shared iterator by hand rather than with `for await`:
- * breaking out of `for await` calls `return()` on the generator, which would
- * close the very query the caller is about to send turns through.
+ * The handshake is a *control request*, not a message. In streaming input mode
+ * the runtime emits no `system/init` message until a turn actually starts, so
+ * waiting for one to arrive on the message stream deadlocks: the query is
+ * healthy and idle, and start times out anyway. `initializationResult()`
+ * answers immediately and carries the models, agents, and account.
+ *
+ * It does not carry a version. That only reaches us on the first turn's
+ * `system/init`, which is why the compatibility check is deferred rather than
+ * gating start on a fact the runtime will not supply yet.
  */
 export const createClaudeSession: ClaudeSessionFactory = async (input) => {
   const { config, cwd, timeoutMs } = input
@@ -263,6 +294,7 @@ export const createClaudeSession: ClaudeSessionFactory = async (input) => {
     prompt: prompt.stream as never,
     options: {
       includePartialMessages: true,
+      ...(input.sessionId ? { sessionId: input.sessionId } : {}),
       ...((cwd ?? config.cwd) ? { cwd: cwd ?? config.cwd } : {}),
       ...((input.model ?? config.model)
         ? { model: input.model ?? config.model }
@@ -340,14 +372,13 @@ export const createClaudeSession: ClaudeSessionFactory = async (input) => {
     await Promise.resolve(raw.return?.(undefined)).catch(() => undefined)
   }
 
-  let init: ClaudeInitInfo | undefined
   let timer: ReturnType<typeof setTimeout> | undefined
   const timeout = new Promise<never>((_resolve, reject) => {
     timer = setTimeout(
       () =>
         reject(
           new Error(
-            `Claude runtime did not report system/init within ${timeoutMs}ms`
+            `Claude runtime did not complete its initialize handshake within ${timeoutMs}ms`
           )
         ),
       timeoutMs
@@ -355,44 +386,35 @@ export const createClaudeSession: ClaudeSessionFactory = async (input) => {
     timer.unref?.()
   })
 
-  const readInit = (async () => {
-    for (;;) {
-      const next = await raw.next()
-      if (next.done) return
-      const message = next.value as {
-        type?: string
-        subtype?: string
-        claude_code_version?: string
-        model?: string
-        apiKeySource?: string
-        session_id?: string
-        agents?: string[]
-      }
-      if (message.type === "system" && message.subtype === "init") {
-        init = {
-          version: message.claude_code_version ?? "",
-          model: message.model ?? "",
-          apiKeySource: message.apiKeySource ?? "",
-          sessionId: message.session_id ?? "",
-          ...(message.agents ? { agents: message.agents } : {}),
-        }
-        return
-      }
-    }
-  })()
-
+  let init: ClaudeInitInfo
   try {
-    await Promise.race([readInit, timeout])
+    const handshake = (await Promise.race([
+      (
+        live as unknown as { initializationResult(): Promise<unknown> }
+      ).initializationResult(),
+      timeout,
+    ])) as {
+      models?: ClaudeModelInfo[]
+      agents?: ClaudeAgentInfo[]
+      account?: ClaudeAccountInfo
+    }
+    const models = handshake.models ?? []
+    init = {
+      sessionId: input.sessionId ?? "",
+      // The runtime lists the account's default under the literal alias
+      // "default"; everything else is an explicit choice.
+      defaultModel:
+        models.find((model) => model.value === "default")?.value ??
+        models[0]?.value,
+      account: handshake.account ?? {},
+      models,
+      agents: handshake.agents ?? [],
+    }
   } catch (error) {
     await close()
     throw error
   } finally {
     clearTimeout(timer)
-  }
-
-  if (!init) {
-    await close()
-    throw new Error("Claude runtime closed before reporting system/init")
   }
 
   return {
@@ -418,7 +440,7 @@ export const createClaudeSession: ClaudeSessionFactory = async (input) => {
         type: "user",
         message: { role: "user", content: text },
         parent_tool_use_id: null,
-        session_id: init!.sessionId,
+        ...(init.sessionId ? { session_id: init.sessionId } : {}),
       })
     },
     close,

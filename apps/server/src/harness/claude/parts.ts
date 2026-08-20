@@ -341,6 +341,12 @@ export function createPartSynthesizer(messageId: string): PartSynthesizer {
           continue
         }
         record.text = text
+        if (!record.published && text === "") {
+          // A block that has never carried text yet — an interrupted thinking
+          // block, or one whose content is withheld — would render as an empty
+          // labelled box. It publishes if and when text actually arrives.
+          continue
+        }
         record.published = true
         changed.push(toPart(record))
       }

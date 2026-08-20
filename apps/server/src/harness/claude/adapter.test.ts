@@ -40,7 +40,12 @@ function createHarness(
     models?: ClaudeModelInfo[]
     agents?: Array<{ name: string }>
     mcpStatuses?: Array<{ name: string; status: string }>
-    apiKeySource?: string
+    account?: {
+      email?: string
+      apiProvider?: string
+      subscriptionType?: string
+      apiKeySource?: string
+    }
     startError?: Error
     discoverError?: Error
   } = {}
@@ -55,10 +60,15 @@ function createHarness(
     const id = `session-${++sessionCounter}`
     const session: ClaudeSession = {
       init: {
-        version: overrides.version ?? "2.1.228",
-        model: "claude-opus-5",
-        apiKeySource: overrides.apiKeySource ?? "oauth",
         sessionId: id,
+        defaultModel: (overrides.models ?? MODELS)[0]?.value,
+        account: overrides.account ?? {
+          email: "harness@example.test",
+          apiProvider: "firstParty",
+          subscriptionType: "Claude Pro",
+        },
+        models: overrides.models ?? MODELS,
+        agents: overrides.agents ?? [{ name: "Explore" }],
       },
       query: {
         async supportedModels() {
@@ -133,31 +143,19 @@ describe("claude version compatibility", () => {
     expect(isCompatibleRuntimeVersion("")).toBe(false)
   })
 
-  it("fails start and closes the query on an incompatible runtime", async () => {
-    const harness = createHarness({ version: "1.9.0" })
+  it("starts without a version, because the handshake does not carry one", async () => {
+    const harness = createHarness()
     const adapter = createClaudeAdapter({
       createSession: harness.createSession,
     })
 
-    await expect(
-      adapter.start({ instance: instanceConfig() })
-    ).rejects.toMatchObject({
-      aideError: { code: "harness_version_incompatible", retryable: false },
-    })
-    expect(harness.closedSessions).toEqual(["session-1"])
-  })
+    const handle = await adapter.start({ instance: instanceConfig() })
 
-  it("proceeds anyway when the operator opts out", async () => {
-    const harness = createHarness({ version: "1.9.0" })
-    const adapter = createClaudeAdapter({
-      createSession: harness.createSession,
-    })
-
-    await expect(
-      adapter.start({
-        instance: instanceConfig({ allowVersionMismatch: true }),
-      })
-    ).resolves.toMatchObject({ instanceId: "claude", driver: "claudeAgent" })
+    // The runtime reports its version on the first turn's system/init; until
+    // then health reports none rather than claiming one.
+    const health = await adapter.health({ handle })
+    expect(health.status).toBe("ready")
+    expect(health.version).toBeUndefined()
   })
 })
 
@@ -308,8 +306,14 @@ describe("claude discovery", () => {
     })
   })
 
-  it("surfaces the auth source without storing a credential", async () => {
-    const harness = createHarness({ apiKeySource: "oauth" })
+  it("surfaces a first-party subscription without storing a credential", async () => {
+    const harness = createHarness({
+      account: {
+        email: "user@example.test",
+        apiProvider: "firstParty",
+        subscriptionType: "Claude Pro",
+      },
+    })
     const adapter = createClaudeAdapter({
       createSession: harness.createSession,
     })
@@ -318,10 +322,38 @@ describe("claude discovery", () => {
     const inventory = await adapter.discover({ handle })
     expect(inventory.auth).toEqual({
       status: "authenticated",
-      type: "oauth",
-      label: "Claude account",
+      type: "firstParty",
+      label: "Claude Pro",
+      account: "user@example.test",
     })
     expect(JSON.stringify(inventory)).not.toContain("sk-")
+  })
+
+  it("surfaces an API key source without its value", async () => {
+    const harness = createHarness({
+      account: { apiKeySource: "ANTHROPIC_API_KEY", apiProvider: "firstParty" },
+    })
+    const adapter = createClaudeAdapter({
+      createSession: harness.createSession,
+    })
+    const handle = await adapter.start({ instance: instanceConfig() })
+
+    expect((await adapter.discover({ handle })).auth).toMatchObject({
+      status: "authenticated",
+      type: "ANTHROPIC_API_KEY",
+    })
+  })
+
+  it("reports unknown auth when the account says nothing", async () => {
+    const harness = createHarness({ account: {} })
+    const adapter = createClaudeAdapter({
+      createSession: harness.createSession,
+    })
+    const handle = await adapter.start({ instance: instanceConfig() })
+
+    expect((await adapter.discover({ handle })).auth).toEqual({
+      status: "unknown",
+    })
   })
 })
 

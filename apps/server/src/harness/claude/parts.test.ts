@@ -185,6 +185,32 @@ describe("claude part synthesis: streaming", () => {
     expect(input.delta?.field).toBe("input")
   })
 
+  it("does not publish a block that never carried any text", () => {
+    const synth = createPartSynthesizer(MESSAGE_ID)
+
+    // What an interrupted thinking block looks like: reserved, then delivered
+    // empty because the content never arrived.
+    const published = synth.applyAssistantMessage(API_MESSAGE_ID, [
+      { type: "thinking", thinking: "" },
+    ])
+
+    expect(published).toHaveLength(0)
+  })
+
+  it("publishes a block the moment it does carry text", () => {
+    const synth = createPartSynthesizer(MESSAGE_ID)
+
+    synth.applyAssistantMessage(API_MESSAGE_ID, [{ type: "text", text: "" }])
+    const published = synth.applyAssistantMessage(API_MESSAGE_ID, [
+      { type: "text", text: "now it says something" },
+    ])
+
+    expect(published).toHaveLength(1)
+    expect(textOf(published[0])).toBe("now it says something")
+    // Still the one part it reserved, not a second one.
+    expect(synth.parts()).toHaveLength(1)
+  })
+
   it("ignores a delta for an index no block was started at", () => {
     const synth = createPartSynthesizer(MESSAGE_ID)
 

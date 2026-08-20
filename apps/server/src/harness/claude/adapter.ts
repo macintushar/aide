@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto"
+
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 import type {
   AideError,
@@ -49,6 +51,7 @@ import {
 } from "./config"
 import {
   createClaudeSession,
+  type ClaudeAccountInfo,
   type ClaudeModelInfo,
   type ClaudeSession,
   type ClaudeSessionFactory,
@@ -127,6 +130,9 @@ type StartedInstance = {
   config: ClaudeInstanceConfig
   status: InstanceRuntimeStatus
   projectDirectory: string | undefined
+  /** Learned from the first turn's `system/init`; unknown until then. */
+  runtimeVersion: string | undefined
+  error: AideError | undefined
   /** The inventory query: `supportedModels()` only exists on a live `Query`. */
   session: ClaudeSession
   bus: EventBus
@@ -177,6 +183,39 @@ export function createClaudeAdapter(
       )
     }
     return runtime
+  }
+
+  /**
+   * The runtime version only reaches us on a turn's `system/init`, so the
+   * compatibility gate runs here rather than at start. An incompatible runtime
+   * degrades the instance and surfaces the reason instead of failing the turn
+   * that just revealed it — the user cannot act on it mid-turn, and the turn
+   * itself may well succeed.
+   */
+  const noteRuntimeVersion = (
+    instance: StartedInstance,
+    version: string
+  ): string | undefined => {
+    if (instance.runtimeVersion === version) return instance.error?.message
+    instance.runtimeVersion = version
+    if (instance.config.allowVersionMismatch) return undefined
+    if (isCompatibleRuntimeVersion(version)) {
+      if (instance.status === "degraded") {
+        instance.status = "ready"
+        instance.error = undefined
+      }
+      return undefined
+    }
+    const message = `Claude Code ${version} is not compatible with this adapter, which targets SDK ${PINNED_CLAUDE_SDK_VERSION}. Upgrade the runtime, or set allowVersionMismatch to proceed anyway.`
+    instance.status = "degraded"
+    instance.error = {
+      code: "harness_version_incompatible",
+      message,
+      instanceId: instance.instanceId,
+      retryable: false,
+      detail: { version, pinnedSdkVersion: PINNED_CLAUDE_SDK_VERSION },
+    }
+    return message
   }
 
   /** Adapter failures raised deeper in the runtime already carry an AideError. */
@@ -235,28 +274,13 @@ export function createClaudeAdapter(
         )
       }
 
-      if (
-        !config.allowVersionMismatch &&
-        !isCompatibleRuntimeVersion(session.init.version)
-      ) {
-        await session.close().catch(() => undefined)
-        throw adapterError(
-          "harness_version_incompatible",
-          `Claude Code ${session.init.version} is not compatible with this adapter, which targets SDK ${PINNED_CLAUDE_SDK_VERSION}. Upgrade the runtime, or set allowVersionMismatch to proceed anyway.`,
-          instanceId,
-          false,
-          {
-            version: session.init.version,
-            pinnedSdkVersion: PINNED_CLAUDE_SDK_VERSION,
-          }
-        )
-      }
-
       instances.set(instanceId, {
         instanceId,
         config,
         status: "ready",
         projectDirectory: input.projectDirectory,
+        runtimeVersion: undefined,
+        error: undefined,
         session,
         bus: createEventBus(),
         runtimes: new Map(),
@@ -293,9 +317,14 @@ export function createClaudeAdapter(
       }
       return {
         status: instance.status,
-        version: instance.session.init.version,
+        // Undefined until a turn has reported it; the handshake carries no
+        // version, so claiming one here would be inventing it.
+        ...(instance.runtimeVersion
+          ? { version: instance.runtimeVersion }
+          : {}),
         installed: true,
-        auth: authFromInit(instance.session.init.apiKeySource),
+        auth: authFromAccount(instance.session.init.account),
+        ...(instance.error ? { error: instance.error } : {}),
       }
     },
 
@@ -326,7 +355,7 @@ export function createClaudeAdapter(
       }
 
       const harnessModels = models.map((model) =>
-        toHarnessModel(model, instance.session.init.model)
+        toHarnessModel(model, instance.session.init.defaultModel)
       )
 
       return {
@@ -336,7 +365,7 @@ export function createClaudeAdapter(
         discoveredAt: now(),
         stale: false,
         capabilities: CAPABILITIES,
-        auth: authFromInit(instance.session.init.apiKeySource),
+        auth: authFromAccount(instance.session.init.account),
         models: harnessModels,
         // agentSelection is false; subagents are not a composer control.
         agents: [],
@@ -350,6 +379,7 @@ export function createClaudeAdapter(
         const runtime = await createClaudeRuntime({
           instanceId: instance.instanceId,
           aideSessionId: input.sessionId,
+          nativeSessionId: randomUUID(),
           projectDirectory:
             input.projectDirectory ??
             instance.projectDirectory ??
@@ -363,6 +393,7 @@ export function createClaudeAdapter(
           mcpServers: toSdkMcpServers(instance.mcpServers),
           now,
           nextId,
+          onVersion: (version) => noteRuntimeVersion(instance, version),
         })
         instance.runtimes.set(runtime.nativeSessionId, runtime)
         return {
@@ -532,7 +563,7 @@ function effortDescriptor(model: ClaudeModelInfo): OptionDescriptor[] {
 
 function toHarnessModel(
   model: ClaudeModelInfo,
-  defaultModel: string
+  defaultModel: string | undefined
 ): HarnessModel {
   return {
     modelId: model.value,
@@ -543,14 +574,25 @@ function toHarnessModel(
   }
 }
 
-/** Auth is surfaced, never stored or proxied by Aide. */
-function authFromInit(apiKeySource: string): InstanceAuth {
-  if (!apiKeySource) return { status: "unknown" }
+/**
+ * Auth is surfaced, never stored or proxied by Aide.
+ *
+ * A first-party OAuth login reports a subscription and no `apiKeySource`; an
+ * API key or a third-party provider reports the source instead. An account
+ * with neither is reported unknown rather than guessed at.
+ */
+function authFromAccount(account: ClaudeAccountInfo): InstanceAuth {
+  const source = account.apiKeySource ?? account.tokenSource
+  const provider = account.apiProvider
+  if (!source && !provider && !account.email) return { status: "unknown" }
   return {
     status: "authenticated",
-    type: apiKeySource,
+    ...((source ?? provider) ? { type: source ?? provider! } : {}),
     label:
-      apiKeySource === "oauth" ? "Claude account" : `API key (${apiKeySource})`,
+      provider === "firstParty"
+        ? (account.subscriptionType ?? "Claude account")
+        : (provider ?? `API key (${source})`),
+    ...(account.email ? { account: account.email } : {}),
   }
 }
 

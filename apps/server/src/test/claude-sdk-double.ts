@@ -1,4 +1,5 @@
 import type {
+  ClaudeAccountInfo,
   ClaudeAgentInfo,
   ClaudeDialogResult,
   ClaudeMcpServerStatus,
@@ -57,11 +58,12 @@ export type ClaudeTurnScriptContext = {
 }
 
 export type ClaudeSessionDoubleOptions = {
+  /** Reported on the first turn's `system/init`, as the real runtime does. */
   version?: string
   models?: ClaudeModelInfo[]
   agents?: ClaudeAgentInfo[]
   mcpStatuses?: ClaudeMcpServerStatus[]
-  apiKeySource?: string
+  account?: ClaudeAccountInfo
   onDiscover?: () => void
   onOpen?: (input: ClaudeSessionOpenInput) => void
   /** Defaults to {@link conformanceTurnScript}. */
@@ -361,10 +363,18 @@ export function createClaudeSessionDoubleFactory(
         return state.prompts
       },
       init: {
-        version: options.version ?? "2.1.228",
-        model: input.model ?? "claude-opus-5",
-        apiKeySource: options.apiKeySource ?? "oauth",
-        sessionId: input.resume ?? `claude-native-${counter}`,
+        // Mirrors `initializationResult()`: models, agents, and account, and
+        // deliberately no version — the real handshake has none.
+        sessionId:
+          input.sessionId ?? input.resume ?? `claude-native-${counter}`,
+        defaultModel: (options.models ?? DEFAULT_CLAUDE_MODELS)[0]?.value,
+        account: options.account ?? {
+          email: "double@example.test",
+          apiProvider: "firstParty",
+          subscriptionType: "Claude Pro",
+        },
+        models: options.models ?? DEFAULT_CLAUDE_MODELS,
+        agents: options.agents ?? [{ name: "Explore" }],
       },
       query: {
         async supportedModels() {
@@ -396,6 +406,12 @@ export function createClaudeSessionDoubleFactory(
       messages: emitter.messages,
       prompt(text) {
         state.prompts.push(text)
+        // The runtime emits system/init at the start of a turn, never before.
+        emitter.emit({
+          type: "system",
+          subtype: "init",
+          claude_code_version: options.version ?? "2.1.228",
+        } as ClaudeStreamMessage)
         void script({
           prompt: text,
           emit: emitter.emit,

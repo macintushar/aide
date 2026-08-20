@@ -839,6 +839,8 @@ describe("claude send: result and notice mapping", () => {
 
   it("maps status, retry, denial, and compaction messages to notices", async () => {
     const noisy = async (context: ClaudeTurnScriptContext) => {
+      // `requesting` is deliberately not a notice: it fires on every API call.
+      context.emit({ type: "system", subtype: "status", status: "requesting" })
       context.emit({ type: "system", subtype: "status", status: "compacting" })
       context.emit({
         type: "system",
@@ -880,12 +882,15 @@ describe("claude send: result and notice mapping", () => {
     const notices = stream.events.filter(
       (event) => event.type === "notice.created"
     )
+    // Four, not five: the `requesting` status is dropped rather than repeated
+    // into the transcript on every API call the turn makes.
     expect(notices).toHaveLength(4)
     expect(
       notices.map((event) =>
         event.type === "notice.created" ? event.data.level : undefined
       )
     ).toEqual(["info", "warning", "warning", "info"])
+    expect(JSON.stringify(notices)).not.toContain("requesting")
   })
 
   it("fails an in-flight turn when the query's stream ends without a result", async () => {
@@ -912,6 +917,147 @@ describe("claude send: result and notice mapping", () => {
     if (failed.type !== "turn.failed") throw new Error("unreachable")
     expect(failed.data.turn.error?.code).toBe("claude_stream_closed")
     await stream.stop()
+  })
+})
+
+describe("claude send: runtime version", () => {
+  async function runOneTurn(options: {
+    version: string
+    allowVersionMismatch?: boolean
+  }) {
+    const createSession = createClaudeSessionDoubleFactory({
+      version: options.version,
+      script: completeImmediately,
+    })
+    const adapter = createClaudeAdapter({ createSession })
+    const handle = await adapter.start({
+      instance: options.allowVersionMismatch
+        ? { ...INSTANCE, config: { allowVersionMismatch: true } }
+        : INSTANCE,
+      projectDirectory: PROJECT_DIRECTORY,
+    })
+    const beforeTurn = await adapter.health({ handle })
+    const nativeSession = await adapter.openSession({
+      handle,
+      sessionId: "session-1",
+      projectDirectory: PROJECT_DIRECTORY,
+      execution: execution(),
+    })
+    const stream = collect(adapter.events({ handle, nativeSession }))
+    await adapter.send({
+      handle,
+      nativeSession,
+      commandId: "cmd-1",
+      turnId: "turn-1",
+      userMessage: userMessage("go"),
+      execution: execution(),
+    })
+    await stream.waitFor(
+      (event) => event.type === "turn.completed",
+      "turn.completed"
+    )
+    const events = [...stream.events]
+    await stream.stop()
+    return { beforeTurn, afterTurn: await adapter.health({ handle }), events }
+  }
+
+  it("learns the version from the first turn, not from start", async () => {
+    const { beforeTurn, afterTurn } = await runOneTurn({ version: "2.4.0" })
+
+    // The handshake carries no version, so health reports none until a turn has.
+    expect(beforeTurn.version).toBeUndefined()
+    expect(afterTurn.version).toBe("2.4.0")
+    expect(afterTurn.status).toBe("ready")
+  })
+
+  it("degrades the instance and warns when the turn reveals an incompatible runtime", async () => {
+    const { afterTurn, events } = await runOneTurn({ version: "1.9.0" })
+
+    // The turn that revealed the mismatch still completes: the user cannot act
+    // on it mid-turn, and the turn itself is not necessarily broken.
+    expect(afterTurn.status).toBe("degraded")
+    expect(afterTurn.error).toMatchObject({
+      code: "harness_version_incompatible",
+      retryable: false,
+    })
+    // The supervisor polls health once at start, so without this notice the
+    // mismatch would be invisible to whoever is running the turn.
+    const warning = events.find(
+      (event) =>
+        event.type === "notice.created" && event.data.level === "warning"
+    )
+    expect(warning).toBeDefined()
+    if (warning?.type !== "notice.created") throw new Error("unreachable")
+    expect(warning.data.message).toMatch(/not compatible with this adapter/)
+  })
+
+  it("stays ready on a mismatch the operator opted out of", async () => {
+    const { afterTurn } = await runOneTurn({
+      version: "1.9.0",
+      allowVersionMismatch: true,
+    })
+
+    expect(afterTurn.status).toBe("ready")
+    expect(afterTurn.error).toBeUndefined()
+  })
+})
+
+describe("claude send: native session identity", () => {
+  it("pins a UUID as the native session id so it is known before the first turn", async () => {
+    const { nativeSession, createSession } = await startSession({
+      script: completeImmediately,
+    })
+
+    expect(nativeSession.nativeSessionId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+    )
+    // The pin reaches the SDK, which is what makes it the real session id
+    // rather than an Aide-side alias for one.
+    expect(createSession.sessions[1].openInput.sessionId).toBe(
+      nativeSession.nativeSessionId
+    )
+  })
+
+  it("names the session on a resume instead of pinning it again", async () => {
+    const { adapter, handle, nativeSession, createSession } =
+      await startSession({
+        script: completeImmediately,
+        execution: execution({ options: { effort: "medium" } }),
+      })
+    const stream = collect(adapter.events({ handle, nativeSession }))
+
+    await adapter.send({
+      handle,
+      nativeSession,
+      commandId: "cmd-1",
+      turnId: "turn-1",
+      userMessage: userMessage("first"),
+      execution: execution({ options: { effort: "medium" } }),
+    })
+    await stream.waitFor(
+      (event) => event.type === "turn.completed",
+      "first completion"
+    )
+    // The effort reopen is the path that resumes an existing native session.
+    await adapter.send({
+      handle,
+      nativeSession,
+      commandId: "cmd-2",
+      turnId: "turn-2",
+      userMessage: userMessage("second", 3),
+      execution: execution({ options: { effort: "high" } }),
+    })
+    await stream.waitFor(
+      (event) =>
+        event.type === "turn.completed" && event.data.turn.id === "turn-2",
+      "second completion"
+    )
+    await stream.stop()
+
+    const reopened = createSession.sessions[2].openInput
+    expect(reopened.resume).toBe(nativeSession.nativeSessionId)
+    // The SDK rejects setting both.
+    expect(reopened.sessionId).toBeUndefined()
   })
 })
 
