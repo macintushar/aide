@@ -60,9 +60,7 @@ describe("production database initialization", () => {
     client.close()
 
     const db = initializeDb(fileName)
-    const tables = (
-      db.$client as unknown as Database
-    )
+    const tables = (db.$client as unknown as Database)
       .prepare(
         "SELECT name FROM sqlite_master WHERE name = 'session_file_changes'"
       )
