@@ -11,6 +11,7 @@ import {
   createClaudeSessionDoubleFactory,
   type ClaudeTurnScriptContext,
 } from "../../test/claude-sdk-double"
+import type { ClaudeSessionOpenInput } from "./query"
 import { createClaudeAdapter } from "./adapter"
 import { normalizeDialogQuestions, permissionDiff } from "./session"
 
@@ -160,10 +161,12 @@ const completeImmediately = async (context: ClaudeTurnScriptContext) => {
 async function startSession(options: {
   script?: (context: ClaudeTurnScriptContext) => Promise<void>
   execution?: ResolvedExecution
+  onOpen?: (input: ClaudeSessionOpenInput) => void
 }) {
-  const createSession = createClaudeSessionDoubleFactory(
-    options.script ? { script: options.script } : {}
-  )
+  const createSession = createClaudeSessionDoubleFactory({
+    ...(options.script ? { script: options.script } : {}),
+    ...(options.onOpen ? { onOpen: options.onOpen } : {}),
+  })
   const adapter = createClaudeAdapter({ createSession })
   const handle = await adapter.start({
     instance: INSTANCE,
@@ -393,6 +396,125 @@ describe("claude send: effort change policy", () => {
     // The native mapping the core keys on must survive the reopen.
     const active = await adapter.activeTurn?.({ handle, nativeSession })
     expect(active).toBeUndefined()
+  })
+
+  it("does not prepend a portable handoff after a successful native resume", async () => {
+    const { adapter, handle, nativeSession, createSession } =
+      await startSession({
+        script: completeImmediately,
+        execution: execution({ options: { effort: "medium" } }),
+      })
+    const stream = collect(adapter.events({ handle, nativeSession }))
+
+    await adapter.send({
+      handle,
+      nativeSession,
+      commandId: "cmd-1",
+      turnId: "turn-1",
+      userMessage: userMessage("first"),
+      execution: execution({ options: { effort: "medium" } }),
+    })
+    await stream.waitFor(
+      (event) =>
+        event.type === "turn.completed" && event.data.turn.id === "turn-1",
+      "first completion"
+    )
+
+    await adapter.send({
+      handle,
+      nativeSession,
+      commandId: "cmd-2",
+      turnId: "turn-2",
+      userMessage: userMessage("second", 3),
+      execution: execution({ options: { effort: "high" } }),
+      handoff: {
+        id: "handoff-1",
+        turnId: "turn-2",
+        instanceId: "claude",
+        nativeSessionId: nativeSession.nativeSessionId,
+        role: "handoff",
+        fromMessageSeq: 0,
+        throughMessageSeq: 1,
+        content: "PRIOR CONTEXT",
+        createdAt: new Date(0).toISOString(),
+      },
+    })
+    await stream.waitFor(
+      (event) =>
+        event.type === "turn.completed" && event.data.turn.id === "turn-2",
+      "second completion"
+    )
+    await stream.stop()
+
+    expect(createSession.sessions[2].prompts[0]).toBe("second")
+  })
+
+  it("rolls back effort when reopening the query fails so a retry still reopens", async () => {
+    let failNextResume = true
+    const { adapter, handle, nativeSession, createSession } =
+      await startSession({
+        script: completeImmediately,
+        execution: execution({ options: { effort: "medium" } }),
+        onOpen: (input) => {
+          if (input.resume && failNextResume) {
+            failNextResume = false
+            throw new Error("resume failed")
+          }
+        },
+      })
+    const stream = collect(adapter.events({ handle, nativeSession }))
+
+    await adapter.send({
+      handle,
+      nativeSession,
+      commandId: "cmd-1",
+      turnId: "turn-1",
+      userMessage: userMessage("first"),
+      execution: execution({ options: { effort: "medium" } }),
+    })
+    await stream.waitFor(
+      (event) =>
+        event.type === "turn.completed" && event.data.turn.id === "turn-1",
+      "first completion"
+    )
+
+    await expect(
+      adapter.send({
+        handle,
+        nativeSession,
+        commandId: "cmd-2",
+        turnId: "turn-2",
+        userMessage: userMessage("second", 3),
+        execution: execution({ options: { effort: "high" } }),
+      })
+    ).rejects.toMatchObject({
+      aideError: { code: "claude_adapter_failed", message: "resume failed" },
+    })
+
+    expect(createSession.sessions).toHaveLength(2)
+    expect(createSession.sessions[1].closed).toBe(false)
+
+    await adapter.send({
+      handle,
+      nativeSession,
+      commandId: "cmd-3",
+      turnId: "turn-3",
+      userMessage: userMessage("retry", 5),
+      execution: execution({ options: { effort: "high" } }),
+    })
+    await stream.waitFor(
+      (event) =>
+        event.type === "turn.completed" && event.data.turn.id === "turn-3",
+      "retry completion"
+    )
+    await stream.stop()
+
+    const reopened = createSession.sessions[2]
+    expect(createSession.sessions).toHaveLength(3)
+    expect(reopened.openInput.effort).toBe("high")
+    expect(reopened.openInput.resume).toBe(nativeSession.nativeSessionId)
+    expect(reopened.prompts[0]).toBe("retry")
+    expect(createSession.sessions[1].closed).toBe(true)
   })
 
   it("refuses to change effort while a turn is running", async () => {

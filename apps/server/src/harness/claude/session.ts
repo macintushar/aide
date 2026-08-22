@@ -766,7 +766,7 @@ export async function createClaudeRuntime(
   const reopenForEffort = async (
     next: string | undefined,
     handoff: NativeDispatchInput | undefined
-  ): Promise<string | undefined> => {
+  ): Promise<"resumed" | { seed: string }> => {
     const resumable = lastOutcome === "none" || lastOutcome === "completed"
     if (!resumable && !handoff) {
       throw runtimeError(
@@ -776,21 +776,34 @@ export async function createClaudeRuntime(
       )
     }
 
+    // `open` reads `effort` from this closure, so the replacement query has to
+    // see `next` before it is created. Roll that assignment back if the open
+    // fails; otherwise a retry with the same requested effort would skip
+    // reopening and run on the old session.
+    const previousEffort = effort
     effort = next
+    let replacement: ClaudeSession
+    try {
+      replacement = await open(
+        resumable
+          ? {
+              resume: nativeSessionId,
+              ...(lastAssistantUuid
+                ? { resumeSessionAt: lastAssistantUuid }
+                : {}),
+            }
+          : {}
+      )
+    } catch (error) {
+      effort = previousEffort
+      throw error
+    }
     const previous = session
-    session = await open(
-      resumable
-        ? {
-            resume: nativeSessionId,
-            ...(lastAssistantUuid
-              ? { resumeSessionAt: lastAssistantUuid }
-              : {}),
-          }
-        : {}
-    )
+    session = replacement
     await previous.close().catch(() => undefined)
     pump(session)
-    return resumable ? undefined : handoff?.content
+    if (resumable) return "resumed"
+    return { seed: handoff.content }
   }
 
   const runtime: ClaudeRuntime = {
@@ -822,10 +835,13 @@ export async function createClaudeRuntime(
         )
       }
 
-      let seed: string | undefined
+      let prefix = input.handoff?.content
       const nextEffort = effortFor(input.execution)
       if (nextEffort !== effort) {
-        seed = await reopenForEffort(nextEffort, input.handoff)
+        const reopened = await reopenForEffort(nextEffort, input.handoff)
+        // A successful native resume already has the conversation; prepending
+        // the portable packet would send it twice.
+        prefix = reopened === "resumed" ? undefined : reopened.seed
       }
 
       const nextModel = input.execution.selection.model.modelId
@@ -885,10 +901,7 @@ export async function createClaudeRuntime(
         .filter((part) => part.type === "text")
         .map((part) => part.text)
         .join("\n")
-      // `seed` is set only when the effort reopen could not resume; the handoff
-      // packet is then the sole carrier of prior context.
-      const handoff = seed ?? input.handoff?.content
-      session.prompt(handoff ? `${handoff}\n\n${text}` : text)
+      session.prompt(prefix ? `${prefix}\n\n${text}` : text)
     },
 
     async interrupt(turnId) {
