@@ -55,6 +55,12 @@ export function serveWebApp(
 
   return async (path: string) => {
     const pathname = decodeURI(path.split("?")[0] ?? "/")
+    // Dotfiles make extname unreliable ("..%2F.env" parses as no-extension),
+    // so reject parent-directory segments outright rather than trusting the
+    // containment check alone.
+    if (pathname !== "/" && pathname.split("/").includes("..")) {
+      return undefined
+    }
     if (
       pathname !== "/" &&
       API_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"))
