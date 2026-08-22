@@ -6,12 +6,13 @@ import {
   symlink,
   writeFile,
 } from "node:fs/promises"
-import { tmpdir } from "node:os"
+import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterAll, describe, expect, it } from "vitest"
 
 import { WorkspaceError } from "./errors"
 import {
+  pathsOutsideBoundary,
   readFileWithinBoundary,
   resolveRealWithinBoundary,
   resolveWithinBoundary,
@@ -177,5 +178,66 @@ describe("readFileWithinBoundary", () => {
     ).rejects.toMatchObject({
       code: "path_outside_boundary",
     })
+  })
+})
+
+describe("pathsOutsideBoundary", () => {
+  it("reports nothing when every path is inside the project", async () => {
+    const project = await makeProject()
+    await writeFile(join(project, "inside.txt"), "x")
+
+    expect(
+      await pathsOutsideBoundary(project, ["inside.txt", "nested/new.txt"])
+    ).toEqual([])
+  })
+
+  it("reports an absolute path that escapes the project", async () => {
+    const project = await makeProject()
+    const outside = await makeProject()
+    const target = join(outside, "notes.txt")
+
+    const reported = await pathsOutsideBoundary(project, [target])
+
+    expect(reported).toHaveLength(1)
+    expect(reported[0]).toContain("notes.txt")
+  })
+
+  it("reports a traversal that climbs out of the project", async () => {
+    const project = await makeProject()
+
+    expect(
+      await pathsOutsideBoundary(project, ["../escaped.txt"])
+    ).toHaveLength(1)
+  })
+
+  it("expands a leading tilde instead of nesting it in the project", async () => {
+    const project = await makeProject()
+
+    const reported = await pathsOutsideBoundary(project, ["~/notes.txt"])
+
+    // `resolve` alone would make this "<project>/~/notes.txt" — inside, and
+    // silently wrong for exactly the case this check exists to catch.
+    expect(reported).toHaveLength(1)
+    expect(reported[0]).toBe(join(await realpath(homedir()), "notes.txt"))
+  })
+
+  it("follows a symlink that points out of the project", async () => {
+    const project = await makeProject()
+    const outside = await makeProject()
+    await symlink(outside, join(project, "link"))
+
+    expect(
+      await pathsOutsideBoundary(project, ["link/smuggled.txt"])
+    ).toHaveLength(1)
+  })
+
+  it("deduplicates paths that canonicalize to the same place", async () => {
+    const project = await makeProject()
+    const outside = await makeProject()
+    const target = join(outside, "notes.txt")
+
+    expect(
+      await pathsOutsideBoundary(project, [target, target, `${target}`])
+    ).toHaveLength(1)
   })
 })

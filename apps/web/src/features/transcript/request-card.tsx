@@ -42,6 +42,26 @@ function PermissionCard({
           {request.payload.detail}
         </p>
       ) : null}
+      {request.payload.boundary ? (
+        <div
+          data-testid="permission-boundary"
+          className="mt-3 rounded-xl border border-destructive/40 bg-destructive/5 p-3"
+        >
+          <p className="text-sm font-medium text-destructive">
+            This reaches outside the project
+          </p>
+          <ul className="mt-1 flex flex-col gap-0.5">
+            {request.payload.boundary.outsidePaths.map((path) => (
+              <li key={path} className="font-mono text-xs break-all">
+                {path}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Project: {request.payload.boundary.projectDirectory}
+          </p>
+        </div>
+      ) : null}
       {request.payload.diff ? (
         <pre className="mt-3 max-h-40 overflow-auto rounded-xl bg-muted p-3 font-mono text-xs whitespace-pre-wrap">
           {request.payload.diff}

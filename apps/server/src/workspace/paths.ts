@@ -1,3 +1,4 @@
+import { homedir } from "node:os"
 import { readFile, realpath } from "node:fs/promises"
 import { basename, dirname, join, resolve, sep } from "node:path"
 
@@ -109,4 +110,40 @@ export async function readFileWithinBoundary(
     }
     throw error
   }
+}
+
+/**
+ * Expands a leading `~`, which `resolve` would otherwise treat as an ordinary
+ * directory name and quietly place *inside* the project.
+ */
+function expandHome(candidate: string): string {
+  if (candidate === "~") return homedir()
+  if (candidate.startsWith("~/")) return join(homedir(), candidate.slice(2))
+  return candidate
+}
+
+/**
+ * Which of `candidates` fall outside the project, canonicalized.
+ *
+ * Reports rather than throws: this answers "should the user be warned before
+ * approving this?", where several paths may be involved and one being outside
+ * is a fact to surface, not an error to raise. Callers enforcing a hard
+ * boundary want {@link resolveRealWithinBoundary} instead.
+ */
+export async function pathsOutsideBoundary(
+  projectDirectory: string,
+  candidates: string[]
+): Promise<string[]> {
+  if (candidates.length === 0) return []
+  const realProject = await canonicalize(resolve(projectDirectory))
+  const outside: string[] = []
+  for (const candidate of candidates) {
+    const resolved = await canonicalize(
+      resolve(realProject, expandHome(candidate))
+    )
+    if (!contains(realProject, resolved) && !outside.includes(resolved)) {
+      outside.push(resolved)
+    }
+  }
+  return outside
 }

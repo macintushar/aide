@@ -1,13 +1,19 @@
-import type { Command, ExecutionSelection, Request } from "@workspace/contracts"
+import type {
+  Command,
+  ConfigDefaults,
+  ExecutionSelection,
+  InstanceSnapshotEntry,
+  Request,
+} from "@workspace/contracts"
 import { Button } from "@workspace/ui/components/button"
 import {
   useEffect,
   useEffectEvent,
   useState,
   useSyncExternalStore,
-  type FormEvent,
 } from "react"
 
+import { Composer } from "@/features/composer"
 import { RequestCard } from "@/features/transcript/request-card"
 import { Transcript } from "@/features/transcript/transcript"
 import {
@@ -21,7 +27,10 @@ import {
 import { createReadClient } from "@/lib/transport/read-client"
 import { createSessionStore } from "@/store/event-store"
 
-type ReadClient = Pick<ReturnType<typeof createReadClient>, "getSession">
+type ReadClient = Pick<
+  ReturnType<typeof createReadClient>,
+  "getSession" | "getConfig" | "getProjectConfig"
+>
 type CommandClient = Pick<ReturnType<typeof createCommandClient>, "send">
 type Subscribe = (options: SessionEventsOptions) => { close(): void }
 
@@ -31,6 +40,8 @@ export type SessionBoundaryProps = {
   commandClient?: CommandClient
   subscribe?: Subscribe
   reconnectDelayMs?: number
+  /** Harness inventory for the composer, owned by whoever also renders the panel. */
+  instances?: InstanceSnapshotEntry[]
 }
 
 const defaultReadClient = createReadClient()
@@ -46,6 +57,7 @@ function SessionController({
   commandClient = defaultCommandClient,
   subscribe = subscribeSessionEvents,
   reconnectDelayMs = 1_000,
+  instances = [],
 }: SessionBoundaryProps) {
   const [store] = useState(createSessionStore)
   const state = useSyncExternalStore(store.subscribe, store.getState)
@@ -53,8 +65,11 @@ function SessionController({
   const [streamError, setStreamError] = useState(false)
   const [commandError, setCommandError] = useState<string>()
   const [pending, setPending] = useState(false)
-  const [content, setContent] = useState("")
   const [attempt, setAttempt] = useState(0)
+  const [defaults, setDefaults] = useState<{
+    project?: ConfigDefaults
+    user?: ConfigDefaults
+  }>({})
 
   const applyEvent = useEffectEvent(store.applyEvent)
   const applySnapshot = useEffectEvent(store.applySnapshot)
@@ -103,6 +118,35 @@ function SessionController({
     }
   }, [attempt, readClient, reconnectDelayMs, sessionId, store, subscribe])
 
+  const projectId = state.project?.id
+
+  /**
+   * Configured defaults feed the composer's precedence chain. They are not
+   * required to render a session, so a failure here leaves the chain to fall
+   * through to what the harness reports rather than blocking the view.
+   */
+  useEffect(() => {
+    if (!projectId) return
+    let active = true
+
+    void Promise.allSettled([
+      readClient.getConfig(),
+      readClient.getProjectConfig(projectId),
+    ]).then(([user, project]) => {
+      if (!active) return
+      setDefaults({
+        ...(user.status === "fulfilled" ? { user: user.value.defaults } : {}),
+        ...(project.status === "fulfilled" && project.value.defaults
+          ? { project: project.value.defaults }
+          : {}),
+      })
+    })
+
+    return () => {
+      active = false
+    }
+  }, [projectId, readClient])
+
   async function send(command: Command) {
     setCommandError(undefined)
     setPending(true)
@@ -146,20 +190,13 @@ function SessionController({
     )
   }
 
-  const execution = latestExecution(state.messages)
-
-  function submitTurn(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const trimmed = content.trim()
-    if (!trimmed || !execution) return
-    setContent("")
-    void send({
-      name: "turn.send",
-      commandId: newCommandId(),
-      sessionId,
-      content: trimmed,
-      execution,
-    })
+  const composerSources = {
+    instances,
+    ...(latestExecution(state.messages)
+      ? { lastSent: latestExecution(state.messages)! }
+      : {}),
+    ...(defaults.project ? { projectDefaults: defaults.project } : {}),
+    ...(defaults.user ? { userDefaults: defaults.user } : {}),
   }
 
   if (!state.snapshotApplied && !loadError) {
@@ -242,31 +279,19 @@ function SessionController({
         </section>
       ) : null}
 
-      <form className="border-t border-border pt-5" onSubmit={submitTurn}>
-        <label htmlFor="session-message" className="text-sm font-medium">
-          Message
-        </label>
-        <textarea
-          id="session-message"
-          rows={3}
-          value={content}
-          disabled={!execution || pending}
-          placeholder={
-            execution
-              ? "Continue this session…"
-              : "Send becomes available after an execution is selected."
-          }
-          onChange={(event) => setContent(event.target.value)}
-          className="mt-2 w-full resize-y rounded-2xl border border-input bg-background px-4 py-3 text-sm outline-none focus:border-ring focus:ring-3 focus:ring-ring/30 disabled:opacity-60"
-        />
-        <Button
-          type="submit"
-          className="mt-3"
-          disabled={!execution || pending || !content.trim()}
-        >
-          Send
-        </Button>
-      </form>
+      <Composer
+        sources={composerSources}
+        disabled={pending}
+        onSend={({ content, execution }) =>
+          void send({
+            name: "turn.send",
+            commandId: newCommandId(),
+            sessionId,
+            content,
+            execution,
+          })
+        }
+      />
     </div>
   )
 }

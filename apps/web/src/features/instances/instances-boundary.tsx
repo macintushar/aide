@@ -1,11 +1,6 @@
 import type { Command } from "@workspace/contracts"
 import { Button } from "@workspace/ui/components/button"
-import {
-  useEffect,
-  useEffectEvent,
-  useState,
-  useSyncExternalStore,
-} from "react"
+import { useState } from "react"
 
 import {
   createCommandClient,
@@ -18,7 +13,7 @@ import {
 import { createReadClient } from "@/lib/transport/read-client"
 
 import { InstancesPanel, type InstanceActions } from "./instances-panel"
-import { createInstancesStore } from "./instances-store"
+import { useInstancesFeed, type InstancesFeed } from "./use-instances-feed"
 
 type ReadClient = Pick<ReturnType<typeof createReadClient>, "getInstances">
 type CommandClient = Pick<ReturnType<typeof createCommandClient>, "send">
@@ -28,6 +23,8 @@ export type InstancesBoundaryProps = {
   readClient?: ReadClient
   commandClient?: CommandClient
   subscribe?: Subscribe
+  /** Supplied when an ancestor already owns the feed; otherwise one is created. */
+  feed?: InstancesFeed
 }
 
 const defaultReadClient = createReadClient()
@@ -37,45 +34,16 @@ export function InstancesBoundary({
   readClient = defaultReadClient,
   commandClient = defaultCommandClient,
   subscribe = subscribeInstancesEvents,
+  feed,
 }: InstancesBoundaryProps) {
-  const [store] = useState(createInstancesStore)
-  const state = useSyncExternalStore(store.subscribe, store.getState)
-  const [loadError, setLoadError] = useState<string>()
-  const [streamError, setStreamError] = useState(false)
+  const ownFeed = useInstancesFeed({
+    readClient,
+    subscribe,
+    enabled: feed === undefined,
+  })
+  const { state, loadError, streamError, retry } = feed ?? ownFeed
   const [actionError, setActionError] = useState<string>()
   const [pendingAction, setPendingAction] = useState<string>()
-  const [attempt, setAttempt] = useState(0)
-
-  const applyEvent = useEffectEvent(store.applyEvent)
-  const applySnapshot = useEffectEvent(store.applySnapshot)
-
-  useEffect(() => {
-    let active = true
-    let subscription: { close(): void } | undefined
-
-    setLoadError(undefined)
-    void readClient
-      .getInstances()
-      .then((snapshot) => {
-        if (!active) return
-        applySnapshot(snapshot)
-        subscription = subscribe({
-          afterSequence: snapshot.cursor.sequence,
-          onEvent: applyEvent,
-          onSnapshot: applySnapshot,
-          onOpen: () => setStreamError(false),
-          onError: () => setStreamError(true),
-        })
-      })
-      .catch((error: unknown) => {
-        if (active) setLoadError(errorMessage(error))
-      })
-
-    return () => {
-      active = false
-      subscription?.close()
-    }
-  }, [attempt, readClient, state.configRevision, store, subscribe])
 
   async function send(command: Command) {
     setActionError(undefined)
@@ -139,7 +107,7 @@ export function InstancesBoundary({
           type="button"
           variant="outline"
           className="mt-3"
-          onClick={() => setAttempt((current) => current + 1)}
+          onClick={retry}
         >
           Try again
         </Button>

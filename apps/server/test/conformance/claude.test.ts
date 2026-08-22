@@ -2,89 +2,28 @@ import { describe, expect, it } from "vitest"
 import type { InstanceConfig } from "@workspace/contracts"
 
 import { createClaudeAdapter } from "../../src/harness/claude"
-import type {
-  ClaudeModelInfo,
-  ClaudeSession,
-  ClaudeSessionFactory,
-} from "../../src/harness/claude"
+import { createClaudeSessionDoubleFactory } from "../../src/test/claude-sdk-double"
 import { defineHarnessAdapterConformance } from "./adapter-conformance"
 
 /**
  * The Claude adapter against the shared conformance suite — the same suite the
  * fake and the OpenCode adapter run, which is the whole point of having one.
  *
- * Lifecycle scope for Wave 2. The SDK is replaced by a double: a live query
- * would need a real Claude Code install and real credentials.
+ * Full scope: the SDK is replaced by a double that speaks the SDK's own wire
+ * shapes, so the adapter still has to do the part synthesis and the permission
+ * inversion for real. A live query would need a Claude Code install and real
+ * credentials.
  */
 
 const PROJECT_DIRECTORY = "/tmp/aide-conformance-claude"
 
-export const DEFAULT_CLAUDE_MODELS: ClaudeModelInfo[] = [
-  {
-    value: "claude-opus-5",
-    displayName: "Claude Opus 5",
-    description: "Most capable",
-    supportsEffort: true,
-    supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"],
-  },
-  {
-    value: "claude-haiku-4-5-20251001",
-    displayName: "Claude Haiku 4.5",
-    description: "Fastest",
-    supportsEffort: false,
-  },
-]
-
-export function createFakeClaudeSession(
-  overrides: {
-    version?: string
-    models?: ClaudeModelInfo[]
-    agents?: Array<{ name: string }>
-    mcpStatuses?: Array<{ name: string; status: string }>
-    onDiscover?: () => void
-  } = {}
-): { session: ClaudeSession; closed: () => boolean } {
-  let closed = false
-  const session: ClaudeSession = {
-    init: {
-      version: overrides.version ?? "2.1.228",
-      model: "claude-opus-5",
-      apiKeySource: "oauth",
-      sessionId: "native-claude-session",
-    },
-    query: {
-      async supportedModels() {
-        overrides.onDiscover?.()
-        return overrides.models ?? DEFAULT_CLAUDE_MODELS
-      },
-      async supportedAgents() {
-        return overrides.agents ?? [{ name: "Explore" }]
-      },
-      async mcpServerStatus() {
-        return overrides.mcpStatuses ?? []
-      },
-      async interrupt() {
-        return undefined
-      },
-    },
-    async close() {
-      closed = true
-    },
-  }
-  return { session, closed: () => closed }
-}
-
 function subject() {
-  // One live query per instance, created lazily by the adapter's start().
-  const createSession: ClaudeSessionFactory = async () => {
-    const { session } = createFakeClaudeSession({
-      mcpStatuses: [
-        { name: "conformance-stdio", status: "connected" },
-        { name: "conformance-http", status: "failed" },
-      ],
-    })
-    return session
-  }
+  const createSession = createClaudeSessionDoubleFactory({
+    mcpStatuses: [
+      { name: "conformance-stdio", status: "connected" },
+      { name: "conformance-http", status: "failed" },
+    ],
+  })
   const instanceConfig: InstanceConfig = {
     instanceId: "claude-primary",
     driver: "claudeAgent",
@@ -102,14 +41,32 @@ function subject() {
 
 defineHarnessAdapterConformance({
   name: "claudeAgent",
-  scope: "lifecycle",
+  scope: "full",
   createSubject: subject,
   validConfig: { model: "claude-opus-5" },
   invalidConfig: { model: 42 },
 })
 
-describe("claude adapter: Wave 3 surface", () => {
-  it("refuses the send path with a structured not_implemented error", async () => {
+describe("claude adapter: native session lifecycle", () => {
+  it("refuses to resume a native session that has no live query", async () => {
+    const { adapter, instanceConfig, projectDirectory } = subject()
+    const handle = await adapter.start({
+      instance: instanceConfig,
+      projectDirectory,
+    })
+
+    await expect(
+      adapter.resumeSession({
+        handle,
+        sessionId: "session-cold",
+        nativeSessionId: "claude-native-cold",
+      })
+    ).rejects.toMatchObject({
+      aideError: { code: "native_session_not_resumable", retryable: true },
+    })
+  })
+
+  it("refuses a send against an unopened native session", async () => {
     const { adapter, instanceConfig, projectDirectory } = subject()
     const handle = await adapter.start({
       instance: instanceConfig,
@@ -119,12 +76,14 @@ describe("claude adapter: Wave 3 surface", () => {
     await expect(
       adapter.send({
         handle,
-        nativeSession: { nativeSessionId: "n1" },
+        nativeSession: { nativeSessionId: "missing" },
         commandId: "c1",
         turnId: "t1",
         userMessage: {} as never,
         execution: {} as never,
       })
-    ).rejects.toMatchObject({ aideError: { code: "not_implemented" } })
+    ).rejects.toMatchObject({
+      aideError: { code: "native_session_not_found" },
+    })
   })
 })

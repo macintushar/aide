@@ -249,6 +249,17 @@ export const permissionRequestPayloadSchema = z.object({
   title: z.string().min(1),
   detail: z.string().optional(),
   diff: z.string().optional(),
+  /**
+   * Set when the call would touch paths outside the project. Structured rather
+   * than folded into `detail` because it is the one part of a permission
+   * prompt the UI must not let the user skim past.
+   */
+  boundary: z
+    .object({
+      projectDirectory: z.string().min(1),
+      outsidePaths: z.array(z.string().min(1)).min(1),
+    })
+    .optional(),
   options: z.array(selectOptionSchema),
 })
 

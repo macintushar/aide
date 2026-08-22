@@ -8,6 +8,7 @@ import { useState } from "react"
 
 import {
   InstancesBoundary,
+  useInstancesFeed,
   type InstancesBoundaryProps,
 } from "@/features/instances"
 import {
@@ -19,10 +20,13 @@ import {
   SettingsBoundary,
   type SettingsBoundaryProps,
 } from "@/features/settings"
+import { apiBaseUrl } from "@/lib/transport/base-url"
 import { createCommandClient } from "@/lib/transport/command-client"
 import {
   subscribeInstancesEvents,
   subscribeSessionEvents,
+  type InstancesEventsOptions,
+  type SessionEventsOptions,
 } from "@/lib/transport/event-source"
 import { createReadClient } from "@/lib/transport/read-client"
 
@@ -38,17 +42,35 @@ export type AppProps = {
 }
 
 const token = import.meta.env.VITE_AIDE_BEARER_TOKEN
-const readClient = createReadClient(token ? { bearerToken: token } : {})
-const commandClient = createCommandClient(token ? { bearerToken: token } : {})
+const transport = {
+  baseUrl: apiBaseUrl(),
+  ...(token ? { bearerToken: token } : {}),
+}
+const readClient = createReadClient(transport)
+const commandClient = createCommandClient(transport)
+
+function defaultSubscribeInstances(options: InstancesEventsOptions) {
+  return subscribeInstancesEvents({ ...options, baseUrl: transport.baseUrl })
+}
+
+function defaultSubscribeSession(options: SessionEventsOptions) {
+  return subscribeSessionEvents({ ...options, baseUrl: transport.baseUrl })
+}
 
 export function App({
   readClient: reads = readClient,
   commandClient: commands = commandClient,
-  subscribeInstances = subscribeInstancesEvents,
-  subscribeSession = subscribeSessionEvents,
+  subscribeInstances = defaultSubscribeInstances,
+  subscribeSession = defaultSubscribeSession,
   initialSessionId,
 }: AppProps) {
   const [sessionId, setSessionId] = useState(initialSessionId)
+  // One feed for both consumers: the operations panel renders it, and the
+  // composer needs the same inventory to describe its controls.
+  const instancesFeed = useInstancesFeed({
+    readClient: reads,
+    subscribe: subscribeInstances,
+  })
 
   return (
     <div className="min-h-svh bg-[radial-gradient(circle_at_top_left,var(--color-primary)_0,transparent_24rem)] bg-fixed">
@@ -69,7 +91,7 @@ export function App({
               </div>
             </div>
             <span className="rounded-full border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground shadow-sm">
-              Wave 2 · Local operations
+              Wave 3 · Local operations
             </span>
           </div>
         </header>
@@ -109,6 +131,7 @@ export function App({
                   readClient={reads}
                   commandClient={commands}
                   subscribe={subscribeSession}
+                  instances={instancesFeed.state.instances}
                 />
               </div>
             ) : (
@@ -157,6 +180,7 @@ export function App({
                 readClient={reads}
                 commandClient={commands}
                 subscribe={subscribeInstances}
+                feed={instancesFeed}
               />
             </section>
 
