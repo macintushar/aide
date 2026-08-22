@@ -76,7 +76,7 @@ export function SettingsBoundary({
 
   if (!draft && !loadError) {
     return (
-      <p role="status" className="text-sm text-muted-foreground">
+      <p role="status" className="text-ui text-muted-foreground">
         Loading settings…
       </p>
     )
@@ -84,7 +84,7 @@ export function SettingsBoundary({
 
   if (!draft) {
     return (
-      <p role="alert" className="text-sm text-destructive">
+      <p role="alert" className="text-ui text-destructive">
         Could not load settings: {loadError}
       </p>
     )
@@ -93,15 +93,12 @@ export function SettingsBoundary({
   return (
     <div className="flex flex-col gap-4">
       {saveError ? (
-        <p role="alert" className="text-sm text-destructive">
+        <p role="alert" className="text-ui text-destructive">
           Could not save settings: {saveError}
         </p>
       ) : null}
       {saved ? (
-        <p
-          role="status"
-          className="text-sm text-emerald-700 dark:text-emerald-400"
-        >
+        <p role="status" className="text-ui text-ok">
           Settings saved.
         </p>
       ) : null}

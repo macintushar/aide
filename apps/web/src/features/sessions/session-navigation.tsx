@@ -78,9 +78,9 @@ export function SessionNavigation({
     <div className="grid gap-4 md:grid-cols-2" aria-busy={pending}>
       <form
         onSubmit={openProject}
-        className="rounded-2xl border border-border bg-card p-4"
+        className="rounded-lg border border-border bg-card p-4"
       >
-        <label htmlFor="project-directory" className="text-sm font-medium">
+        <label htmlFor="project-directory" className="text-ui font-medium">
           Project directory
         </label>
         <div className="mt-2 flex gap-2">
@@ -89,7 +89,7 @@ export function SessionNavigation({
             value={directory}
             placeholder="/path/to/project"
             onChange={(event) => setDirectory(event.target.value)}
-            className="h-9 min-w-0 flex-1 rounded-xl border border-input bg-background px-3 text-sm"
+            className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-ui"
           />
           <Button
             type="submit"
@@ -100,8 +100,8 @@ export function SessionNavigation({
           </Button>
         </div>
         {project ? (
-          <div className="mt-3 flex items-center justify-between gap-3 rounded-xl bg-muted/50 px-3 py-2">
-            <span className="truncate text-sm">{project.name}</span>
+          <div className="mt-3 flex items-center justify-between gap-3 rounded-lg bg-muted/50 px-3 py-2">
+            <span className="truncate text-ui">{project.name}</span>
             <Button
               type="button"
               size="sm"
@@ -116,9 +116,9 @@ export function SessionNavigation({
 
       <form
         onSubmit={openSession}
-        className="rounded-2xl border border-border bg-card p-4"
+        className="rounded-lg border border-border bg-card p-4"
       >
-        <label htmlFor="session-id" className="text-sm font-medium">
+        <label htmlFor="session-id" className="text-ui font-medium">
           Session ID
         </label>
         <div className="mt-2 flex gap-2">
@@ -127,19 +127,19 @@ export function SessionNavigation({
             value={sessionId}
             placeholder="session_…"
             onChange={(event) => setSessionId(event.target.value)}
-            className="h-9 min-w-0 flex-1 rounded-xl border border-input bg-background px-3 text-sm"
+            className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-ui"
           />
           <Button type="submit" disabled={!sessionId.trim()}>
             View session
           </Button>
         </div>
-        <p className="mt-2 text-xs text-muted-foreground">
+        <p className="mt-2 text-small text-muted-foreground">
           Resume an existing transcript and its live event stream.
         </p>
       </form>
 
       {error ? (
-        <p role="alert" className="text-sm text-destructive md:col-span-2">
+        <p role="alert" className="text-ui text-destructive md:col-span-2">
           Navigation failed: {error}
         </p>
       ) : null}

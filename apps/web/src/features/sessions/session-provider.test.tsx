@@ -1,4 +1,5 @@
 import {
+  instancesSnapshotFixture,
   sessionSnapshotFixture,
   userMessageFixture,
   type AideEvent,
@@ -9,10 +10,29 @@ import { describe, expect, it, vi } from "vitest"
 
 import type { createReadClient } from "@/lib/transport/read-client"
 
-import { SessionBoundary } from "./session-boundary"
+import { InstancesProvider } from "@/features/instances"
+import { SessionProvider, type SessionProviderProps } from "./session-provider"
+import { SessionThread } from "./session-thread"
+import { SessionTitle } from "./session-summary"
+
+/** The composition the shell renders: provider, heading, and thread. */
+function TestSession(props: Omit<SessionProviderProps, "children">) {
+  return (
+    <InstancesProvider
+      readClient={{ getInstances: async () => instancesSnapshotFixture() }}
+      commandClient={{ send: vi.fn() }}
+      subscribe={() => ({ close: vi.fn() })}
+    >
+      <SessionProvider {...props}>
+        <SessionTitle />
+        <SessionThread />
+      </SessionProvider>
+    </InstancesProvider>
+  )
+}
 
 type SubscribeOptions = Parameters<
-  NonNullable<Parameters<typeof SessionBoundary>[0]["subscribe"]>
+  NonNullable<SessionProviderProps["subscribe"]>
 >[0]
 
 type Recording = { options: SubscribeOptions; close: ReturnType<typeof vi.fn> }
@@ -94,9 +114,7 @@ function bootStream() {
       ReturnType<typeof createReadClient>,
       "getSession"
     >,
-    subscribe: subscribe as NonNullable<
-      Parameters<typeof SessionBoundary>[0]["subscribe"]
-    >,
+    subscribe: subscribe as NonNullable<SessionProviderProps["subscribe"]>,
   }
 }
 
@@ -113,10 +131,10 @@ function boundaryProps(
   }
 }
 
-describe("SessionBoundary", () => {
+describe("SessionProvider", () => {
   it("loads the initial snapshot before subscribing from its cursor", async () => {
     const stream = bootStream()
-    render(<SessionBoundary {...boundaryProps(stream)} />)
+    render(<TestSession {...boundaryProps(stream)} />)
 
     await waitFor(() => expect(stream.subscriptions).toHaveLength(1))
     expect(stream.subscriptions[0]!.options.afterSequence).toBe(4)
@@ -128,7 +146,7 @@ describe("SessionBoundary", () => {
 
   it("applies live session events to the transcript", async () => {
     const stream = bootStream()
-    render(<SessionBoundary {...boundaryProps(stream)} />)
+    render(<TestSession {...boundaryProps(stream)} />)
 
     await waitFor(() => expect(stream.subscriptions).toHaveLength(1))
     const subscription = stream.subscriptions[0]!
@@ -141,9 +159,7 @@ describe("SessionBoundary", () => {
 
   it("reconnects from the latest durable cursor after a stream error", async () => {
     const stream = bootStream()
-    render(
-      <SessionBoundary {...boundaryProps(stream, { reconnectDelayMs: 0 })} />
-    )
+    render(<TestSession {...boundaryProps(stream, { reconnectDelayMs: 0 })} />)
 
     await waitFor(() => expect(stream.subscriptions).toHaveLength(1))
     const first = stream.subscriptions[0]!
@@ -165,7 +181,7 @@ describe("SessionBoundary", () => {
     stream.getSession
       .mockRejectedValueOnce(new Error("offline"))
       .mockResolvedValue(sessionSnapshotFixture())
-    render(<SessionBoundary {...boundaryProps(stream)} />)
+    render(<TestSession {...boundaryProps(stream)} />)
 
     expect(
       await screen.findByText(/Could not load session: offline/)

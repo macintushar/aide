@@ -2,80 +2,122 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/instrument-sans";
-@import "@fontsource-variable/outfit";
+@import "@fontsource-variable/jetbrains-mono";
 
 @custom-variant dark (&:is(.dark *));
+@custom-variant light (&:is(.light *));
 @source "../../../apps/**/*.{ts,tsx}";
 @source "../../../components/**/*.{ts,tsx}";
 @source "../**/*.{ts,tsx}";
 
-:root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.5 0.134 242.749);
-  --primary-foreground: oklch(0.977 0.013 236.62);
-  --secondary: oklch(0.967 0.001 286.375);
-  --secondary-foreground: oklch(0.21 0.006 285.885);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.828 0.111 230.318);
-  --chart-2: oklch(0.685 0.169 237.323);
-  --chart-3: oklch(0.588 0.158 241.966);
-  --chart-4: oklch(0.5 0.134 242.749);
-  --chart-5: oklch(0.443 0.11 240.79);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.588 0.158 241.966);
-  --sidebar-primary-foreground: oklch(0.977 0.013 236.62);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+/* ── aide primitives ─────────────────────────────────────────
+   docs/DESIGN.md is the source of truth for every value below.
+   ThemeProvider always writes an explicit .light or .dark onto
+   <html> and defaults to "system", so :root governs only the
+   pre-hydration frame. Dark there makes that frame dark, not white. */
+:root,
+.dark {
+  --n0: oklch(0.145 0.005 250);
+  --n1: oklch(0.185 0.006 250);
+  --n2: oklch(0.225 0.007 250);
+  --n3: oklch(0.285 0.008 250);
+  --n4: oklch(0.42 0.008 250);
+  --n5: oklch(0.58 0.008 250);
+  --n6: oklch(0.72 0.006 250);
+  --n7: oklch(0.87 0.004 250);
+  --n8: oklch(0.97 0.002 250);
+
+  --accent-subtle: oklch(0.28 0.05 200);
+  --accent-dim: oklch(0.45 0.09 200);
+  --accent-base: oklch(0.72 0.13 200);
+  --accent-hi: oklch(0.8 0.13 200);
+  --accent-fg: oklch(0.17 0.03 200);
+
+  --line: oklch(1 0 0 / 0.09);
+  --line-strong: oklch(1 0 0 / 0.17);
+
+  --ok: oklch(0.76 0.16 155);
+  --warn: oklch(0.82 0.15 80);
+  --danger-base: oklch(0.68 0.2 25);
+
+  --diff-add-fg: oklch(0.84 0.15 150);
+  --diff-add-bg: oklch(0.55 0.12 150 / 0.16);
+  --diff-del-fg: oklch(0.79 0.17 22);
+  --diff-del-bg: oklch(0.55 0.14 22 / 0.16);
+
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --dur-fast: 120ms;
+  --dur-base: 180ms;
+  --dur-slow: 280ms;
+  --dur-pulse: 1600ms;
+
+  --radius: 0.5rem;
 }
 
+/* ── shadcn contract ─────────────────────────────────────────
+   Mapped once, in terms of the primitives. Never assign a raw
+   color here — extend the primitive block instead. */
+:root,
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.443 0.11 240.79);
-  --primary-foreground: oklch(0.977 0.013 236.62);
-  --secondary: oklch(0.274 0.006 286.033);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.828 0.111 230.318);
-  --chart-2: oklch(0.685 0.169 237.323);
-  --chart-3: oklch(0.588 0.158 241.966);
-  --chart-4: oklch(0.5 0.134 242.749);
-  --chart-5: oklch(0.443 0.11 240.79);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.685 0.169 237.323);
-  --sidebar-primary-foreground: oklch(0.293 0.066 243.157);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --background: var(--n0);
+  --foreground: var(--n8);
+  --card: var(--n1);
+  --card-foreground: var(--n8);
+  --popover: var(--n2);
+  --popover-foreground: var(--n8);
+  --primary: var(--accent-base);
+  --primary-foreground: var(--accent-fg);
+  --secondary: var(--n3);
+  --secondary-foreground: var(--n8);
+  --muted: var(--n2);
+  --muted-foreground: var(--n6);
+  --accent: var(--n2);
+  --accent-foreground: var(--n8);
+  --destructive: var(--danger-base);
+  --border: var(--line);
+  --input: var(--line-strong);
+  --ring: var(--accent-hi);
+  --sidebar: var(--n1);
+  --sidebar-foreground: var(--n7);
+  --sidebar-primary: var(--accent-base);
+  --sidebar-primary-foreground: var(--accent-fg);
+  --sidebar-accent: var(--n2);
+  --sidebar-accent-foreground: var(--n8);
+  --sidebar-border: var(--line);
+  --sidebar-ring: var(--accent-hi);
+}
+
+/* ── light theme ─────────────────────────────────────────────
+   Only the primitives flip. Every shadcn-contract variable above
+   is written in terms of these, so it follows automatically. */
+.light {
+  --n0: oklch(0.995 0.001 250);
+  --n1: oklch(0.975 0.002 250);
+  --n2: oklch(0.955 0.003 250);
+  --n3: oklch(0.91 0.004 250);
+  --n4: oklch(0.78 0.006 250);
+  --n5: oklch(0.62 0.008 250);
+  --n6: oklch(0.48 0.01 250);
+  --n7: oklch(0.32 0.01 250);
+  --n8: oklch(0.18 0.008 250);
+
+  --accent-subtle: oklch(0.945 0.035 200);
+  --accent-dim: oklch(0.78 0.09 200);
+  --accent-base: oklch(0.55 0.13 200);
+  --accent-hi: oklch(0.47 0.13 200);
+  --accent-fg: oklch(0.99 0.01 200);
+
+  --line: oklch(0 0 0 / 0.1);
+  --line-strong: oklch(0 0 0 / 0.18);
+
+  --ok: oklch(0.56 0.15 155);
+  --warn: oklch(0.64 0.14 70);
+  --danger-base: oklch(0.56 0.2 25);
+
+  --diff-add-fg: oklch(0.45 0.14 150);
+  --diff-add-bg: oklch(0.7 0.13 150 / 0.18);
+  --diff-del-fg: oklch(0.48 0.17 22);
+  --diff-del-bg: oklch(0.7 0.15 22 / 0.18);
 }
 
 @theme inline {
@@ -97,18 +139,6 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
-  --color-chart-1: var(--chart-1);
-  --color-chart-2: var(--chart-2);
-  --color-chart-3: var(--chart-3);
-  --color-chart-4: var(--chart-4);
-  --color-chart-5: var(--chart-5);
-  --radius-sm: calc(var(--radius) * 0.6);
-  --radius-md: calc(var(--radius) * 0.8);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
-  --radius-3xl: calc(var(--radius) * 2.2);
-  --radius-4xl: calc(var(--radius) * 2.6);
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
@@ -117,8 +147,79 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
-  --font-sans: "Instrument Sans Variable", sans-serif;
-  --font-heading: "Outfit Variable", sans-serif;
+
+  /* Turn state (§5) — the only color a transcript carries. */
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-danger: var(--danger-base);
+  --color-accent-subtle: var(--accent-subtle);
+  --color-accent-dim: var(--accent-dim);
+
+  --color-diff-add: var(--diff-add-fg);
+  --color-diff-add-bg: var(--diff-add-bg);
+  --color-diff-del: var(--diff-del-fg);
+  --color-diff-del-bg: var(--diff-del-bg);
+
+  --radius-sm: calc(var(--radius) * 0.625); /*  5px */
+  --radius-md: calc(var(--radius) * 0.8); /*  6px */
+  --radius-lg: var(--radius); /*  8px */
+  --radius-xl: calc(var(--radius) * 1.5); /* 12px */
+  --radius-2xl: calc(var(--radius) * 2.25); /* 18px */
+
+  --font-sans: "Instrument Sans Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono:
+    "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Type scale (§3.2). Tracking tightens as size grows; the 11px
+     uppercase label role goes the other way. */
+  --text-h1: 2.5rem;
+  --text-h1--line-height: 1.14;
+  --text-h1--letter-spacing: -0.038em;
+  --text-h1--font-weight: 600;
+  --text-h2: 1.875rem;
+  --text-h2--line-height: 1.14;
+  --text-h2--letter-spacing: -0.03em;
+  --text-h2--font-weight: 600;
+  --text-h3: 1.25rem;
+  --text-h3--line-height: 1.14;
+  --text-h3--letter-spacing: -0.02em;
+  --text-h3--font-weight: 600;
+  --text-body: 0.9375rem;
+  --text-body--line-height: 1.62;
+  --text-ui: 0.8125rem;
+  --text-small: 0.75rem;
+  --text-label: 0.6875rem;
+  --text-label--letter-spacing: 0.1em;
+  --text-label--font-weight: 600;
+  --text-mono: 0.75rem;
+  --text-mono--line-height: 1.7;
+
+  /* Streaming is the only state that animates (§5, §7). */
+  --animate-pulse-dot: pulse-dot var(--dur-pulse) var(--ease) infinite;
+
+  /* A completed turn's badge settles out; the resting case shouldn't
+     accumulate chrome (§5). */
+  --animate-badge-settle: badge-settle 4.6s var(--ease) forwards;
+
+  @keyframes badge-settle {
+    0%,
+    87% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0;
+    }
+  }
+
+  @keyframes pulse-dot {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.35;
+    }
+  }
 }
 
 @layer base {
