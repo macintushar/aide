@@ -18,10 +18,29 @@ export default defineConfig({
   server: {
     host: "0.0.0.0",
     allowedHosts: true,
+    // Proxy API calls to the aide server so the dev UI shares its origin
+    // semantics. The browser's cross-origin Origin header is dropped — the
+    // server treats a missing Origin as same-origin.
     proxy: Object.fromEntries(
-      ["/commands", "/instances", "/config", "/sessions", "/projects"].map(
-        (route) => [route, "http://localhost:3000"]
-      )
+      [
+        "/commands",
+        "/instances",
+        "/config",
+        "/sessions",
+        "/projects",
+        "/auth",
+      ].map((route) => [
+        route,
+        {
+          target: "http://localhost:3000",
+          configure: (proxy) => {
+            proxy.on("proxyReq", (proxyReq) => {
+              proxyReq.removeHeader("origin")
+              proxyReq.removeHeader("referer")
+            })
+          },
+        },
+      ])
     ),
   },
   preview: {

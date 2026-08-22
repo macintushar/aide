@@ -1,5 +1,7 @@
 import { randomBytes } from "node:crypto"
+import { existsSync } from "node:fs"
 import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
 
 import {
   closeDb,
@@ -58,10 +60,19 @@ export function createProductionIntegration(
       bootstrapToken,
       allowedOrigins: loopbackOrigins(port),
     },
+    // Serving the built UI from this origin is what makes the logged
+    // sign-in URL work; without a build present, stay API-only.
+    ...(webDistRoot() ? { staticRoot: webDistRoot() } : {}),
     configSecrets: secrets,
     trackWorkspaceChanges: true,
   })
   return { integration, bootstrapToken, ownsDb: options.db === undefined }
+}
+
+/** Built web app next to the server package, when it has been built. */
+function webDistRoot(): string | undefined {
+  const dist = fileURLToPath(new URL("../../../web/dist", import.meta.url))
+  return existsSync(dist) ? dist : undefined
 }
 
 /**

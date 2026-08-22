@@ -34,12 +34,6 @@ app.get("/", (c) => {
   return c.text("Hello Hono!")
 })
 
-export default {
-  hostname: env.HOST,
-  port: env.PORT,
-  fetch: app.fetch,
-}
-
 export { env }
 export type { HarnessAdapter }
 

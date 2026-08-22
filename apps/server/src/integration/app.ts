@@ -1,5 +1,7 @@
 import { Hono } from "hono"
 
+import { serveWebApp } from "../security/web-static"
+
 import { createCommandDispatcher, createCommandRouter } from "../commands"
 import {
   ConfigService,
@@ -44,6 +46,12 @@ export type CoreIntegrationOptions = {
     bootstrapToken?: string
     allowedOrigins?: string[]
   }
+  /**
+   * Directory of the built web app. When set, the server serves it and falls
+   * back to index.html for client-side routes — the sign-in URL and the API
+   * then share one origin, so no CORS is involved.
+   */
+  staticRoot?: string
   /** Driver implementations available to the supervisor. */
   adapters?: HarnessAdapter[]
   /** Project directory used for directory-scoped inventory. */
@@ -193,6 +201,15 @@ export function createAideTestApp(options: CoreIntegrationOptions) {
     })
   )
   app.route("/", createInstancesRouter({ supervisor, eventService }))
+
+  if (options.staticRoot) {
+    const serveApp = serveWebApp(options.staticRoot)
+    app.get("*", async (c) => {
+      const response = await serveApp(new URL(c.req.url).pathname)
+      // Unhandled here means an unknown API route or a missing asset.
+      return response ?? c.json({ error: "not_found" }, 404)
+    })
+  }
 
   return {
     app,
