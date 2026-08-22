@@ -134,6 +134,36 @@ describe("createCommandClient", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(3)
     expect(sleepImpl.mock.calls).toEqual([[100], [200]])
   })
+  it("re-exchanges once and retries when a session is rejected with 401", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ error: "unauthorized" }, 401))
+      .mockResolvedValueOnce(jsonResponse(receipt))
+    const auth = {
+      bearer: vi.fn(async () => "stale-session"),
+      invalidate: vi.fn(),
+      hasSession: () => true,
+      bootstrapWithToken: async () => undefined,
+      bootstrapFromUrl: async () => false,
+    }
+
+    await expect(
+      createCommandClient({ fetchImpl, auth }).send(commandFixtures()[0])
+    ).resolves.toEqual(receipt)
+    expect(auth.invalidate).toHaveBeenCalledOnce()
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+  })
+
+  it("does not retry a 401 without an auth provider", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(jsonResponse({ error: "unauthorized" }, 401))
+
+    await expect(
+      createCommandClient({ fetchImpl }).send(commandFixtures()[0])
+    ).rejects.toMatchObject({ status: 401 })
+    expect(fetchImpl).toHaveBeenCalledOnce()
+  })
 })
 
 describe("newCommandId", () => {

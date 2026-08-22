@@ -9,9 +9,10 @@ import { describe, expect, it, vi } from "vitest"
 
 import type { InstancesEventsOptions } from "@/lib/transport/event-source"
 
-import { InstancesBoundary } from "./instances-boundary"
+import { InstancesProvider } from "./instances-provider"
+import { InstancesView } from "./instances-view"
 
-describe("InstancesBoundary", () => {
+describe("InstancesProvider", () => {
   it("loads a snapshot, subscribes from its cursor, and applies named events", async () => {
     const snapshot = fixture({ cursor: { sequence: 23 } })
     let options: InstancesEventsOptions | undefined
@@ -21,11 +22,13 @@ describe("InstancesBoundary", () => {
     })
 
     render(
-      <InstancesBoundary
+      <InstancesProvider
         readClient={{ getInstances: vi.fn(async () => snapshot) }}
         commandClient={{ send: vi.fn() }}
         subscribe={subscribe}
-      />
+      >
+        <InstancesView />
+      </InstancesProvider>
     )
 
     expect(screen.getByText("Loading harness instances…")).toBeInTheDocument()
@@ -49,11 +52,13 @@ describe("InstancesBoundary", () => {
     const user = userEvent.setup()
     const send = vi.fn(async () => ({}) as never)
     render(
-      <InstancesBoundary
+      <InstancesProvider
         readClient={{ getInstances: vi.fn(async () => fixture()) }}
         commandClient={{ send }}
         subscribe={() => ({ close: vi.fn() })}
-      />
+      >
+        <InstancesView />
+      </InstancesProvider>
     )
 
     await user.click(await screen.findByRole("button", { name: "Stop" }))
@@ -76,14 +81,16 @@ describe("InstancesBoundary", () => {
       .mockResolvedValueOnce(updated)
     let options: InstancesEventsOptions | undefined
     render(
-      <InstancesBoundary
+      <InstancesProvider
         readClient={{ getInstances }}
         commandClient={{ send: vi.fn() }}
         subscribe={(next) => {
           options = next
           return { close: vi.fn() }
         }}
-      />
+      >
+        <InstancesView />
+      </InstancesProvider>
     )
     await screen.findAllByTestId("instance-status")
 
@@ -100,13 +107,15 @@ describe("InstancesBoundary", () => {
 
   it("surfaces initial load failures with a retry action", async () => {
     render(
-      <InstancesBoundary
+      <InstancesProvider
         readClient={{
           getInstances: vi.fn(async () => Promise.reject(new Error("offline"))),
         }}
         commandClient={{ send: vi.fn() }}
         subscribe={() => ({ close: vi.fn() })}
-      />
+      >
+        <InstancesView />
+      </InstancesProvider>
     )
 
     expect(await screen.findByRole("alert")).toHaveTextContent("offline")

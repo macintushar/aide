@@ -11,22 +11,22 @@ const toolStatusStyles: Record<ToolPart["status"], string> = {
 
 export function ToolPartView({ part }: { part: ToolPart }) {
   return (
-    <div className="flex flex-col gap-1 rounded-2xl border border-border bg-card px-3 py-2">
-      <div className="flex flex-wrap items-center gap-2 text-sm">
+    <div className="flex flex-col gap-1 rounded-lg border border-border bg-card px-3 py-2">
+      <div className="flex flex-wrap items-center gap-2 text-ui">
         <span className="font-medium">{part.name}</span>
         {part.source?.kind === "mcp" ? (
-          <span className="text-xs text-muted-foreground">
+          <span className="text-small text-muted-foreground">
             {part.source.server}
           </span>
         ) : null}
         <span
-          className={`rounded-full px-2 py-0.5 text-xs ${toolStatusStyles[part.status]}`}
+          className={`rounded-full px-2 py-0.5 text-small ${toolStatusStyles[part.status]}`}
         >
           {part.status}
         </span>
       </div>
       {part.output !== undefined ? (
-        <pre className="overflow-x-auto font-mono text-xs whitespace-pre-wrap text-muted-foreground">
+        <pre className="overflow-x-auto font-mono text-mono whitespace-pre-wrap text-muted-foreground">
           {part.output}
         </pre>
       ) : null}
@@ -37,21 +37,19 @@ export function ToolPartView({ part }: { part: ToolPart }) {
 function PartView({ part }: { part: Part }) {
   switch (part.type) {
     case "text":
-      return <p className="text-sm">{part.text}</p>
+      return <p className="text-body">{part.text}</p>
     case "reasoning":
       return (
-        <div className="rounded-2xl border border-border/60 bg-muted/30 px-3 py-2 text-muted-foreground opacity-80">
-          <span className="text-xs font-medium tracking-wide uppercase">
-            Reasoning
-          </span>
-          <p className="text-sm">{part.text}</p>
+        <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-muted-foreground opacity-80">
+          <span className="text-label uppercase">Reasoning</span>
+          <p className="text-body">{part.text}</p>
         </div>
       )
     case "tool":
       return <ToolPartView part={part} />
     case "file":
       return (
-        <div className="flex flex-wrap items-center gap-2 rounded-xl bg-muted/50 px-3 py-2 font-mono text-xs text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-2 rounded-lg bg-muted/50 px-3 py-2 font-mono text-mono text-muted-foreground">
           <span className="font-sans font-medium text-foreground">File</span>
           <span>{part.path}</span>
           {part.mime ? <span>{part.mime}</span> : null}
@@ -59,13 +57,15 @@ function PartView({ part }: { part: Part }) {
       )
     case "agent":
       return (
-        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border/60 px-3 py-2 text-sm">
-          <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border/60 px-3 py-2 text-ui">
+          <span className="text-label text-muted-foreground uppercase">
             Agent
           </span>
           <span className="font-medium">{part.name}</span>
           {part.status ? (
-            <span className="text-xs text-muted-foreground">{part.status}</span>
+            <span className="text-small text-muted-foreground">
+              {part.status}
+            </span>
           ) : null}
         </div>
       )
@@ -109,7 +109,7 @@ export function Transcript({ messages }: { messages: Message[] }) {
             data-message-id={message.id}
             className="flex flex-col gap-2"
           >
-            <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+            <span className="text-label text-muted-foreground uppercase">
               {message.role === "user" ? "User" : "Assistant"}
             </span>
             {execution ? <ExecutionDisplay execution={execution} /> : null}

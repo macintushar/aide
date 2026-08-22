@@ -337,3 +337,13 @@ export const sessionFileChanges = sqliteTable(
     ),
   ]
 )
+
+/**
+ * Durable client credentials. Only the SHA-256 hash of each session token is
+ * stored, so a database leak never yields a usable credential.
+ */
+export const authSessions = sqliteTable("auth_sessions", {
+  tokenHash: text("token_hash").primaryKey(),
+  createdAt: text("created_at").notNull(),
+  expiresAt: text("expires_at").notNull(),
+})

@@ -1,0 +1,55 @@
+info:
+  name: session-exchange
+  type: http
+  seq: 1
+  tags:
+    - smoke
+
+http:
+  method: POST
+  url: "{{baseUrl}}/auth/session"
+  headers:
+    - name: Authorization
+      value: Bearer {{bearerToken}}
+    - name: Origin
+      value: "{{origin}}"
+  body:
+    type: json
+    data: |-
+      {}
+
+runtime:
+  scripts:
+    - type: after-response
+      code: |-
+        if (res.status === 201) {
+          const sessionToken = res.body?.sessionToken;
+          if (sessionToken) {
+            bru.setVar("sessionToken", sessionToken);
+          }
+        }
+    - type: tests
+      code: |-
+        test("exchanges the bootstrap token for a session", function () {
+          expect(res.status).to.equal(201);
+        });
+
+        test("returns a session credential", function () {
+          expect(res.body).to.have.property("sessionToken").that.is.a("string");
+          expect(res.body).to.have.property("expiresAt").that.is.a("string");
+          expect(res.body.sessionToken).to.not.equal(process.env.AIDE_BEARER_TOKEN);
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 10000
+  followRedirects: true
+  maxRedirects: 5
+
+docs: |-
+  Route class "bootstrap": exchanges a boot-generated bootstrap token (printed in the
+  server logs) for a
+  durable session credential. The issued `sessionToken` is chained into the
+  `sessionToken` environment variable and used by every authenticated request
+  in this collection. The bootstrap token itself is never accepted on data
+  routes.

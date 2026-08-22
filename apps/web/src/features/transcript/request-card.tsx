@@ -13,9 +13,9 @@ function ResolvedRequest({ request }: { request: Request }) {
     request.kind === "permission" ? request.payload.title : "Input requested"
 
   return (
-    <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-card px-4 py-3">
-      <span className="truncate text-sm font-medium">{title}</span>
-      <span className="shrink-0 rounded-full bg-muted px-2 py-1 text-xs font-medium text-muted-foreground capitalize">
+    <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-3">
+      <span className="truncate text-ui font-medium">{title}</span>
+      <span className="shrink-0 rounded-full bg-muted px-2 py-1 text-small font-medium text-muted-foreground capitalize">
         {request.status}
       </span>
     </div>
@@ -30,20 +30,18 @@ function PermissionCard({
   onResolve: (resolution: RequestResolution) => void
 }) {
   return (
-    <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
-      <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+    <section className="rounded-lg border border-border bg-card p-4 shadow-sm">
+      <p className="text-label text-muted-foreground uppercase">
         {request.payload.toolName} permission
       </p>
-      <h3 className="mt-1 font-heading text-lg font-medium">
-        {request.payload.title}
-      </h3>
+      <h3 className="mt-1 text-body font-semibold">{request.payload.title}</h3>
       {request.payload.detail ? (
-        <p className="mt-1 text-sm text-muted-foreground">
+        <p className="mt-1 text-ui text-muted-foreground">
           {request.payload.detail}
         </p>
       ) : null}
       {request.payload.diff ? (
-        <pre className="mt-3 max-h-40 overflow-auto rounded-xl bg-muted p-3 font-mono text-xs whitespace-pre-wrap">
+        <pre className="mt-3 max-h-40 overflow-auto rounded-lg bg-muted p-3 font-mono text-mono whitespace-pre-wrap">
           {request.payload.diff}
         </pre>
       ) : null}
@@ -116,25 +114,25 @@ function InputCard({
 
   return (
     <form
-      className="rounded-2xl border border-border bg-card p-4 shadow-sm"
+      className="rounded-lg border border-border bg-card p-4 shadow-sm"
       onSubmit={submit}
     >
-      <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+      <p className="text-label text-muted-foreground uppercase">
         Input requested
       </p>
       <div className="mt-3 flex flex-col gap-5">
         {request.payload.questions.map((question) => (
           <fieldset key={question.id} className="flex flex-col gap-2">
-            <legend className="text-sm font-medium">
+            <legend className="text-ui font-medium">
               {question.header ?? question.prompt}
             </legend>
             {question.header ? (
-              <p className="text-sm text-muted-foreground">{question.prompt}</p>
+              <p className="text-ui text-muted-foreground">{question.prompt}</p>
             ) : null}
             {question.options?.map((option) => (
               <label
                 key={option.id}
-                className="flex items-center gap-2 text-sm"
+                className="flex items-center gap-2 text-ui"
               >
                 <input
                   type={question.allowMultiple ? "checkbox" : "radio"}
@@ -160,7 +158,7 @@ function InputCard({
                       [question.id]: event.target.value,
                     }))
                   }
-                  className="resize-y rounded-xl border border-input bg-background px-3 py-2 text-sm"
+                  className="resize-y rounded-md border border-input bg-background px-3 py-2 text-ui"
                 />
               ) : (
                 <input
@@ -173,7 +171,7 @@ function InputCard({
                       [question.id]: event.target.value,
                     }))
                   }
-                  className="h-9 rounded-xl border border-input bg-background px-3 text-sm"
+                  className="h-9 rounded-md border border-input bg-background px-3 text-ui"
                 />
               )
             ) : null}

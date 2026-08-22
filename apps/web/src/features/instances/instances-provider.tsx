@@ -1,43 +1,62 @@
 import type { Command } from "@workspace/contracts"
-import { Button } from "@workspace/ui/components/button"
 import {
+  createContext,
+  useContext,
   useEffect,
   useEffectEvent,
   useState,
   useSyncExternalStore,
 } from "react"
 
-import {
-  createCommandClient,
-  newCommandId,
-} from "@/lib/transport/command-client"
+import { createCommandClient } from "@/lib/transport/command-client"
 import {
   subscribeInstancesEvents,
   type InstancesEventsOptions,
 } from "@/lib/transport/event-source"
 import { createReadClient } from "@/lib/transport/read-client"
 
-import { InstancesPanel, type InstanceActions } from "./instances-panel"
-import { createInstancesStore } from "./instances-store"
+import {
+  createInstancesStore,
+  type InstancesStoreState,
+} from "./instances-store"
 
 type ReadClient = Pick<ReturnType<typeof createReadClient>, "getInstances">
 type CommandClient = Pick<ReturnType<typeof createCommandClient>, "send">
 type Subscribe = (options: InstancesEventsOptions) => { close(): void }
 
-export type InstancesBoundaryProps = {
+export type InstancesContextValue = {
+  state: InstancesStoreState
+  loadError?: string
+  streamError: boolean
+  actionError?: string
+  pendingAction?: string
+  send: (command: Command) => Promise<void>
+  retry: () => void
+}
+
+export type InstancesProviderProps = {
   readClient?: ReadClient
   commandClient?: CommandClient
   subscribe?: Subscribe
+  children: React.ReactNode
 }
+
+const InstancesContext = createContext<InstancesContextValue | null>(null)
 
 const defaultReadClient = createReadClient()
 const defaultCommandClient = createCommandClient()
 
-export function InstancesBoundary({
+/**
+ * One subscription for the whole app: the instances surface and the composer's
+ * harness picker read the same store, so they can never disagree about which
+ * instances exist or whether one can take a turn.
+ */
+export function InstancesProvider({
   readClient = defaultReadClient,
   commandClient = defaultCommandClient,
   subscribe = subscribeInstancesEvents,
-}: InstancesBoundaryProps) {
+  children,
+}: InstancesProviderProps) {
   const [store] = useState(createInstancesStore)
   const state = useSyncExternalStore(store.subscribe, store.getState)
   const [loadError, setLoadError] = useState<string>()
@@ -91,80 +110,29 @@ export function InstancesBoundary({
     }
   }
 
-  const actions: InstanceActions = {
-    onStart: (instanceId) =>
-      void send({
-        name: "instance.start",
-        commandId: newCommandId(),
-        instanceId,
-      }),
-    onStop: (instanceId) =>
-      void send({
-        name: "instance.stop",
-        commandId: newCommandId(),
-        instanceId,
-      }),
-    onRestart: (instanceId) =>
-      void send({
-        name: "instance.restart",
-        commandId: newCommandId(),
-        instanceId,
-      }),
-    onRefreshInventory: (instanceId) =>
-      void send({
-        name: "inventory.refresh",
-        commandId: newCommandId(),
-        instanceId,
-      }),
-  }
-
-  if (!state.snapshotApplied && !loadError) {
-    return (
-      <p role="status" className="text-sm text-muted-foreground">
-        Loading harness instances…
-      </p>
-    )
-  }
-
-  if (!state.snapshotApplied && loadError) {
-    return (
-      <div
-        role="alert"
-        className="rounded-2xl border border-destructive/30 p-4"
-      >
-        <p className="text-sm text-destructive">
-          Could not load instances: {loadError}
-        </p>
-        <Button
-          type="button"
-          variant="outline"
-          className="mt-3"
-          onClick={() => setAttempt((current) => current + 1)}
-        >
-          Try again
-        </Button>
-      </div>
-    )
+  const value: InstancesContextValue = {
+    state,
+    loadError,
+    streamError,
+    actionError,
+    pendingAction,
+    send,
+    retry: () => setAttempt((current) => current + 1),
   }
 
   return (
-    <div
-      className="flex flex-col gap-3"
-      aria-busy={pendingAction !== undefined}
-    >
-      {streamError ? (
-        <p role="status" className="text-xs text-amber-700 dark:text-amber-400">
-          Live updates interrupted. Reconnecting…
-        </p>
-      ) : null}
-      {actionError ? (
-        <p role="alert" className="text-sm text-destructive">
-          Command failed: {actionError}
-        </p>
-      ) : null}
-      <InstancesPanel instances={state.instances} actions={actions} />
-    </div>
+    <InstancesContext.Provider value={value}>
+      {children}
+    </InstancesContext.Provider>
   )
+}
+
+export function useInstances(): InstancesContextValue {
+  const instances = useContext(InstancesContext)
+  if (!instances) {
+    throw new Error("useInstances must be used within an InstancesProvider")
+  }
+  return instances
 }
 
 function errorMessage(error: unknown): string {

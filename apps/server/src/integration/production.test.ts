@@ -152,7 +152,7 @@ describe("Gate G2 production integration", () => {
     const server = await startProductionServer({
       db,
       adapters: [opencode.adapter, claude.adapter],
-      bearerToken,
+      bootstrapToken: bearerToken,
       serve: () => {
         order.push("bind")
         return {
@@ -202,7 +202,15 @@ describe("Gate G2 production integration", () => {
         )
     ).toBeDefined()
 
-    const headers = { authorization: `Bearer ${bearerToken}` }
+    const exchangeResponse = await server.app.request("/auth/session", {
+      method: "POST",
+      headers: { authorization: `Bearer ${bearerToken}` },
+    })
+    expect(exchangeResponse.status).toBe(201)
+    const { sessionToken } = (await exchangeResponse.json()) as {
+      sessionToken: string
+    }
+    const headers = { authorization: `Bearer ${sessionToken}` }
     const configResponse = await server.app.request("/config", { headers })
     await expect(configResponse.json()).resolves.toMatchObject({
       instances: { claudeA: { driver: "claudeAgent" } },
