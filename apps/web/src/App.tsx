@@ -82,8 +82,14 @@ export function App({
     void auth.bootstrapFromUrl().finally(() => {
       if (active) setAuthenticatedState(auth.hasSession())
     })
+    // A session that dies mid-use (expired server-side → 401 → invalidated)
+    // must drop the shell back to the signed-out gate, not strand it.
+    const unsubscribe = auth.onInvalidated(() => {
+      if (active && !auth.hasSession()) setAuthenticatedState(false)
+    })
     return () => {
       active = false
+      unsubscribe()
     }
   }, [authenticatedOverride])
 

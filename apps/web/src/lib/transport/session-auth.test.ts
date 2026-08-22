@@ -150,6 +150,37 @@ describe("session persistence", () => {
     expect(storage.size()).toBe(0)
     await expect(auth.bearer()).rejects.toThrow(/sign in/)
   })
+
+  it("notifies listeners when a held credential is invalidated", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(jsonResponse(credential("session-1"), 201))
+    const auth = createSessionAuth({
+      fetchImpl,
+      bootstrapToken: "b",
+      storage: memoryStorage(),
+    })
+    const events: string[] = []
+    const unsubscribe = auth.onInvalidated(() => events.push("invalidated"))
+
+    await auth.bearer()
+    auth.invalidate()
+    expect(events).toEqual(["invalidated"])
+
+    // Unsubscribing works; invalidate without a held credential is silent.
+    unsubscribe()
+    auth.invalidate()
+    expect(events).toEqual(["invalidated"])
+  })
+
+  it("stays silent when invalidating with nothing held", () => {
+    const auth = createSessionAuth({ storage: memoryStorage() })
+    const listener = vi.fn()
+    auth.onInvalidated(listener)
+
+    auth.invalidate()
+    expect(listener).not.toHaveBeenCalled()
+  })
 })
 
 describe("bootstrapFromUrl", () => {

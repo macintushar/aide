@@ -37,6 +37,12 @@ export type SessionAuth = {
   invalidate(): void
   /** Whether a session credential is currently held. */
   hasSession(): boolean
+  /**
+   * Notifies whenever the held credential is dropped (401 recovery). Lets
+   * the shell fall back to its signed-out state instead of rendering with
+   * requests that can no longer authenticate.
+   */
+  onInvalidated(listener: () => void): () => void
   /** Exchanges an explicit bootstrap token (paste-in registration). */
   bootstrapWithToken(token: string): Promise<void>
   /**
@@ -60,6 +66,7 @@ export function createSessionAuth(
   const storage = options.storage ?? localStorageStorage()
   let cached: { token: string; expiresAtMs: number } | undefined
   let inflight: Promise<string> | undefined
+  const invalidatedListeners = new Set<() => void>()
 
   async function exchange(bootstrapToken: string): Promise<string> {
     const response = await fetchImpl(`${baseUrl}/auth/session`, {
@@ -99,11 +106,21 @@ export function createSessionAuth(
       return inflight
     },
     invalidate() {
+      const hadCredential = Boolean(cached || storage.load())
       cached = undefined
       storage.clear()
+      if (hadCredential) {
+        for (const listener of invalidatedListeners) listener()
+      }
     },
     hasSession() {
       return Boolean(cached || storage.load())
+    },
+    onInvalidated(listener) {
+      invalidatedListeners.add(listener)
+      return () => {
+        invalidatedListeners.delete(listener)
+      }
     },
     async bootstrapWithToken(token) {
       await exchange(token)

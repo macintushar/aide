@@ -84,6 +84,7 @@ describe("createReadClient", () => {
       bearer: vi.fn(async () => "stale-session"),
       invalidate: vi.fn(),
       hasSession: () => true,
+      onInvalidated: () => () => undefined,
       bootstrapWithToken: async () => undefined,
       bootstrapFromUrl: async () => false,
     }
