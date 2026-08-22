@@ -4806,8 +4806,8 @@
       "source_location": "L33",
       "_origin": "ast",
       "id": "apps_server_src_harness_claude_query_claudeagentinfo",
-      "community": 57,
-      "community_name": "claude-sdk-double.ts",
+      "community": 24,
+      "community_name": "claude/index.ts",
       "norm_label": "claudeagentinfo"
     },
     {
@@ -4883,8 +4883,8 @@
       "source_location": "L99",
       "_origin": "ast",
       "id": "apps_server_src_harness_claude_query_claudestreammessage",
-      "community": 24,
-      "community_name": "claude/index.ts",
+      "community": 57,
+      "community_name": "claude-sdk-double.ts",
       "norm_label": "claudestreammessage"
     },
     {
@@ -5034,7 +5034,7 @@
       "label": "INSTANCE",
       "file_type": "code",
       "source_file": "apps/server/src/harness/claude/send.test.ts",
-      "source_location": "L29",
+      "source_location": "L28",
       "_origin": "ast",
       "id": "apps_server_src_harness_claude_send_test_instance",
       "community": 60,
@@ -5045,7 +5045,7 @@
       "label": "execution()",
       "file_type": "code",
       "source_file": "apps/server/src/harness/claude/send.test.ts",
-      "source_location": "L38",
+      "source_location": "L37",
       "_origin": "ast",
       "id": "apps_server_src_harness_claude_send_test_execution",
       "community": 60,
@@ -5056,7 +5056,7 @@
       "label": "userMessage()",
       "file_type": "code",
       "source_file": "apps/server/src/harness/claude/send.test.ts",
-      "source_location": "L63",
+      "source_location": "L62",
       "_origin": "ast",
       "id": "apps_server_src_harness_claude_send_test_usermessage",
       "community": 60,
@@ -5067,7 +5067,7 @@
       "label": "collect()",
       "file_type": "code",
       "source_file": "apps/server/src/harness/claude/send.test.ts",
-      "source_location": "L76",
+      "source_location": "L75",
       "_origin": "ast",
       "id": "apps_server_src_harness_claude_send_test_collect",
       "community": 60,
@@ -5078,7 +5078,7 @@
       "label": "parkOnPermission()",
       "file_type": "code",
       "source_file": "apps/server/src/harness/claude/send.test.ts",
-      "source_location": "L114",
+      "source_location": "L113",
       "_origin": "ast",
       "id": "apps_server_src_harness_claude_send_test_parkonpermission",
       "community": 60,
@@ -5089,7 +5089,7 @@
       "label": "completeImmediately()",
       "file_type": "code",
       "source_file": "apps/server/src/harness/claude/send.test.ts",
-      "source_location": "L152",
+      "source_location": "L151",
       "_origin": "ast",
       "id": "apps_server_src_harness_claude_send_test_completeimmediately",
       "community": 60,
@@ -5100,7 +5100,7 @@
       "label": "startSession()",
       "file_type": "code",
       "source_file": "apps/server/src/harness/claude/send.test.ts",
-      "source_location": "L161",
+      "source_location": "L160",
       "_origin": "ast",
       "id": "apps_server_src_harness_claude_send_test_startsession",
       "community": 60,
@@ -5111,7 +5111,7 @@
       "label": "openPermission()",
       "file_type": "code",
       "source_file": "apps/server/src/harness/claude/send.test.ts",
-      "source_location": "L658",
+      "source_location": "L536",
       "_origin": "ast",
       "id": "apps_server_src_harness_claude_send_test_openpermission",
       "community": 60,
@@ -5122,7 +5122,7 @@
       "label": "runOneTurn()",
       "file_type": "code",
       "source_file": "apps/server/src/harness/claude/send.test.ts",
-      "source_location": "L1046",
+      "source_location": "L924",
       "_origin": "ast",
       "id": "apps_server_src_harness_claude_send_test_runoneturn",
       "community": 60,
@@ -5133,7 +5133,7 @@
       "label": "permissionFor()",
       "file_type": "code",
       "source_file": "apps/server/src/harness/claude/send.test.ts",
-      "source_location": "L1187",
+      "source_location": "L1065",
       "_origin": "ast",
       "id": "apps_server_src_harness_claude_send_test_permissionfor",
       "community": 60,
@@ -5386,7 +5386,7 @@
       "label": "assertAnswerable()",
       "file_type": "code",
       "source_file": "apps/server/src/harness/claude/session.ts",
-      "source_location": "L1040",
+      "source_location": "L1027",
       "_origin": "ast",
       "id": "apps_server_src_harness_claude_session_assertanswerable",
       "community": 29,
@@ -6951,8 +6951,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_server_src_inventory_index",
-      "community": 22,
-      "community_name": "services/index.ts",
+      "community": 10,
+      "community_name": "HarnessInventory",
       "norm_label": "inventory/index.ts"
     },
     {
@@ -6962,8 +6962,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_server_src_inventory_service_test",
-      "community": 22,
-      "community_name": "services/index.ts",
+      "community": 10,
+      "community_name": "HarnessInventory",
       "norm_label": "inventory/service.test.ts"
     },
     {
@@ -6984,8 +6984,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_server_src_inventory_service",
-      "community": 22,
-      "community_name": "services/index.ts",
+      "community": 10,
+      "community_name": "HarnessInventory",
       "norm_label": "inventory/service.ts"
     },
     {
@@ -6995,8 +6995,8 @@
       "source_location": "L28",
       "_origin": "ast",
       "id": "apps_server_src_inventory_service_runtime_directory_key",
-      "community": 22,
-      "community_name": "services/index.ts",
+      "community": 10,
+      "community_name": "HarnessInventory",
       "norm_label": "runtime_directory_key"
     },
     {
@@ -7006,8 +7006,8 @@
       "source_location": "L30",
       "_origin": "ast",
       "id": "apps_server_src_inventory_service_inventoryscope",
-      "community": 22,
-      "community_name": "services/index.ts",
+      "community": 10,
+      "community_name": "HarnessInventory",
       "norm_label": "inventoryscope"
     },
     {
@@ -7017,8 +7017,8 @@
       "source_location": "L32",
       "_origin": "ast",
       "id": "apps_server_src_inventory_service_directorykey",
-      "community": 22,
-      "community_name": "services/index.ts",
+      "community": 10,
+      "community_name": "HarnessInventory",
       "norm_label": "directorykey()"
     },
     {
@@ -7028,8 +7028,8 @@
       "source_location": "L39",
       "_origin": "ast",
       "id": "apps_server_src_inventory_service_inventorylookup",
-      "community": 22,
-      "community_name": "services/index.ts",
+      "community": 10,
+      "community_name": "HarnessInventory",
       "norm_label": "inventorylookup"
     },
     {
@@ -7039,8 +7039,8 @@
       "source_location": "L49",
       "_origin": "ast",
       "id": "apps_server_src_inventory_service_inventoryresult",
-      "community": 22,
-      "community_name": "services/index.ts",
+      "community": 10,
+      "community_name": "HarnessInventory",
       "norm_label": "inventoryresult"
     },
     {
@@ -7050,8 +7050,8 @@
       "source_location": "L59",
       "_origin": "ast",
       "id": "apps_server_src_inventory_service_cansend",
-      "community": 22,
-      "community_name": "services/index.ts",
+      "community": 10,
+      "community_name": "HarnessInventory",
       "norm_label": "cansend()"
     },
     {
@@ -7061,8 +7061,8 @@
       "source_location": "L63",
       "_origin": "ast",
       "id": "apps_server_src_inventory_service_inventoryserviceoptions",
-      "community": 22,
-      "community_name": "services/index.ts",
+      "community": 10,
+      "community_name": "HarnessInventory",
       "norm_label": "inventoryserviceoptions"
     },
     {
@@ -7072,8 +7072,8 @@
       "source_location": "L70",
       "_origin": "ast",
       "id": "apps_server_src_inventory_service_inventoryservice",
-      "community": 22,
-      "community_name": "services/index.ts",
+      "community": 10,
+      "community_name": "HarnessInventory",
       "norm_label": "inventoryservice"
     },
     {
@@ -7083,8 +7083,8 @@
       "source_location": "L76",
       "_origin": "ast",
       "id": "apps_server_src_inventory_service_inventoryservice_constructor",
-      "community": 22,
-      "community_name": "services/index.ts",
+      "community": 10,
+      "community_name": "HarnessInventory",
       "norm_label": ".constructor()"
     },
     {
@@ -7094,8 +7094,8 @@
       "source_location": "L88",
       "_origin": "ast",
       "id": "apps_server_src_inventory_service_inventoryservice_get",
-      "community": 22,
-      "community_name": "services/index.ts",
+      "community": 10,
+      "community_name": "HarnessInventory",
       "norm_label": ".get()"
     },
     {
@@ -7105,8 +7105,8 @@
       "source_location": "L96",
       "_origin": "ast",
       "id": "apps_server_src_inventory_service_inventoryservice_list",
-      "community": 22,
-      "community_name": "services/index.ts",
+      "community": 10,
+      "community_name": "HarnessInventory",
       "norm_label": ".list()"
     },
     {
@@ -7116,8 +7116,8 @@
       "source_location": "L101",
       "_origin": "ast",
       "id": "apps_server_src_inventory_service_inventoryservice_put",
-      "community": 22,
-      "community_name": "services/index.ts",
+      "community": 10,
+      "community_name": "HarnessInventory",
       "norm_label": ".put()"
     },
     {
@@ -7127,8 +7127,8 @@
       "source_location": "L121",
       "_origin": "ast",
       "id": "apps_server_src_inventory_service_inventoryservice_markstale",
-      "community": 22,
-      "community_name": "services/index.ts",
+      "community": 10,
+      "community_name": "HarnessInventory",
       "norm_label": ".markstale()"
     },
     {
@@ -7138,8 +7138,8 @@
       "source_location": "L136",
       "_origin": "ast",
       "id": "apps_server_src_inventory_service_inventoryservice_refresh",
-      "community": 22,
-      "community_name": "services/index.ts",
+      "community": 10,
+      "community_name": "HarnessInventory",
       "norm_label": ".refresh()"
     },
     {
@@ -7149,8 +7149,8 @@
       "source_location": "L164",
       "_origin": "ast",
       "id": "apps_server_src_inventory_service_toaideerror",
-      "community": 22,
-      "community_name": "services/index.ts",
+      "community": 10,
+      "community_name": "HarnessInventory",
       "norm_label": "toaideerror()"
     },
     {
@@ -10790,7 +10790,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_web_package",
-      "community": 47,
+      "community": 52,
       "community_name": "web/package.json",
       "norm_label": "web/package.json"
     },
@@ -10801,7 +10801,7 @@
       "source_location": "L2",
       "_origin": "ast",
       "id": "apps_web_package_name",
-      "community": 47,
+      "community": 52,
       "community_name": "web/package.json",
       "norm_label": "name"
     },
@@ -10812,7 +10812,7 @@
       "source_location": "L3",
       "_origin": "ast",
       "id": "apps_web_package_version",
-      "community": 47,
+      "community": 52,
       "community_name": "web/package.json",
       "norm_label": "version"
     },
@@ -10823,7 +10823,7 @@
       "source_location": "L4",
       "_origin": "ast",
       "id": "apps_web_package_private",
-      "community": 47,
+      "community": 52,
       "community_name": "web/package.json",
       "norm_label": "private"
     },
@@ -10834,7 +10834,7 @@
       "source_location": "L5",
       "_origin": "ast",
       "id": "apps_web_package_type",
-      "community": 47,
+      "community": 52,
       "community_name": "web/package.json",
       "norm_label": "type"
     },
@@ -10978,7 +10978,7 @@
       "_origin": "ast",
       "id": "apps_web_package_dependencies",
       "community": 52,
-      "community_name": "dependencies",
+      "community_name": "web/package.json",
       "norm_label": "dependencies"
     },
     {
@@ -10989,7 +10989,7 @@
       "_origin": "ast",
       "id": "apps_web_package_dependencies_remixicon_react",
       "community": 52,
-      "community_name": "dependencies",
+      "community_name": "web/package.json",
       "norm_label": "@remixicon/react"
     },
     {
@@ -11000,7 +11000,7 @@
       "_origin": "ast",
       "id": "apps_web_package_json_remixicon_react",
       "community": 52,
-      "community_name": "dependencies",
+      "community_name": "web/package.json",
       "norm_label": "@remixicon/react"
     },
     {
@@ -11011,7 +11011,7 @@
       "_origin": "ast",
       "id": "apps_web_package_dependencies_workspace_contracts",
       "community": 52,
-      "community_name": "dependencies",
+      "community_name": "web/package.json",
       "norm_label": "@workspace/contracts"
     },
     {
@@ -11022,7 +11022,7 @@
       "_origin": "ast",
       "id": "apps_web_package_json_workspace_contracts",
       "community": 52,
-      "community_name": "dependencies",
+      "community_name": "web/package.json",
       "norm_label": "@workspace/contracts"
     },
     {
@@ -11033,7 +11033,7 @@
       "_origin": "ast",
       "id": "apps_web_package_dependencies_workspace_ui",
       "community": 52,
-      "community_name": "dependencies",
+      "community_name": "web/package.json",
       "norm_label": "@workspace/ui"
     },
     {
@@ -11044,7 +11044,7 @@
       "_origin": "ast",
       "id": "workspace_ui",
       "community": 52,
-      "community_name": "dependencies",
+      "community_name": "web/package.json",
       "norm_label": "@workspace/ui"
     },
     {
@@ -11055,7 +11055,7 @@
       "_origin": "ast",
       "id": "apps_web_package_dependencies_react",
       "community": 52,
-      "community_name": "dependencies",
+      "community_name": "web/package.json",
       "norm_label": "react"
     },
     {
@@ -11066,7 +11066,7 @@
       "_origin": "ast",
       "id": "apps_web_package_json_react",
       "community": 52,
-      "community_name": "dependencies",
+      "community_name": "web/package.json",
       "norm_label": "react"
     },
     {
@@ -11077,7 +11077,7 @@
       "_origin": "ast",
       "id": "apps_web_package_dependencies_react_dom",
       "community": 52,
-      "community_name": "dependencies",
+      "community_name": "web/package.json",
       "norm_label": "react-dom"
     },
     {
@@ -11088,7 +11088,7 @@
       "_origin": "ast",
       "id": "apps_web_package_json_react_dom",
       "community": 52,
-      "community_name": "dependencies",
+      "community_name": "web/package.json",
       "norm_label": "react-dom"
     },
     {
@@ -12066,8 +12066,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_web_src_features_instances_instances_boundary_test",
-      "community": 42,
-      "community_name": "event-source.ts",
+      "community": 83,
+      "community_name": "instancesSnapshotFixture",
       "norm_label": "instances-boundary.test.tsx"
     },
     {
@@ -12077,8 +12077,8 @@
       "source_location": "L119",
       "_origin": "ast",
       "id": "apps_web_src_features_instances_instances_boundary_test_fixture",
-      "community": 42,
-      "community_name": "event-source.ts",
+      "community": 83,
+      "community_name": "instancesSnapshotFixture",
       "norm_label": "fixture()"
     },
     {
@@ -12198,8 +12198,8 @@
       "source_location": "L12",
       "_origin": "ast",
       "id": "apps_web_src_features_instances_instances_panel_test_entry",
-      "community": 17,
-      "community_name": "instances-boundary.tsx",
+      "community": 83,
+      "community_name": "instancesSnapshotFixture",
       "norm_label": "entry()"
     },
     {
@@ -12319,8 +12319,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_web_src_features_instances_instances_store_test",
-      "community": 42,
-      "community_name": "event-source.ts",
+      "community": 83,
+      "community_name": "instancesSnapshotFixture",
       "norm_label": "instances-store.test.ts"
     },
     {
@@ -12330,8 +12330,8 @@
       "source_location": "L13",
       "_origin": "ast",
       "id": "apps_web_src_features_instances_instances_store_test_snapshot",
-      "community": 42,
-      "community_name": "event-source.ts",
+      "community": 83,
+      "community_name": "instancesSnapshotFixture",
       "norm_label": "snapshot()"
     },
     {
@@ -12352,8 +12352,8 @@
       "source_location": "L43",
       "_origin": "ast",
       "id": "apps_web_src_features_instances_instances_store_test_firstid",
-      "community": 42,
-      "community_name": "event-source.ts",
+      "community": 83,
+      "community_name": "instancesSnapshotFixture",
       "norm_label": "firstid()"
     },
     {
@@ -12363,8 +12363,8 @@
       "source_location": "L302",
       "_origin": "ast",
       "id": "apps_web_src_features_instances_instances_store_test_entry",
-      "community": 42,
-      "community_name": "event-source.ts",
+      "community": 83,
+      "community_name": "instancesSnapshotFixture",
       "norm_label": "entry()"
     },
     {
@@ -12968,8 +12968,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_web_src_features_settings_settings_boundary_test",
-      "community": 83,
-      "community_name": "read-client.test.ts",
+      "community": 25,
+      "community_name": "config-draft.ts",
       "norm_label": "settings-boundary.test.tsx"
     },
     {
@@ -12979,8 +12979,8 @@
       "source_location": "L8",
       "_origin": "ast",
       "id": "apps_web_src_features_settings_settings_boundary_test_config",
-      "community": 83,
-      "community_name": "read-client.test.ts",
+      "community": 25,
+      "community_name": "config-draft.ts",
       "norm_label": "config"
     },
     {
@@ -13430,8 +13430,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_web_src_lib_transport_command_client_test",
-      "community": 10,
-      "community_name": "command-client.ts",
+      "community": 48,
+      "community_name": "session-boundary.tsx",
       "norm_label": "command-client.test.ts"
     },
     {
@@ -13441,8 +13441,8 @@
       "source_location": "L8",
       "_origin": "ast",
       "id": "apps_web_src_lib_transport_command_client_test_receipt",
-      "community": 10,
-      "community_name": "command-client.ts",
+      "community": 48,
+      "community_name": "session-boundary.tsx",
       "norm_label": "receipt"
     },
     {
@@ -13452,8 +13452,8 @@
       "source_location": "L149",
       "_origin": "ast",
       "id": "apps_web_src_lib_transport_command_client_test_jsonresponse",
-      "community": 10,
-      "community_name": "command-client.ts",
+      "community": 48,
+      "community_name": "session-boundary.tsx",
       "norm_label": "jsonresponse()"
     },
     {
@@ -13463,8 +13463,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_web_src_lib_transport_command_client",
-      "community": 10,
-      "community_name": "command-client.ts",
+      "community": 48,
+      "community_name": "session-boundary.tsx",
       "norm_label": "command-client.ts"
     },
     {
@@ -13474,8 +13474,8 @@
       "source_location": "L10",
       "_origin": "ast",
       "id": "apps_web_src_lib_transport_command_client_sleep",
-      "community": 10,
-      "community_name": "command-client.ts",
+      "community": 48,
+      "community_name": "session-boundary.tsx",
       "norm_label": "sleep"
     },
     {
@@ -13485,8 +13485,8 @@
       "source_location": "L12",
       "_origin": "ast",
       "id": "apps_web_src_lib_transport_command_client_commandclientoptions",
-      "community": 10,
-      "community_name": "command-client.ts",
+      "community": 48,
+      "community_name": "session-boundary.tsx",
       "norm_label": "commandclientoptions"
     },
     {
@@ -13496,8 +13496,8 @@
       "source_location": "L20",
       "_origin": "ast",
       "id": "apps_web_src_lib_transport_command_client_commanderror",
-      "community": 10,
-      "community_name": "command-client.ts",
+      "community": 48,
+      "community_name": "session-boundary.tsx",
       "norm_label": "commanderror"
     },
     {
@@ -13507,8 +13507,8 @@
       "source_location": "L24",
       "_origin": "ast",
       "id": "apps_web_src_lib_transport_command_client_commanderror_constructor",
-      "community": 10,
-      "community_name": "command-client.ts",
+      "community": 48,
+      "community_name": "session-boundary.tsx",
       "norm_label": ".constructor()"
     },
     {
@@ -13529,8 +13529,8 @@
       "source_location": "L36",
       "_origin": "ast",
       "id": "apps_web_src_lib_transport_command_client_createcommandclient",
-      "community": 10,
-      "community_name": "command-client.ts",
+      "community": 48,
+      "community_name": "session-boundary.tsx",
       "norm_label": "createcommandclient()"
     },
     {
@@ -13540,8 +13540,8 @@
       "source_location": "L78",
       "_origin": "ast",
       "id": "apps_web_src_lib_transport_command_client_commandheaders",
-      "community": 10,
-      "community_name": "command-client.ts",
+      "community": 48,
+      "community_name": "session-boundary.tsx",
       "norm_label": "commandheaders()"
     },
     {
@@ -13551,8 +13551,8 @@
       "source_location": "L87",
       "_origin": "ast",
       "id": "apps_web_src_lib_transport_command_client_readresponsebody",
-      "community": 10,
-      "community_name": "command-client.ts",
+      "community": 48,
+      "community_name": "session-boundary.tsx",
       "norm_label": "readresponsebody()"
     },
     {
@@ -13562,8 +13562,8 @@
       "source_location": "L98",
       "_origin": "ast",
       "id": "apps_web_src_lib_transport_command_client_defaultsleep",
-      "community": 10,
-      "community_name": "command-client.ts",
+      "community": 48,
+      "community_name": "session-boundary.tsx",
       "norm_label": "defaultsleep()"
     },
     {
@@ -13794,7 +13794,7 @@
       "_origin": "ast",
       "id": "apps_web_src_lib_transport_read_client_test",
       "community": 83,
-      "community_name": "read-client.test.ts",
+      "community_name": "instancesSnapshotFixture",
       "norm_label": "read-client.test.ts"
     },
     {
@@ -13805,7 +13805,7 @@
       "_origin": "ast",
       "id": "apps_web_src_lib_transport_read_client_test_globalconfig",
       "community": 83,
-      "community_name": "read-client.test.ts",
+      "community_name": "instancesSnapshotFixture",
       "norm_label": "globalconfig"
     },
     {
@@ -13816,7 +13816,7 @@
       "_origin": "ast",
       "id": "apps_web_src_lib_transport_read_client_test_jsonresponse",
       "community": 83,
-      "community_name": "read-client.test.ts",
+      "community_name": "instancesSnapshotFixture",
       "norm_label": "jsonresponse()"
     },
     {
@@ -13871,7 +13871,7 @@
       "_origin": "ast",
       "id": "apps_web_src_lib_transport_read_client_createreadclient",
       "community": 83,
-      "community_name": "read-client.test.ts",
+      "community_name": "instancesSnapshotFixture",
       "norm_label": "createreadclient()"
     },
     {
@@ -13969,8 +13969,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_web_src_store_event_store",
-      "community": 48,
-      "community_name": "session-boundary.tsx",
+      "community": 22,
+      "community_name": "services/index.ts",
       "norm_label": "event-store.ts"
     },
     {
@@ -13980,8 +13980,8 @@
       "source_location": "L20",
       "_origin": "ast",
       "id": "apps_web_src_store_event_store_livefragment",
-      "community": 48,
-      "community_name": "session-boundary.tsx",
+      "community": 22,
+      "community_name": "services/index.ts",
       "norm_label": "livefragment"
     },
     {
@@ -13991,8 +13991,8 @@
       "source_location": "L27",
       "_origin": "ast",
       "id": "apps_web_src_store_event_store_sessionstorestate",
-      "community": 48,
-      "community_name": "session-boundary.tsx",
+      "community": 22,
+      "community_name": "services/index.ts",
       "norm_label": "sessionstorestate"
     },
     {
@@ -14002,8 +14002,8 @@
       "source_location": "L38",
       "_origin": "ast",
       "id": "apps_web_src_store_event_store_listener",
-      "community": 48,
-      "community_name": "session-boundary.tsx",
+      "community": 22,
+      "community_name": "services/index.ts",
       "norm_label": "listener"
     },
     {
@@ -14013,8 +14013,8 @@
       "source_location": "L40",
       "_origin": "ast",
       "id": "apps_web_src_store_event_store_createsessionstore",
-      "community": 48,
-      "community_name": "session-boundary.tsx",
+      "community": 22,
+      "community_name": "services/index.ts",
       "norm_label": "createsessionstore()"
     },
     {
@@ -14024,8 +14024,8 @@
       "source_location": "L239",
       "_origin": "ast",
       "id": "apps_web_src_store_event_store_initialstate",
-      "community": 48,
-      "community_name": "session-boundary.tsx",
+      "community": 22,
+      "community_name": "services/index.ts",
       "norm_label": "initialstate()"
     },
     {
@@ -14035,8 +14035,8 @@
       "source_location": "L252",
       "_origin": "ast",
       "id": "apps_web_src_store_event_store_upsert",
-      "community": 48,
-      "community_name": "session-boundary.tsx",
+      "community": 22,
+      "community_name": "services/index.ts",
       "norm_label": "upsert()"
     },
     {
@@ -14046,8 +14046,8 @@
       "source_location": "L260",
       "_origin": "ast",
       "id": "apps_web_src_store_event_store_sortmessages",
-      "community": 48,
-      "community_name": "session-boundary.tsx",
+      "community": 22,
+      "community_name": "services/index.ts",
       "norm_label": "sortmessages()"
     },
     {
@@ -14057,8 +14057,8 @@
       "source_location": "L266",
       "_origin": "ast",
       "id": "apps_web_src_store_event_store_sortturns",
-      "community": 48,
-      "community_name": "session-boundary.tsx",
+      "community": 22,
+      "community_name": "services/index.ts",
       "norm_label": "sortturns()"
     },
     {
@@ -16488,8 +16488,8 @@
       "source_location": "L86",
       "_origin": "ast",
       "id": "packages_contracts_src_config_globalconfigrecord",
-      "community": 83,
-      "community_name": "read-client.test.ts",
+      "community": 21,
+      "community_name": "App.tsx",
       "norm_label": "globalconfigrecord"
     },
     {
@@ -17863,8 +17863,8 @@
       "source_location": "L621",
       "_origin": "ast",
       "id": "packages_contracts_src_fixtures_instancessnapshotfixture",
-      "community": 42,
-      "community_name": "event-source.ts",
+      "community": 83,
+      "community_name": "instancesSnapshotFixture",
       "norm_label": "instancessnapshotfixture()"
     },
     {
@@ -17973,8 +17973,8 @@
       "source_location": "L66",
       "_origin": "ast",
       "id": "packages_contracts_src_inventory_harnessinventory",
-      "community": 22,
-      "community_name": "services/index.ts",
+      "community": 10,
+      "community_name": "HarnessInventory",
       "norm_label": "harnessinventory"
     },
     {
@@ -19348,8 +19348,8 @@
       "source_location": "L38",
       "_origin": "ast",
       "id": "packages_ui_package_devdependencies_testing_library_dom",
-      "community": 58,
-      "community_name": "@testing-library/dom",
+      "community": 38,
+      "community_name": "devDependencies",
       "norm_label": "@testing-library/dom"
     },
     {
@@ -19359,8 +19359,8 @@
       "source_location": "L38",
       "_origin": "ast",
       "id": "packages_ui_package_json_testing_library_dom",
-      "community": 58,
-      "community_name": "@testing-library/dom",
+      "community": 38,
+      "community_name": "devDependencies",
       "norm_label": "@testing-library/dom"
     },
     {
@@ -19392,8 +19392,8 @@
       "source_location": "L40",
       "_origin": "ast",
       "id": "packages_ui_package_devdependencies_testing_library_react",
-      "community": 38,
-      "community_name": "devDependencies",
+      "community": 97,
+      "community_name": "@testing-library/react",
       "norm_label": "@testing-library/react"
     },
     {
@@ -19403,8 +19403,8 @@
       "source_location": "L40",
       "_origin": "ast",
       "id": "packages_ui_package_json_testing_library_react",
-      "community": 38,
-      "community_name": "devDependencies",
+      "community": 97,
+      "community_name": "@testing-library/react",
       "norm_label": "@testing-library/react"
     },
     {
@@ -36760,7 +36760,7 @@
       "context": "import",
       "confidence": "EXTRACTED",
       "source_file": "apps/server/src/harness/claude/send.test.ts",
-      "source_location": "L15",
+      "source_location": "L14",
       "weight": 1.0,
       "_origin": "ast",
       "source": "apps_server_src_harness_claude_send_test",
@@ -36867,7 +36867,7 @@
       "context": "import",
       "confidence": "EXTRACTED",
       "source_file": "apps/server/src/harness/claude/send.test.ts",
-      "source_location": "L15",
+      "source_location": "L14",
       "weight": 1.0,
       "_origin": "ast",
       "source": "apps_server_src_harness_claude_send_test",
@@ -36880,7 +36880,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "apps/server/src/harness/claude/send.test.ts",
-      "source_location": "L1054",
+      "source_location": "L932",
       "weight": 1.0,
       "_origin": "ast",
       "source": "apps_server_src_harness_claude_send_test_runoneturn",
@@ -36891,7 +36891,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/server/src/harness/claude/send.test.ts",
-      "source_location": "L170",
+      "source_location": "L167",
       "weight": 1.0,
       "_origin": "ast",
       "source": "apps_server_src_harness_claude_send_test_startsession",
@@ -38242,18 +38242,6 @@
       "relation": "imports_from",
       "context": "import",
       "confidence": "EXTRACTED",
-      "source_file": "apps/server/src/harness/claude/send.test.ts",
-      "source_location": "L14",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "apps_server_src_harness_claude_send_test",
-      "target": "apps_server_src_harness_claude_query",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
       "source_file": "apps/server/src/harness/claude/session.ts",
       "source_location": "L21",
       "weight": 1.0,
@@ -38458,18 +38446,6 @@
       "relation": "imports",
       "context": "import",
       "confidence": "EXTRACTED",
-      "source_file": "apps/server/src/harness/claude/send.test.ts",
-      "source_location": "L14",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "apps_server_src_harness_claude_send_test",
-      "target": "apps_server_src_harness_claude_query_claudesessionopeninput",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "imports",
-      "context": "import",
-      "confidence": "EXTRACTED",
       "source_file": "apps/server/src/test/claude-sdk-double.ts",
       "source_location": "L1",
       "weight": 1.0,
@@ -38518,7 +38494,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "apps/server/src/harness/claude/send.test.ts",
-      "source_location": "L76",
+      "source_location": "L75",
       "weight": 1.0,
       "_origin": "ast",
       "source": "apps_server_src_harness_claude_send_test",
@@ -38529,7 +38505,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "apps/server/src/harness/claude/send.test.ts",
-      "source_location": "L152",
+      "source_location": "L151",
       "weight": 1.0,
       "_origin": "ast",
       "source": "apps_server_src_harness_claude_send_test",
@@ -38540,7 +38516,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "apps/server/src/harness/claude/send.test.ts",
-      "source_location": "L38",
+      "source_location": "L37",
       "weight": 1.0,
       "_origin": "ast",
       "source": "apps_server_src_harness_claude_send_test",
@@ -38551,7 +38527,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "apps/server/src/harness/claude/send.test.ts",
-      "source_location": "L29",
+      "source_location": "L28",
       "weight": 1.0,
       "_origin": "ast",
       "source": "apps_server_src_harness_claude_send_test",
@@ -38562,7 +38538,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "apps/server/src/harness/claude/send.test.ts",
-      "source_location": "L658",
+      "source_location": "L536",
       "weight": 1.0,
       "_origin": "ast",
       "source": "apps_server_src_harness_claude_send_test",
@@ -38573,7 +38549,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "apps/server/src/harness/claude/send.test.ts",
-      "source_location": "L114",
+      "source_location": "L113",
       "weight": 1.0,
       "_origin": "ast",
       "source": "apps_server_src_harness_claude_send_test",
@@ -38584,7 +38560,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "apps/server/src/harness/claude/send.test.ts",
-      "source_location": "L1187",
+      "source_location": "L1065",
       "weight": 1.0,
       "_origin": "ast",
       "source": "apps_server_src_harness_claude_send_test",
@@ -38595,7 +38571,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "apps/server/src/harness/claude/send.test.ts",
-      "source_location": "L1046",
+      "source_location": "L924",
       "weight": 1.0,
       "_origin": "ast",
       "source": "apps_server_src_harness_claude_send_test",
@@ -38606,7 +38582,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "apps/server/src/harness/claude/send.test.ts",
-      "source_location": "L161",
+      "source_location": "L160",
       "weight": 1.0,
       "_origin": "ast",
       "source": "apps_server_src_harness_claude_send_test",
@@ -38617,7 +38593,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "apps/server/src/harness/claude/send.test.ts",
-      "source_location": "L63",
+      "source_location": "L62",
       "weight": 1.0,
       "_origin": "ast",
       "source": "apps_server_src_harness_claude_send_test",
@@ -38629,7 +38605,7 @@
       "context": "import",
       "confidence": "EXTRACTED",
       "source_file": "apps/server/src/harness/claude/send.test.ts",
-      "source_location": "L16",
+      "source_location": "L15",
       "weight": 1.0,
       "_origin": "ast",
       "source": "apps_server_src_harness_claude_send_test",
@@ -38641,7 +38617,7 @@
       "context": "import",
       "confidence": "EXTRACTED",
       "source_file": "apps/server/src/harness/claude/send.test.ts",
-      "source_location": "L16",
+      "source_location": "L15",
       "weight": 1.0,
       "_origin": "ast",
       "source": "apps_server_src_harness_claude_send_test",
@@ -38653,7 +38629,7 @@
       "context": "import",
       "confidence": "EXTRACTED",
       "source_file": "apps/server/src/harness/claude/send.test.ts",
-      "source_location": "L16",
+      "source_location": "L15",
       "weight": 1.0,
       "_origin": "ast",
       "source": "apps_server_src_harness_claude_send_test",
@@ -38773,7 +38749,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/server/src/harness/claude/send.test.ts",
-      "source_location": "L672",
+      "source_location": "L550",
       "weight": 1.0,
       "_origin": "ast",
       "source": "apps_server_src_harness_claude_send_test_openpermission",
@@ -38785,7 +38761,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/server/src/harness/claude/send.test.ts",
-      "source_location": "L1202",
+      "source_location": "L1080",
       "weight": 1.0,
       "_origin": "ast",
       "source": "apps_server_src_harness_claude_send_test_permissionfor",
@@ -38797,7 +38773,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/server/src/harness/claude/send.test.ts",
-      "source_location": "L1066",
+      "source_location": "L944",
       "weight": 1.0,
       "_origin": "ast",
       "source": "apps_server_src_harness_claude_send_test_runoneturn",
@@ -38809,7 +38785,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/server/src/harness/claude/send.test.ts",
-      "source_location": "L179",
+      "source_location": "L176",
       "weight": 1.0,
       "_origin": "ast",
       "source": "apps_server_src_harness_claude_send_test_startsession",
@@ -38821,7 +38797,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/server/src/harness/claude/send.test.ts",
-      "source_location": "L71",
+      "source_location": "L70",
       "weight": 1.0,
       "_origin": "ast",
       "source": "apps_server_src_harness_claude_send_test_usermessage",
@@ -38833,7 +38809,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/server/src/harness/claude/send.test.ts",
-      "source_location": "L671",
+      "source_location": "L549",
       "weight": 1.0,
       "_origin": "ast",
       "source": "apps_server_src_harness_claude_send_test_openpermission",
@@ -38845,7 +38821,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/server/src/harness/claude/send.test.ts",
-      "source_location": "L1201",
+      "source_location": "L1079",
       "weight": 1.0,
       "_origin": "ast",
       "source": "apps_server_src_harness_claude_send_test_permissionfor",
@@ -38857,7 +38833,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/server/src/harness/claude/send.test.ts",
-      "source_location": "L1074",
+      "source_location": "L952",
       "weight": 1.0,
       "_origin": "ast",
       "source": "apps_server_src_harness_claude_send_test_runoneturn",
@@ -38869,7 +38845,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/server/src/harness/claude/send.test.ts",
-      "source_location": "L660",
+      "source_location": "L538",
       "weight": 1.0,
       "_origin": "ast",
       "source": "apps_server_src_harness_claude_send_test_openpermission",
@@ -38881,7 +38857,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/server/src/harness/claude/send.test.ts",
-      "source_location": "L1195",
+      "source_location": "L1073",
       "weight": 1.0,
       "_origin": "ast",
       "source": "apps_server_src_harness_claude_send_test_permissionfor",
@@ -38893,7 +38869,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/server/src/harness/claude/send.test.ts",
-      "source_location": "L1068",
+      "source_location": "L946",
       "weight": 1.0,
       "_origin": "ast",
       "source": "apps_server_src_harness_claude_send_test_runoneturn",
@@ -38905,7 +38881,7 @@
       "context": "collection",
       "confidence": "INFERRED",
       "source_file": "apps/server/src/harness/claude/send.test.ts",
-      "source_location": "L659",
+      "source_location": "L537",
       "weight": 1.0,
       "_origin": "ast",
       "source": "apps_server_src_harness_claude_send_test_openpermission",
@@ -38918,7 +38894,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "apps/server/src/harness/claude/send.test.ts",
-      "source_location": "L115",
+      "source_location": "L114",
       "weight": 1.0,
       "_origin": "ast",
       "source": "apps_server_src_harness_claude_send_test_parkonpermission",
@@ -38930,7 +38906,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "apps/server/src/harness/claude/send.test.ts",
-      "source_location": "L153",
+      "source_location": "L152",
       "weight": 1.0,
       "_origin": "ast",
       "source": "apps_server_src_harness_claude_send_test_completeimmediately",
@@ -38941,7 +38917,7 @@
       "context": "collection",
       "confidence": "INFERRED",
       "source_file": "apps/server/src/harness/claude/send.test.ts",
-      "source_location": "L1052",
+      "source_location": "L930",
       "weight": 1.0,
       "_origin": "ast",
       "source": "apps_server_src_harness_claude_send_test_runoneturn",
@@ -38953,7 +38929,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/server/src/harness/claude/send.test.ts",
-      "source_location": "L659",
+      "source_location": "L537",
       "weight": 1.0,
       "_origin": "ast",
       "source": "apps_server_src_harness_claude_send_test_openpermission",
@@ -38965,7 +38941,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/server/src/harness/claude/send.test.ts",
-      "source_location": "L1192",
+      "source_location": "L1070",
       "weight": 1.0,
       "_origin": "ast",
       "source": "apps_server_src_harness_claude_send_test_permissionfor",
@@ -38977,7 +38953,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/server/src/harness/claude/send.test.ts",
-      "source_location": "L166",
+      "source_location": "L164",
       "weight": 1.0,
       "_origin": "ast",
       "source": "apps_server_src_harness_claude_send_test_startsession",
@@ -38990,7 +38966,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "apps/server/src/harness/claude/send.test.ts",
-      "source_location": "L1050",
+      "source_location": "L928",
       "weight": 1.0,
       "_origin": "ast",
       "source": "apps_server_src_harness_claude_send_test_runoneturn",
@@ -39002,7 +38978,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "apps/server/src/harness/claude/send.test.ts",
-      "source_location": "L1189",
+      "source_location": "L1067",
       "weight": 1.0,
       "_origin": "ast",
       "source": "apps_server_src_harness_claude_send_test_permissionfor",
@@ -39023,7 +38999,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "apps/server/src/harness/claude/session.ts",
-      "source_location": "L1040",
+      "source_location": "L1027",
       "weight": 1.0,
       "_origin": "ast",
       "source": "apps_server_src_harness_claude_session",
@@ -39495,7 +39471,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "apps/server/src/harness/claude/session.ts",
-      "source_location": "L1048",
+      "source_location": "L1035",
       "weight": 1.0,
       "_origin": "ast",
       "source": "apps_server_src_harness_claude_session_assertanswerable",
@@ -75153,5 +75129,5 @@
     }
   ],
   "hyperedges": [],
-  "built_at_commit": "693d5a3ea3548d423da80ce9c066d588a202a1d1"
+  "built_at_commit": "f20e8aadef96e61c8da5f5c13d90c1b56859e65d"
 }

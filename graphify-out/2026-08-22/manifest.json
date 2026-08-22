@@ -1095,13 +1095,13 @@
     "semantic_hash": ""
   },
   "apps/server/src/harness/claude/send.test.ts": {
-    "mtime": 1787403567.250725,
-    "ast_hash": "26a86920cca72bc7d14686584b33548f",
+    "mtime": 1787245021.7939312,
+    "ast_hash": "d3ec3068db2d7483bb865c84fab080a6",
     "semantic_hash": ""
   },
   "apps/server/src/harness/claude/session.ts": {
-    "mtime": 1787403524.7387893,
-    "ast_hash": "ae751a6e3497ec22352b197277142178",
+    "mtime": 1787245021.7945108,
+    "ast_hash": "39182332898484087ef1888f37615379",
     "semantic_hash": ""
   },
   "apps/server/src/harness/event-bus.ts": {
@@ -1277,21 +1277,6 @@
   "apps/server/bruno-api-test/opencollection.yml": {
     "mtime": 1786911989.4551218,
     "ast_hash": "862f90fd636d701f3c3a15d79284dcc5",
-    "semantic_hash": ""
-  },
-  "apps/web/src/assets/harness-logos/claude.svg": {
-    "mtime": 1786888398.0,
-    "ast_hash": "8a0d9f0a30fa4945a7e882818a572979",
-    "semantic_hash": ""
-  },
-  "apps/web/src/assets/harness-logos/openai.svg": {
-    "mtime": 1787291893.5745761,
-    "ast_hash": "91f1bb53283412947e865fb46df11deb",
-    "semantic_hash": ""
-  },
-  "apps/web/src/assets/harness-logos/opencode.svg": {
-    "mtime": 1787291819.2953897,
-    "ast_hash": "d01147603645cf538b9707e00c0abc53",
     "semantic_hash": ""
   }
 }

@@ -70,7 +70,7 @@
     "semantic_hash": ""
   },
   "apps/web/src/App.tsx": {
-    "mtime": 1787245021.7970636,
+    "mtime": 1787223374.6350968,
     "ast_hash": "bf065c50f6df6b9c9476aaa0b7f3aa59",
     "semantic_hash": ""
   },
@@ -110,7 +110,7 @@
     "semantic_hash": "70bdd0a673bcfc0e828080b306e7c680"
   },
   "apps/web/vite.config.ts": {
-    "mtime": 1787245021.8000767,
+    "mtime": 1787223409.650134,
     "ast_hash": "126f9354d0069e00a616d0cc3ed10018",
     "semantic_hash": ""
   },
@@ -135,7 +135,7 @@
     "semantic_hash": "f0d9f176831b40ef0f74ba641bb605e5"
   },
   "packages/contracts/src/domain.ts": {
-    "mtime": 1787245021.8182762,
+    "mtime": 1787218897.5750089,
     "ast_hash": "b67d52e061521dedb32f0eab510e64ec",
     "semantic_hash": ""
   },
@@ -520,12 +520,12 @@
     "semantic_hash": "2b72825be29fa4f338548b10d09e9d67"
   },
   "apps/server/src/workspace/paths.test.ts": {
-    "mtime": 1787245021.7960296,
+    "mtime": 1787219037.3092527,
     "ast_hash": "53316c6b70ce31abb88bfd171688a38f",
     "semantic_hash": ""
   },
   "apps/server/src/workspace/paths.ts": {
-    "mtime": 1787245021.7964256,
+    "mtime": 1787218885.679364,
     "ast_hash": "2cd6e3f4338375c95eb4de728a1f1fa0",
     "semantic_hash": ""
   },
@@ -545,12 +545,12 @@
     "semantic_hash": "6ac5003a63989269664a9c4ee9eb670e"
   },
   "apps/web/src/features/transcript/request-card.test.tsx": {
-    "mtime": 1787245021.797522,
+    "mtime": 1787219037.556862,
     "ast_hash": "f94c615f8e20312e2d61cbb35978989e",
     "semantic_hash": ""
   },
   "apps/web/src/features/transcript/request-card.tsx": {
-    "mtime": 1787245021.797908,
+    "mtime": 1787218932.9455328,
     "ast_hash": "d0de51dc60fa06507f2b184d908ec7cf",
     "semantic_hash": ""
   },
@@ -820,9 +820,9 @@
     "semantic_hash": ""
   },
   "apps/server/src/db/index.test.ts": {
-    "mtime": 1787245025.7421494,
-    "ast_hash": "09457b90474e3c23e277e64c7bedf6bb",
-    "semantic_hash": ""
+    "mtime": 1787043555.5491104,
+    "ast_hash": "9864dd95ca791c6c6ba231f3790c29f5",
+    "semantic_hash": "9864dd95ca791c6c6ba231f3790c29f5"
   },
   "apps/server/src/harness/claude/adapter.test.ts": {
     "mtime": 1787217919.2173393,
@@ -840,7 +840,7 @@
     "semantic_hash": "5af871333d73c2f6cb0dd68c8018314a"
   },
   "apps/server/src/harness/claude/index.ts": {
-    "mtime": 1787245021.7935245,
+    "mtime": 1787219131.462987,
     "ast_hash": "052d3aceb179f11ef1a7f0e24a6dc66f",
     "semantic_hash": ""
   },
@@ -880,7 +880,7 @@
     "semantic_hash": "35269f104f77f0c3154f813f99ad71a1"
   },
   "apps/server/src/integration/production.ts": {
-    "mtime": 1787245021.7950757,
+    "mtime": 1787223374.6827426,
     "ast_hash": "ed512dec771cb721dcc8294fd0cc7a05",
     "semantic_hash": ""
   },
@@ -1050,8 +1050,8 @@
     "semantic_hash": ""
   },
   "apps/server/drizzle/0001_aspiring_yellow_claw.sql": {
-    "mtime": 1787245053.036015,
-    "ast_hash": "32e8b6c244cf2780f940f50fe0cf0710",
+    "mtime": 1787167174.3392954,
+    "ast_hash": "8fd246ef755e1ca62d8c0156f2cd7d87",
     "semantic_hash": ""
   },
   "apps/server/drizzle/0002_certain_vengeance.sql": {
@@ -1095,13 +1095,13 @@
     "semantic_hash": ""
   },
   "apps/server/src/harness/claude/send.test.ts": {
-    "mtime": 1787403567.250725,
-    "ast_hash": "26a86920cca72bc7d14686584b33548f",
+    "mtime": 1787219013.9892535,
+    "ast_hash": "d3ec3068db2d7483bb865c84fab080a6",
     "semantic_hash": ""
   },
   "apps/server/src/harness/claude/session.ts": {
-    "mtime": 1787403524.7387893,
-    "ast_hash": "ae751a6e3497ec22352b197277142178",
+    "mtime": 1787219131.4398587,
+    "ast_hash": "39182332898484087ef1888f37615379",
     "semantic_hash": ""
   },
   "apps/server/src/harness/event-bus.ts": {
@@ -1205,12 +1205,12 @@
     "semantic_hash": ""
   },
   "apps/web/src/lib/transport/base-url.test.ts": {
-    "mtime": 1787245021.7988253,
+    "mtime": 1787223368.136248,
     "ast_hash": "a12c37384446e9039cca02c0bf17017c",
     "semantic_hash": ""
   },
   "apps/web/src/lib/transport/base-url.ts": {
-    "mtime": 1787245021.799466,
+    "mtime": 1787223362.0278797,
     "ast_hash": "be4f258af530945d81b5c1c0cf786065",
     "semantic_hash": ""
   },
@@ -1277,21 +1277,6 @@
   "apps/server/bruno-api-test/opencollection.yml": {
     "mtime": 1786911989.4551218,
     "ast_hash": "862f90fd636d701f3c3a15d79284dcc5",
-    "semantic_hash": ""
-  },
-  "apps/web/src/assets/harness-logos/claude.svg": {
-    "mtime": 1786888398.0,
-    "ast_hash": "8a0d9f0a30fa4945a7e882818a572979",
-    "semantic_hash": ""
-  },
-  "apps/web/src/assets/harness-logos/openai.svg": {
-    "mtime": 1787291893.5745761,
-    "ast_hash": "91f1bb53283412947e865fb46df11deb",
-    "semantic_hash": ""
-  },
-  "apps/web/src/assets/harness-logos/opencode.svg": {
-    "mtime": 1787291819.2953897,
-    "ast_hash": "d01147603645cf538b9707e00c0abc53",
     "semantic_hash": ""
   }
 }

@@ -1,16 +1,16 @@
-# Graph Report - aide  (2026-08-22)
+# Graph Report - aide  (2026-08-20)
 
 ## Corpus Check
-- 235 files · ~134,727 words
+- 235 files · ~133,957 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 2027 nodes · 4543 edges · 112 communities (95 shown, 17 thin omitted)
+- 2027 nodes · 4541 edges · 111 communities (94 shown, 17 thin omitted)
 - Extraction: 100% EXTRACTED · 0% INFERRED · 0% AMBIGUOUS · INFERRED: 18 edges (avg confidence: 0.65)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `693d5a3e`
+- Built from commit: `f20e8aad`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -25,7 +25,7 @@
 - claude/adapter.ts
 - AideEvent
 - supervisor.test.ts
-- command-client.ts
+- HarnessInventory
 - dispatcher.ts
 - contracts/src/index.ts
 - compilerOptions
@@ -62,18 +62,16 @@
 - Aide Build Breakdown — Serial Spine and Parallel Tracks
 - @vitest/coverage-istanbul
 - scripts
-- web/package.json
 - session-boundary.tsx
 - .oxfmtrc.json
 - .exec
 - compilerOptions
-- dependencies
+- web/package.json
 - devDependencies
 - scripts
 - compilerOptions
 - tasks
 - claude-sdk-double.ts
-- @testing-library/dom
 - generate-tokens.mjs
 - send.test.ts
 - .oxlintrc.json
@@ -91,7 +89,7 @@
 - FakeEventSource
 - AideError
 - compilerOptions
-- read-client.test.ts
+- instancesSnapshotFixture
 - Starlight Starter Kit: Basics
 - workspace-changes.test.ts
 - Testing Strategy
@@ -104,6 +102,7 @@
 - Wave 1 — Kernel
 - vitest
 - @testing-library/user-event
+- @testing-library/react
 - @testing-library/user-event
 - @turbo/gen
 - CONTRACTS_SCHEMA_VERSION
@@ -128,8 +127,6 @@
 10. `createAideTestApp()` - 23 edges
 
 ## Surprising Connections (you probably didn't know these)
-- `entry()` --calls--> `instancesSnapshotFixture()`  [EXTRACTED]
-  apps/web/src/features/instances/instances-panel.test.tsx → packages/contracts/src/fixtures.ts
 - `durableEvent()` --calls--> `userMessageFixture()`  [EXTRACTED]
   apps/web/src/features/sessions/session-boundary.test.tsx → packages/contracts/src/fixtures.ts
 - `ConfigMergeError` --references--> `AideError`  [EXTRACTED]
@@ -138,12 +135,14 @@
   apps/server/src/db/repos.test.ts → packages/contracts/src/fixtures.ts
 - `ClaudeRuntimeFailure` --references--> `AideError`  [EXTRACTED]
   apps/server/src/harness/claude/session.ts → packages/contracts/src/primitives.ts
+- `HarnessAdapter` --references--> `DriverId`  [EXTRACTED]
+  apps/server/src/harness/types.ts → packages/contracts/src/primitives.ts
 
 ## Import Cycles
 - 2-file cycle: `apps/server/src/db/index.ts -> apps/server/src/db/repos.ts -> apps/server/src/db/index.ts`
 - 3-file cycle: `apps/server/src/db/config-secrets-key.ts -> apps/server/src/db/repos.ts -> apps/server/src/db/index.ts -> apps/server/src/db/config-secrets-key.ts`
 
-## Communities (112 total, 17 thin omitted)
+## Communities (111 total, 17 thin omitted)
 
 ### Community 0 - "config/service.ts"
 Cohesion: 0.06
@@ -185,9 +184,9 @@ Nodes (21): FakeHarnessControl, HarnessAdapter, InstanceHandle, NativeSession, a
 Cohesion: 0.07
 Nodes (19): applyMigrations(), migrationsFolder, createDriverConfigValidator(), ConfigUpdateCommand, environment, configRepo, Database, RunResult (+11 more)
 
-### Community 10 - "command-client.ts"
-Cohesion: 0.18
-Nodes (5): CommandClientOptions, CommandError, createCommandClient(), Sleep, receipt
+### Community 10 - "HarnessInventory"
+Cohesion: 0.26
+Nodes (10): canSend(), directoryKey(), InventoryLookup, InventoryResult, InventoryScope, InventoryService, InventoryServiceOptions, RUNTIME_DIRECTORY_KEY (+2 more)
 
 ### Community 11 - "dispatcher.ts"
 Cohesion: 0.12
@@ -214,8 +213,8 @@ Cohesion: 0.11
 Nodes (28): WorkspaceError, WorkspaceErrorInput, errorDetail(), execFileAsync, execGit(), execGitChecked(), gitDiffSummary(), gitStatus() (+20 more)
 
 ### Community 17 - "instances-boundary.tsx"
-Cohesion: 0.11
-Nodes (26): CommandClient, defaultCommandClient, defaultReadClient, InstancesBoundary(), InstancesBoundaryProps, ReadClient, Subscribe, AUTH_LABEL (+18 more)
+Cohesion: 0.12
+Nodes (25): CommandClient, defaultCommandClient, defaultReadClient, InstancesBoundary(), InstancesBoundaryProps, ReadClient, Subscribe, AUTH_LABEL (+17 more)
 
 ### Community 18 - "repos.ts"
 Cohesion: 0.10
@@ -230,12 +229,12 @@ Cohesion: 0.12
 Nodes (24): Composer(), ComposerProps, agentChoicesFor(), applyComposerChange(), COMPOSER_CONTROL_IDS, ComposerControl, ComposerDraft, ComposerSources (+16 more)
 
 ### Community 21 - "App.tsx"
-Cohesion: 0.18
-Nodes (11): App(), AppProps, commandClient, readClient, config, transport, SessionBoundary(), SessionBoundaryProps (+3 more)
+Cohesion: 0.16
+Nodes (12): App(), AppProps, commandClient, readClient, config, transport, SessionBoundary(), SessionBoundaryProps (+4 more)
 
 ### Community 22 - "services/index.ts"
 Cohesion: 0.05
-Nodes (44): inventoryCacheRepo, canSend(), directoryKey(), InventoryLookup, InventoryResult, InventoryScope, InventoryService, InventoryServiceOptions (+36 more)
+Nodes (39): inventoryCacheRepo, AdapterRegistry, RegisteredAdapter, entry(), instance(), applyPortableHandoffBudget(), BuildPortableHandoffInput, buildPortableHandoffPacket() (+31 more)
 
 ### Community 23 - "session-navigation.tsx"
 Cohesion: 0.22
@@ -246,8 +245,8 @@ Cohesion: 0.12
 Nodes (25): ClaudeAdapterOptions, MODELS, never, AideInteractionMode, claudeConfigSchema, ClaudeInstanceConfig, DEFAULT_STARTUP_TIMEOUT_MS, INTERACTION_MODE_TO_PERMISSION_MODE (+17 more)
 
 ### Community 25 - "config-draft.ts"
-Cohesion: 0.17
-Nodes (25): ConfigDraft, configToDraft(), DraftIssue, DraftValidation, DRIVERS, emptyDraft(), issuesFor(), newInstance() (+17 more)
+Cohesion: 0.15
+Nodes (26): ConfigDraft, configToDraft(), DraftIssue, DraftValidation, DRIVERS, emptyDraft(), issuesFor(), newInstance() (+18 more)
 
 ### Community 26 - "store.ts"
 Cohesion: 0.13
@@ -295,7 +294,7 @@ Nodes (42): ExternalCommandContext, EventScopeTarget, withTransaction(), afterSe
 
 ### Community 38 - "devDependencies"
 Cohesion: 0.08
-Nodes (25): devDependencies, jsdom, tailwindcss, @tailwindcss/vite, @testing-library/jest-dom, @testing-library/react, @types/node, @types/react (+17 more)
+Nodes (25): devDependencies, jsdom, tailwindcss, @tailwindcss/vite, @testing-library/dom, @testing-library/jest-dom, @types/node, @types/react (+17 more)
 
 ### Community 39 - "compilerOptions"
 Cohesion: 0.09
@@ -310,8 +309,8 @@ Cohesion: 0.04
 Nodes (44): @anthropic-ai/claude-agent-sdk, dependencies, @anthropic-ai/claude-agent-sdk, drizzle-orm, @opencode-ai/sdk, @standard-schema/spec, @t3-oss/env-core, @workspace/contracts (+36 more)
 
 ### Community 42 - "event-source.ts"
-Cohesion: 0.14
-Nodes (17): defaultSubscribeInstances(), defaultSubscribeSession(), fixture(), firstId(), snapshot(), EventSourceConstructor, EventSourceLike, EventSubscription (+9 more)
+Cohesion: 0.20
+Nodes (13): defaultSubscribeInstances(), defaultSubscribeSession(), EventSourceConstructor, EventSourceLike, EventSubscription, InstancesEventsOptions, Parser, SessionEventsOptions (+5 more)
 
 ### Community 43 - "Contributor Covenant Code of Conduct"
 Cohesion: 0.15
@@ -325,12 +324,8 @@ Nodes (13): Aide Build Breakdown — Serial Spine and Parallel Tracks, Dependenc
 Cohesion: 0.17
 Nodes (12): scripts, build, dev, format, format:check, lint, lint:fix, preview (+4 more)
 
-### Community 47 - "web/package.json"
-Cohesion: 0.40
-Nodes (4): name, private, type, version
-
 ### Community 48 - "session-boundary.tsx"
-Cohesion: 0.12
+Cohesion: 0.10
 Nodes (17): CommandClient, defaultCommandClient, defaultReadClient, errorMessage(), latestExecution(), ReadClient, SessionController(), Subscribe (+9 more)
 
 ### Community 49 - ".oxfmtrc.json"
@@ -345,9 +340,9 @@ Nodes (10): applyMigrations(), applyMigrations(), applyMigrations(), applyMigrat
 Cohesion: 0.12
 Nodes (15): compilerOptions, jsx, jsxImportSource, module, moduleResolution, noEmit, skipLibCheck, strict (+7 more)
 
-### Community 52 - "dependencies"
-Cohesion: 0.18
-Nodes (11): dependencies, react, react-dom, @remixicon/react, @workspace/contracts, @workspace/ui, react, react-dom (+3 more)
+### Community 52 - "web/package.json"
+Cohesion: 0.12
+Nodes (15): dependencies, react, react-dom, @remixicon/react, @workspace/contracts, @workspace/ui, react, react-dom (+7 more)
 
 ### Community 53 - "devDependencies"
 Cohesion: 0.12
@@ -367,7 +362,7 @@ Nodes (37): ^build, .env*, ^format, ^format:check, ^lint, ^lint:fix, $TURBO_DEFA
 
 ### Community 57 - "claude-sdk-double.ts"
 Cohesion: 0.17
-Nodes (14): adapterError(), createClaudeAdapter(), ClaudeAgentInfo, ClaudeMcpServerStatus, ClaudePermissionDecision, ClaudeSessionOpenInput, ClaudeSessionDouble, ClaudeSessionDoubleOptions (+6 more)
+Nodes (14): adapterError(), createClaudeAdapter(), ClaudeMcpServerStatus, ClaudePermissionDecision, ClaudeSessionOpenInput, ClaudeStreamMessage, ClaudeSessionDouble, ClaudeSessionDoubleOptions (+6 more)
 
 ### Community 59 - "generate-tokens.mjs"
 Cohesion: 0.20
@@ -433,9 +428,9 @@ Nodes (4): ClaudeAdapterError, FakeAdapterError, OpencodeAdapterError, AideError
 Cohesion: 0.29
 Nodes (6): compilerOptions, module, moduleResolution, skipLibCheck, strict, target
 
-### Community 83 - "read-client.test.ts"
-Cohesion: 0.29
-Nodes (4): config, createReadClient(), globalConfig, GlobalConfigRecord
+### Community 83 - "instancesSnapshotFixture"
+Cohesion: 0.21
+Nodes (7): fixture(), entry(), firstId(), snapshot(), createReadClient(), globalConfig, instancesSnapshotFixture()
 
 ### Community 84 - "Starlight Starter Kit: Basics"
 Cohesion: 0.33
