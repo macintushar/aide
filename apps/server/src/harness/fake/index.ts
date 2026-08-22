@@ -28,6 +28,7 @@ import type {
   StartInstanceInput,
   StopInstanceInput,
 } from "../types"
+import { createEventBus, type EventBus } from "../event-bus"
 
 /**
  * Test-only fake harness adapter.
@@ -114,95 +115,6 @@ type FakeInstance = {
   bus: EventBus
   sessions: Map<string, FakeNativeSession>
   mcpServers: Record<string, unknown>
-}
-
-type Subscription = {
-  buffered: AideEvent[]
-  closed: boolean
-  waiters: Array<(result: IteratorResult<AideEvent>) => void>
-}
-
-type EventBus = {
-  publish(event: AideEvent): void
-  close(): void
-  subscribe(): AsyncIterable<AideEvent>
-  subscriberCount(): number
-}
-
-function createEventBus(): EventBus {
-  const subscriptions = new Set<Subscription>()
-  let closed = false
-
-  const dispatch = (subscription: Subscription, event: AideEvent) => {
-    if (subscription.closed) return
-    const waiter = subscription.waiters.shift()
-    if (waiter) {
-      waiter({ value: event, done: false })
-    } else {
-      subscription.buffered.push(event)
-    }
-  }
-
-  const finish = (subscription: Subscription) => {
-    subscription.closed = true
-    for (const waiter of subscription.waiters.splice(0)) {
-      waiter({ value: undefined, done: true })
-    }
-  }
-
-  return {
-    publish(event) {
-      if (closed) return
-      for (const subscription of subscriptions) {
-        dispatch(subscription, event)
-      }
-    },
-    close() {
-      closed = true
-      for (const subscription of subscriptions) {
-        finish(subscription)
-      }
-      subscriptions.clear()
-    },
-    subscribe() {
-      const subscription: Subscription = {
-        buffered: [],
-        closed: false,
-        waiters: [],
-      }
-      if (closed) {
-        subscription.closed = true
-      } else {
-        subscriptions.add(subscription)
-      }
-      const iterator: AsyncIterator<AideEvent> = {
-        next() {
-          const event = subscription.buffered.shift()
-          if (event) {
-            return Promise.resolve({ value: event, done: false })
-          }
-          if (subscription.closed) {
-            return Promise.resolve({ value: undefined, done: true })
-          }
-          return new Promise<IteratorResult<AideEvent>>((resolve) => {
-            subscription.waiters.push(resolve)
-          })
-        },
-        return() {
-          subscriptions.delete(subscription)
-          finish(subscription)
-          return Promise.resolve({ value: undefined, done: true })
-        },
-      }
-      const iterable: AsyncIterable<AideEvent> = {
-        [Symbol.asyncIterator]: () => iterator,
-      }
-      return iterable
-    },
-    subscriberCount() {
-      return subscriptions.size
-    },
-  }
 }
 
 export type FakeHarnessControl = {

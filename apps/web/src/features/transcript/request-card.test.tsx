@@ -32,6 +32,80 @@ describe("RequestCard", () => {
     })
   })
 
+  it("shows the title, detail, diff, and every offered option", () => {
+    render(
+      <RequestCard
+        request={open(permissionRequestFixture())}
+        onResolve={vi.fn()}
+      />
+    )
+
+    expect(screen.getByText("Run bun test?")).toBeInTheDocument()
+    expect(screen.getByText("Executes the test suite.")).toBeInTheDocument()
+    expect(screen.getByText(/\+\+\+ b\/src\/index\.ts/)).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Allow" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Deny" })).toBeInTheDocument()
+  })
+
+  it("warns prominently when the call reaches outside the project", () => {
+    const request = open(permissionRequestFixture())
+    if (request.kind !== "permission") throw new Error("unreachable")
+    request.payload.boundary = {
+      projectDirectory: "/work/demo",
+      outsidePaths: ["/Users/someone/notes.txt", "/etc/hosts"],
+    }
+
+    render(<RequestCard request={request} onResolve={vi.fn()} />)
+
+    const warning = screen.getByTestId("permission-boundary")
+    expect(warning).toHaveTextContent("This reaches outside the project")
+    // Every escaping path is listed: one of them being fine does not make the
+    // others safe to approve unseen.
+    expect(warning).toHaveTextContent("/Users/someone/notes.txt")
+    expect(warning).toHaveTextContent("/etc/hosts")
+    expect(warning).toHaveTextContent("/work/demo")
+  })
+
+  it("shows no boundary warning when the call stays inside the project", () => {
+    render(
+      <RequestCard
+        request={open(permissionRequestFixture())}
+        onResolve={vi.fn()}
+      />
+    )
+
+    expect(screen.queryByTestId("permission-boundary")).not.toBeInTheDocument()
+  })
+
+  it("keeps a single-select question to one answer", async () => {
+    const user = userEvent.setup()
+    const onResolve = vi.fn()
+    const request = open(inputRequestFixture())
+    if (request.kind !== "input") throw new Error("Expected input request")
+    request.payload.questions = [
+      {
+        id: "approach",
+        prompt: "Which approach?",
+        options: [
+          { id: "fast", label: "Fast" },
+          { id: "safe", label: "Safe" },
+        ],
+        allowMultiple: false,
+        allowFreeText: false,
+      },
+    ]
+    render(<RequestCard request={request} onResolve={onResolve} />)
+
+    await user.click(screen.getByRole("radio", { name: "Fast" }))
+    await user.click(screen.getByRole("radio", { name: "Safe" }))
+    await user.click(screen.getByRole("button", { name: "Submit answers" }))
+
+    expect(onResolve).toHaveBeenCalledWith({
+      kind: "input",
+      answers: { approach: { optionIds: ["safe"] } },
+    })
+  })
+
   it("submits multi-select and free-text answers", async () => {
     const user = userEvent.setup()
     const onResolve = vi.fn()

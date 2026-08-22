@@ -9,9 +9,35 @@ const toolStatusStyles: Record<ToolPart["status"], string> = {
   failed: "bg-destructive/10 text-destructive",
 }
 
+/**
+ * Tool input is an object once the call is complete, and the raw partial JSON
+ * the adapter streamed while it was still arriving. Both are shown as text so a
+ * running call is legible before it settles.
+ */
+function toolInputText(input: unknown): string | undefined {
+  if (input === undefined || input === null) return undefined
+  if (typeof input === "string") return input
+  try {
+    return JSON.stringify(input, null, 2)
+  } catch {
+    return String(input)
+  }
+}
+
+/**
+ * One tool call is one part that changes `status` — pending while its input
+ * streams, running once it is dispatched, then completed or failed. The card
+ * is deliberately the same element throughout so the transcript does not
+ * reflow as a call progresses.
+ */
 export function ToolPartView({ part }: { part: ToolPart }) {
+  const input = toolInputText(part.input)
+
   return (
-    <div className="flex flex-col gap-1 rounded-2xl border border-border bg-card px-3 py-2">
+    <div
+      data-tool-status={part.status}
+      className="flex flex-col gap-1.5 rounded-2xl border border-border bg-card px-3 py-2"
+    >
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <span className="font-medium">{part.name}</span>
         {part.source?.kind === "mcp" ? (
@@ -25,10 +51,30 @@ export function ToolPartView({ part }: { part: ToolPart }) {
           {part.status}
         </span>
       </div>
+      {input !== undefined ? (
+        <pre
+          data-testid="tool-input"
+          className="max-h-40 overflow-auto rounded-xl bg-muted/50 p-2 font-mono text-xs whitespace-pre-wrap text-muted-foreground"
+        >
+          {input}
+        </pre>
+      ) : null}
       {part.output !== undefined ? (
-        <pre className="overflow-x-auto font-mono text-xs whitespace-pre-wrap text-muted-foreground">
+        <pre
+          data-testid="tool-output"
+          className="max-h-60 overflow-auto font-mono text-xs whitespace-pre-wrap text-muted-foreground"
+        >
           {part.output}
         </pre>
+      ) : null}
+      {part.artifactId ? (
+        <p
+          data-artifact-id={part.artifactId}
+          className="text-xs text-muted-foreground"
+        >
+          Output was truncated; the full text is stored as artifact{" "}
+          <span className="font-mono">{part.artifactId}</span>.
+        </p>
       ) : null}
     </div>
   )
@@ -37,14 +83,20 @@ export function ToolPartView({ part }: { part: ToolPart }) {
 function PartView({ part }: { part: Part }) {
   switch (part.type) {
     case "text":
-      return <p className="text-sm">{part.text}</p>
+      return <p className="text-sm whitespace-pre-wrap">{part.text}</p>
     case "reasoning":
+      // Reasoning is suppressed from *transfer* between harnesses, never from
+      // display: every native client shows it, and hiding it here would be a
+      // regression against all of them.
       return (
-        <div className="rounded-2xl border border-border/60 bg-muted/30 px-3 py-2 text-muted-foreground opacity-80">
-          <span className="text-xs font-medium tracking-wide uppercase">
+        <div
+          data-testid="reasoning-part"
+          className="rounded-2xl border border-border/60 bg-muted/30 px-3 py-2"
+        >
+          <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
             Reasoning
           </span>
-          <p className="text-sm">{part.text}</p>
+          <p className="text-sm whitespace-pre-wrap">{part.text}</p>
         </div>
       )
     case "tool":

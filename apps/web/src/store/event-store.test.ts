@@ -13,6 +13,16 @@ import { describe, expect, it, vi } from "vitest"
 
 import { createSessionStore } from "./event-store"
 
+function partsOf(
+  store: ReturnType<typeof createSessionStore>,
+  messageId: string
+): Part[] {
+  return (
+    store.getState().messages.find((message) => message.id === messageId)
+      ?.parts ?? []
+  )
+}
+
 describe("createSessionStore", () => {
   it("applies and replaces snapshots with ordered messages and parts", () => {
     const store = createSessionStore()
@@ -145,21 +155,142 @@ describe("createSessionStore", () => {
     expect(store.getState().messages).toEqual([])
   })
 
-  it("deduplicates event ids, counts deltas without changing parts, and notifies", () => {
+  it("deduplicates event ids and leaves the durable cursor where it was", () => {
     const store = createSessionStore()
     store.applySnapshot(sessionSnapshotFixture())
     const listener = vi.fn()
     store.subscribe(listener)
     const delta = fixtureEvent("part.delta")
-    const before = store.getState().messages
 
     store.applyEvent(delta)
     store.applyEvent(delta)
 
-    expect(store.getState().messages).toBe(before)
     expect(store.getState().streamOrdinalsSeen).toBe(1)
+    // Ephemeral delivery: a delta never advances the cursor a reconnect
+    // resumes from, or the durable events it covers would be skipped.
     expect(store.getState().cursor.sequence).toBe(12)
     expect(listener).toHaveBeenCalledOnce()
+  })
+
+  it("renders a delta as a live part and lets the persisted part supersede it", () => {
+    const store = createSessionStore()
+    store.applySnapshot(sessionSnapshotFixture())
+    const delta = fixtureEvent("part.delta")
+    delta.data = {
+      partId: "part_live",
+      messageId: "msg_assistant_1",
+      field: "text",
+      text: "half ",
+    }
+
+    store.applyEvent(delta)
+    store.applyEvent({
+      ...delta,
+      eventId: "evt_delta_2",
+      data: { ...delta.data, text: "written" },
+    })
+
+    const live = partsOf(store, "msg_assistant_1").find(
+      (part) => part.id === "part_live"
+    )
+    expect(live).toMatchObject({ type: "text", text: "half written" })
+
+    const upserted = fixtureEvent("part.upserted")
+    upserted.data.part = {
+      ...textPartFixture(),
+      id: "part_live",
+      messageId: "msg_assistant_1",
+      index: 9,
+      text: "half written, then settled",
+    }
+    store.applyEvent(upserted)
+
+    const settled = partsOf(store, "msg_assistant_1").filter(
+      (part) => part.id === "part_live"
+    )
+    // One part throughout: the durable form replaces the fragments, and no
+    // duplicate is left behind.
+    expect(settled).toHaveLength(1)
+    expect(settled[0]).toMatchObject({ text: "half written, then settled" })
+  })
+
+  it("renders a reasoning delta as a reasoning part", () => {
+    const store = createSessionStore()
+    store.applySnapshot(sessionSnapshotFixture())
+    const delta = fixtureEvent("part.delta")
+    delta.data = {
+      partId: "part_thinking",
+      messageId: "msg_assistant_1",
+      field: "reasoning",
+      text: "weighing it up",
+    }
+
+    store.applyEvent(delta)
+
+    expect(
+      partsOf(store, "msg_assistant_1").find(
+        (part) => part.id === "part_thinking"
+      )
+    ).toMatchObject({ type: "reasoning", text: "weighing it up" })
+  })
+
+  it("streams a tool's partial input onto its pending part", () => {
+    const store = createSessionStore()
+    store.applySnapshot(sessionSnapshotFixture())
+    const pending = fixtureEvent("part.upserted")
+    pending.data.part = {
+      ...toolPartFixture(),
+      id: "part_tool_live",
+      messageId: "msg_assistant_1",
+      index: 8,
+      status: "pending",
+      input: undefined,
+      output: undefined,
+    }
+    store.applyEvent(pending)
+
+    const delta = fixtureEvent("part.delta")
+    delta.data = {
+      partId: "part_tool_live",
+      messageId: "msg_assistant_1",
+      field: "input",
+      text: '{"command":',
+    }
+    store.applyEvent(delta)
+
+    const part = partsOf(store, "msg_assistant_1").find(
+      (candidate) => candidate.id === "part_tool_live"
+    )
+    expect(part).toMatchObject({ type: "tool", input: '{"command":' })
+    // The fragment attaches to the existing part rather than inventing one.
+    expect(
+      partsOf(store, "msg_assistant_1").filter(
+        (candidate) => candidate.id === "part_tool_live"
+      )
+    ).toHaveLength(1)
+  })
+
+  it("drops live fragments when a snapshot replaces the session", () => {
+    const store = createSessionStore()
+    store.applySnapshot(sessionSnapshotFixture())
+    const delta = fixtureEvent("part.delta")
+    delta.data = {
+      partId: "part_live",
+      messageId: "msg_assistant_1",
+      field: "text",
+      text: "in flight",
+    }
+    store.applyEvent(delta)
+    expect(
+      partsOf(store, "msg_assistant_1").some((part) => part.id === "part_live")
+    ).toBe(true)
+
+    store.applySnapshot(sessionSnapshotFixture())
+
+    // A fragment was never persisted, so the snapshot is the authority.
+    expect(
+      partsOf(store, "msg_assistant_1").some((part) => part.id === "part_live")
+    ).toBe(false)
   })
 
   it("bounds event-id deduplication to the latest 500 ids", () => {

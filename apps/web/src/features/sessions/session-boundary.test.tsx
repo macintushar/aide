@@ -1,4 +1,5 @@
 import {
+  permissionRequestFixture,
   sessionSnapshotFixture,
   userMessageFixture,
   type AideEvent,
@@ -6,8 +7,6 @@ import {
 } from "@workspace/contracts"
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
-
-import type { createReadClient } from "@/lib/transport/read-client"
 
 import { SessionBoundary } from "./session-boundary"
 
@@ -82,6 +81,16 @@ function partEvent(sequence: number, text: string): AideEvent {
 function bootStream() {
   const subscriptions: Recording[] = []
   const getSession = vi.fn(async () => snapshotWithSequence(4))
+  // The composer reads configured defaults; an empty config exercises the
+  // fall-through to what the harness reports.
+  const getConfig = vi.fn(async () => ({
+    instances: {},
+    mcpServers: {},
+    defaults: {},
+  }))
+  const getProjectConfig = vi.fn(async () => ({
+    projectId: sessionSnapshotFixture().project.id,
+  }))
   const subscribe = vi.fn((options: SubscribeOptions) => {
     const recording: Recording = { options, close: vi.fn() }
     subscriptions.push(recording)
@@ -90,9 +99,14 @@ function bootStream() {
   return {
     subscriptions,
     getSession,
-    readClient: { getSession } as unknown as Pick<
-      ReturnType<typeof createReadClient>,
-      "getSession"
+    getConfig,
+    getProjectConfig,
+    readClient: {
+      getSession,
+      getConfig,
+      getProjectConfig,
+    } as unknown as NonNullable<
+      Parameters<typeof SessionBoundary>[0]["readClient"]
     >,
     subscribe: subscribe as NonNullable<
       Parameters<typeof SessionBoundary>[0]["subscribe"]
@@ -175,5 +189,94 @@ describe("SessionBoundary", () => {
     expect(
       await screen.findByText(sessionSnapshotFixture().session.title)
     ).toBeInTheDocument()
+  })
+})
+
+function openPermissionEvent(sequence: number): AideEvent {
+  return {
+    schemaVersion: 1,
+    eventId: `evt-req-${sequence}`,
+    timestamp: "2026-01-01T00:00:00.000Z",
+    delivery: { durable: true, sequence },
+    scope: {
+      kind: "session",
+      projectId: "proj_1",
+      sessionId: "ses_1",
+      turnId: "turn_1",
+    },
+    instanceId: "instance",
+    driver: "claudeAgent",
+    type: "request.opened",
+    data: {
+      request: {
+        ...permissionRequestFixture(),
+        id: "req_open_1",
+        status: "open",
+        resolution: undefined,
+      },
+    },
+  } as AideEvent
+}
+
+describe("SessionBoundary: unresolved requests", () => {
+  it("keeps an open request visible across a reconnect and resolves it against the same id", async () => {
+    const stream = bootStream()
+    const commandClient = { send: vi.fn(async () => undefined) }
+    render(
+      <SessionBoundary
+        {...boundaryProps(stream, { reconnectDelayMs: 0 })}
+        commandClient={commandClient as never}
+      />
+    )
+
+    await waitFor(() => expect(stream.subscriptions).toHaveLength(1))
+    const first = stream.subscriptions[0]!
+    await act(async () => {
+      first.options.onEvent(openPermissionEvent(8))
+    })
+    // Only an open permission card offers its options; the snapshot's
+    // already-resolved request renders as a summary row.
+    expect(screen.getByRole("button", { name: "Allow" })).toBeInTheDocument()
+
+    act(() => {
+      first.options.onError?.(new Event("error"))
+    })
+    await waitFor(() => expect(stream.subscriptions).toHaveLength(2))
+
+    // The request is server-side state; a dropped stream must not lose the
+    // prompt the user still has to answer.
+    expect(screen.getByRole("button", { name: "Allow" })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: "Allow" }))
+
+    await waitFor(() => expect(commandClient.send).toHaveBeenCalled())
+    expect(commandClient.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "permission.respond",
+        requestId: "req_open_1",
+        resolution: { kind: "permission", optionId: "allow" },
+      })
+    )
+  })
+
+  it("shows a request the reconnect snapshot still reports as open", async () => {
+    const stream = bootStream()
+    render(<SessionBoundary {...boundaryProps(stream)} />)
+
+    await waitFor(() => expect(stream.subscriptions).toHaveLength(1))
+    const snapshot = snapshotWithSequence(9)
+    snapshot.requests = [
+      {
+        ...permissionRequestFixture(),
+        id: "req_open_2",
+        status: "open",
+        resolution: undefined,
+      },
+    ]
+    await act(async () => {
+      stream.subscriptions[0]!.options.onSnapshot?.(snapshot)
+    })
+
+    expect(screen.getByRole("button", { name: "Allow" })).toBeInTheDocument()
   })
 })
