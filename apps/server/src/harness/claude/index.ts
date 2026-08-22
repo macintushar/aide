@@ -45,6 +45,8 @@ export {
   createClaudeRuntime,
   normalizeDialogQuestions,
   permissionDiff,
+  shellCommandPaths,
+  toolInputPaths,
   type ClaudeRuntime,
   type ClaudeRuntimeOptions,
 } from "./session"

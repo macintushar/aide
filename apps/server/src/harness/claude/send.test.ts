@@ -1061,6 +1061,80 @@ describe("claude send: native session identity", () => {
   })
 })
 
+describe("claude send: project boundary", () => {
+  async function permissionFor(input: Record<string, unknown>) {
+    const askFor = async (context: ClaudeTurnScriptContext) => {
+      await context.requestPermission({ toolName: "Write", input })
+      context.emit({ type: "result", subtype: "success", is_error: false })
+    }
+    const { adapter, handle, nativeSession } = await startSession({
+      script: askFor,
+    })
+    const stream = collect(adapter.events({ handle, nativeSession }))
+    await adapter.send({
+      handle,
+      nativeSession,
+      commandId: "cmd-1",
+      turnId: "turn-1",
+      userMessage: userMessage("write it"),
+      execution: execution(),
+    })
+    const opened = await stream.waitFor(
+      (event) => event.type === "request.opened",
+      "request.opened"
+    )
+    await stream.stop()
+    if (opened.type !== "request.opened") throw new Error("unreachable")
+    const payload = opened.data.request.payload
+    if (payload.kind !== "permission") throw new Error("expected permission")
+    return payload
+  }
+
+  it("flags a write that reaches outside the project", async () => {
+    const payload = await permissionFor({
+      file_path: "/etc/hosts",
+      content: "x",
+    })
+
+    expect(payload.boundary).toBeDefined()
+    // Canonicalized, so the path shown is the real target — on macOS /etc is
+    // itself a symlink, and the reviewer should see where the write lands.
+    expect(payload.boundary?.outsidePaths).toHaveLength(1)
+    expect(payload.boundary?.outsidePaths[0]).toMatch(/\/etc\/hosts$/)
+    expect(payload.boundary?.projectDirectory).toBe(PROJECT_DIRECTORY)
+  })
+
+  it("flags a tilde path rather than nesting it inside the project", async () => {
+    const payload = await permissionFor({
+      file_path: "~/notes.txt",
+      content: "x",
+    })
+
+    // The live run that motivated this check wrote to the home directory while
+    // the prompt only ever said "notes.txt".
+    expect(payload.boundary?.outsidePaths).toHaveLength(1)
+    expect(payload.boundary?.outsidePaths[0]).toContain("notes.txt")
+    expect(payload.boundary?.outsidePaths[0]).not.toContain(PROJECT_DIRECTORY)
+  })
+
+  it("says nothing for a path inside the project", async () => {
+    const payload = await permissionFor({
+      file_path: `${PROJECT_DIRECTORY}/src/main.ts`,
+      content: "x",
+    })
+
+    expect(payload.boundary).toBeUndefined()
+  })
+
+  it("says nothing when the input names no path at all", async () => {
+    const payload = await permissionFor({ command: "echo hi" })
+
+    // A shell command can reference any path; guessing at one from the string
+    // would be a confident answer that is wrong often enough to mislead.
+    expect(payload.boundary).toBeUndefined()
+  })
+})
+
 describe("claude send: resume", () => {
   it("reports the last assistant message as the resume point", async () => {
     const { adapter, handle, nativeSession } = await startSession({

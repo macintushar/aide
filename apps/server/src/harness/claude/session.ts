@@ -10,6 +10,7 @@ import type {
   UserMessage,
 } from "@workspace/contracts"
 
+import { pathsOutsideBoundary } from "../../workspace/paths"
 import { createEventBus, type EventBus } from "../event-bus"
 import type { NativeDispatchInput } from "@workspace/contracts"
 import {
@@ -167,6 +168,50 @@ function permissionModeFor(execution: ResolvedExecution): ClaudePermissionMode {
 
 function effortFor(execution: ResolvedExecution): string | undefined {
   return execution.selection.options.effort
+}
+
+/**
+ * Tool-input keys that name a filesystem path. Which keys those are is
+ * Claude-specific, so this lives here rather than in the shared check.
+ */
+const PATH_INPUT_KEYS = ["file_path", "path", "notebook_path", "cwd"] as const
+
+/**
+ * Path-shaped literals in a shell command.
+ *
+ * Extraction, not shell parsing: it finds absolute and `~`-rooted literals and
+ * ignores everything else. It therefore cannot see a path built from a
+ * variable, an expansion, or a `cd` earlier in the pipeline — so its silence is
+ * not a guarantee.
+ *
+ * It is still worth doing, because the redirect (`… > ~/notes.txt`) is how a
+ * write actually leaves the project in practice, and the failure modes are
+ * asymmetric: this only ever annotates a prompt a human is already reviewing,
+ * so naming a harmless path costs a glance while missing one costs the file.
+ */
+const SHELL_PATH_PATTERN = /(?:~|\.{1,2})?\/[^\s'"`|;&<>()$]+/g
+
+export function shellCommandPaths(command: string): string[] {
+  const found = command.match(SHELL_PATH_PATTERN) ?? []
+  const paths: string[] = []
+  for (const raw of found) {
+    // Trailing punctuation is sentence noise, not part of the path.
+    const trimmed = raw.replace(/[.,;:]+$/, "")
+    if (trimmed.length > 1 && !paths.includes(trimmed)) paths.push(trimmed)
+  }
+  return paths
+}
+
+export function toolInputPaths(input: Record<string, unknown>): string[] {
+  const paths: string[] = []
+  for (const key of PATH_INPUT_KEYS) {
+    const value = input[key]
+    if (typeof value === "string" && value.length > 0) paths.push(value)
+  }
+  if (typeof input.command === "string") {
+    paths.push(...shellCommandPaths(input.command))
+  }
+  return paths
 }
 
 /**
@@ -431,6 +476,12 @@ export async function createClaudeRuntime(
       { id: "deny", label: "Deny" },
     ]
     const diff = permissionDiff(ask.toolName, ask.input)
+    // A tool reaching outside the project is the thing a reviewer most needs
+    // to notice, and the least likely to spot in a path buried in prose.
+    const outsidePaths = await pathsOutsideBoundary(
+      projectDirectory,
+      toolInputPaths(ask.input)
+    ).catch(() => [])
     const request: Request = {
       id: requestId,
       sessionId: aideSessionId,
@@ -443,6 +494,9 @@ export async function createClaudeRuntime(
         title: ask.title ?? `Allow ${ask.displayName ?? ask.toolName}?`,
         ...(ask.description ? { detail: ask.description } : {}),
         ...(diff ? { diff } : {}),
+        ...(outsidePaths.length > 0
+          ? { boundary: { projectDirectory, outsidePaths } }
+          : {}),
         options,
       },
     }

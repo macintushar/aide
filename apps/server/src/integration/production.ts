@@ -36,7 +36,11 @@ export type ProductionServerOptions = {
 }
 
 function defaultServe(input: Parameters<ProductionServe>[0]) {
-  return Bun.serve(input)
+  return Bun.serve({
+    ...input,
+    // Session and instance SSE stay open; Bun's default 10s idle timeout 502s them.
+    idleTimeout: 0,
+  })
 }
 
 /** Builds the production core without binding a port or starting instances. */
