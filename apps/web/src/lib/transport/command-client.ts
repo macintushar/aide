@@ -4,6 +4,8 @@ import {
   type CommandReceipt,
 } from "@workspace/contracts"
 
+import type { SessionAuth } from "./session-auth"
+
 const MAX_ATTEMPTS = 3
 const INITIAL_RETRY_DELAY_MS = 100
 
@@ -14,6 +16,8 @@ export type CommandClientOptions = {
   fetchImpl?: typeof fetch
   sleepImpl?: Sleep
   bearerToken?: string
+  /** Bootstrap/session auth; takes precedence over a static bearerToken. */
+  auth?: SessionAuth
   headers?: HeadersInit
 }
 
@@ -42,6 +46,7 @@ export function createCommandClient(options: CommandClientOptions = {}) {
     async send(command: Command): Promise<CommandReceipt> {
       const { name, ...body } = command
       const requestBody = JSON.stringify(body)
+      let authRetried = false
 
       for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
         let response: Response
@@ -52,7 +57,7 @@ export function createCommandClient(options: CommandClientOptions = {}) {
             `${baseUrl}/commands/${encodeURIComponent(name)}`,
             {
               method: "POST",
-              headers: commandHeaders(options),
+              headers: await requestHeaders(options),
               body: requestBody,
             }
           )
@@ -64,6 +69,13 @@ export function createCommandClient(options: CommandClientOptions = {}) {
         }
 
         if (response.ok) return commandReceiptSchema.parse(responseBody)
+        // A rejected session is re-exchanged exactly once; the bootstrap
+        // token never rides on data requests.
+        if (response.status === 401 && options.auth && !authRetried) {
+          authRetried = true
+          options.auth.invalidate()
+          continue
+        }
         if (response.status < 500 || attempt === MAX_ATTEMPTS - 1) {
           throw new CommandError(response.status, responseBody)
         }
@@ -75,10 +87,12 @@ export function createCommandClient(options: CommandClientOptions = {}) {
   }
 }
 
-function commandHeaders(options: CommandClientOptions): Headers {
+async function requestHeaders(options: CommandClientOptions): Promise<Headers> {
   const headers = new Headers(options.headers)
   headers.set("content-type", "application/json")
-  if (options.bearerToken) {
+  if (options.auth) {
+    headers.set("authorization", `Bearer ${await options.auth.bearer()}`)
+  } else if (options.bearerToken) {
     headers.set("authorization", `Bearer ${options.bearerToken}`)
   }
   return headers

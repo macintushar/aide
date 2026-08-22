@@ -75,6 +75,26 @@ describe("createReadClient", () => {
     expect(headers.get("x-aide-client")).toBe("web")
   })
 
+  it("re-exchanges once and retries when a session is rejected with 401", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ error: "unauthorized" }, 401))
+      .mockResolvedValueOnce(jsonResponse(globalConfig))
+    const auth = {
+      bearer: vi.fn(async () => "stale-session"),
+      invalidate: vi.fn(),
+      hasSession: () => true,
+      bootstrapWithToken: async () => undefined,
+      bootstrapFromUrl: async () => false,
+    }
+
+    await expect(
+      createReadClient({ fetchImpl, auth }).getConfig()
+    ).resolves.toEqual(globalConfig)
+    expect(auth.invalidate).toHaveBeenCalledOnce()
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+  })
+
   it("rejects malformed successful responses and preserves HTTP errors", async () => {
     const malformed = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({}))
     await expect(

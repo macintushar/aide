@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto"
 import { dirname, join } from "node:path"
 
 import {
@@ -29,8 +30,7 @@ export type ProductionServerOptions = {
   adapters?: HarnessAdapter[]
   hostname?: string
   port?: number
-  bearerToken?: string
-  allowedOrigins?: string[]
+  bootstrapToken?: string
   serve?: ProductionServe
   secrets?: ConfigSecrets
 }
@@ -50,15 +50,30 @@ export function createProductionIntegration(
   ]
   const port = options.port ?? env.PORT
   const secrets = options.secrets ?? loadConfigSecrets(secretsKeyPath())
+  const bootstrapToken = options.bootstrapToken ?? generateBootstrapToken()
   const integration = createCoreIntegration({
     db,
     adapters,
-    bearerToken: options.bearerToken ?? env.AIDE_BEARER_TOKEN,
-    allowedOrigins: options.allowedOrigins ?? loopbackOrigins(port),
+    auth: {
+      bootstrapToken,
+      allowedOrigins: loopbackOrigins(port),
+    },
     configSecrets: secrets,
     trackWorkspaceChanges: true,
   })
-  return { integration, ownsDb: options.db === undefined }
+  return { integration, bootstrapToken, ownsDb: options.db === undefined }
+}
+
+/**
+ * The bootstrap credential is generated fresh every boot and surfaced in the
+ * logs as a one-click URL; it never lives in the environment.
+ */
+function generateBootstrapToken(): string {
+  return randomBytes(32).toString("hex")
+}
+
+export function bootstrapUrl(hostname: string, port: number, token: string) {
+  return `http://${hostname === "0.0.0.0" ? "127.0.0.1" : hostname}:${port}/?authToken=${token}`
 }
 
 function secretsKeyPath(): string {
@@ -72,7 +87,8 @@ export async function startProductionServer(
 ) {
   const hostname = options.hostname ?? env.HOST
   const port = options.port ?? env.PORT
-  const { integration, ownsDb } = createProductionIntegration(options)
+  const { integration, bootstrapToken, ownsDb } =
+    createProductionIntegration(options)
   const serve = options.serve ?? defaultServe
 
   // Binding is deliberately the first lifecycle action: health/config reads are
@@ -82,6 +98,10 @@ export async function startProductionServer(
     port,
     fetch: (request) => integration.app.fetch(request),
   })
+
+  console.log(
+    `[aide] ready — open ${bootstrapUrl(hostname, port, bootstrapToken)} to sign in`
+  )
 
   const effective = integration.services.config.effective()
   integration.services.config.emitInstanceFailures(effective.failures)

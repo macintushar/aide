@@ -11,7 +11,13 @@ import type { AideDb, ConfigSecrets } from "../db"
 import { createEventRouter, EventService, SnapshotService } from "../events"
 import type { HarnessAdapter } from "../harness/types"
 import { InventoryService } from "../inventory"
-import { createCommandGuard } from "../security/command-guard"
+import {
+  createBootstrapHandler,
+  createSessionAuth,
+  createSessionGuard,
+  type SessionAuth,
+} from "../security/session-auth"
+import { createDbTokenStore } from "../security/db-token-store"
 import {
   AdapterRegistry,
   createCoreCommandHandlers,
@@ -29,8 +35,15 @@ import { SessionChangesTracker } from "../workspace/changes"
 export type CoreIntegrationOptions = {
   db: AideDb
   registry?: AdapterRegistry
-  bearerToken?: string
-  allowedOrigins?: string[]
+  /**
+   * Route-class auth. Present = /auth/session plus session-guarded data
+   * routes; absent = fully open (tests). The bootstrap token, when given,
+   * is the boot-generated credential surfaced in server logs.
+   */
+  auth?: {
+    bootstrapToken?: string
+    allowedOrigins?: string[]
+  }
   /** Driver implementations available to the supervisor. */
   adapters?: HarnessAdapter[]
   /** Project directory used for directory-scoped inventory. */
@@ -147,14 +160,20 @@ export function createAideTestApp(options: CoreIntegrationOptions) {
   })
 
   const app = new Hono()
-  if (options.bearerToken) {
-    const guard = createCommandGuard({
-      bearerToken: options.bearerToken,
-      allowedOrigins: options.allowedOrigins ?? [],
+  let auth: SessionAuth | undefined
+  if (options.auth) {
+    auth = createSessionAuth({
+      ...(options.auth.bootstrapToken !== undefined
+        ? { bootstrapToken: options.auth.bootstrapToken }
+        : {}),
+      store: createDbTokenStore(options.db),
     })
-    app.use("/commands/*", guard)
-    app.use("/config", guard)
-    app.use("/projects/:projectId/config", guard)
+    const allowedOrigins = options.auth.allowedOrigins ?? []
+    const sessionGuard = createSessionGuard(auth, allowedOrigins)
+    app.post("/auth/session", createBootstrapHandler(auth, allowedOrigins))
+    app.use("/commands/*", sessionGuard)
+    app.use("/config", sessionGuard)
+    app.use("/projects/:projectId/config", sessionGuard)
   }
   app.route("/", createCommandRouter({ dispatcher }))
   app.route("/", createConfigRouter({ config }))
@@ -177,6 +196,7 @@ export function createAideTestApp(options: CoreIntegrationOptions) {
 
   return {
     app,
+    auth,
     db: options.db,
     registry,
     dispatcher,

@@ -85,6 +85,7 @@ exports[`schema surface > locks exported schema names 1`] = `
   "schemaVersionSchema",
   "selectOptionSchema",
   "sessionCreateCommandSchema",
+  "sessionCredentialSchema",
   "sessionDeleteCommandSchema",
   "sessionEventScopeSchema",
   "sessionRenameCommandSchema",

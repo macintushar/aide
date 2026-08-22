@@ -1,190 +1,293 @@
-import {
-  RiPulseLine,
-  RiQuestionAnswerLine,
-  RiSettings3Line,
-  RiTerminalBoxLine,
-} from "@remixicon/react"
-import { useState } from "react"
+import { RiKeyLine, RiTerminalBoxLine } from "@remixicon/react"
+import { AideMark } from "@workspace/ui/components/logo"
+import { EmptyState } from "@workspace/ui/components/empty-state"
+import { ScrollArea } from "@workspace/ui/components/scroll-area"
+import { TooltipProvider } from "@workspace/ui/components/tooltip"
+import { useEffect, useState } from "react"
 
+import { AppShell } from "@/components/shell/app-shell"
+import { Sidebar, type SidebarView } from "@/components/shell/sidebar"
+import { SurfacePanel } from "@/components/shell/surface-panel"
+import { ThreadHeader, ThreadTitle } from "@/components/shell/thread-header"
 import {
-  InstancesBoundary,
-  type InstancesBoundaryProps,
+  InstancesProvider,
+  InstancesView,
+  type InstancesProviderProps,
 } from "@/features/instances"
 import {
-  SessionBoundary,
+  SessionActivity,
+  SessionProject,
+  SessionTitle,
+  SessionActions,
   SessionNavigation,
-  type SessionBoundaryProps,
+  SessionProvider,
+  SessionThread,
+  useSession,
+  type SessionProviderProps,
 } from "@/features/sessions"
 import {
   SettingsBoundary,
   type SettingsBoundaryProps,
 } from "@/features/settings"
+import { latestExecution } from "@/features/sessions/session-selectors"
+import type { Message } from "@workspace/contracts"
 import { createCommandClient } from "@/lib/transport/command-client"
 import {
   subscribeInstancesEvents,
   subscribeSessionEvents,
 } from "@/lib/transport/event-source"
 import { createReadClient } from "@/lib/transport/read-client"
+import { createSessionAuth } from "@/lib/transport/session-auth"
+import {
+  readRecentSessions,
+  rememberSession,
+  type RecentSession,
+} from "@/lib/recent-sessions"
+import { useSessionRoute } from "@/lib/session-route"
+import { useWorkspaceState } from "@/lib/workspace-state"
 
 export type AppProps = {
-  readClient?: InstancesBoundaryProps["readClient"] &
+  readClient?: InstancesProviderProps["readClient"] &
     SettingsBoundaryProps["readClient"] &
-    SessionBoundaryProps["readClient"]
-  commandClient?: InstancesBoundaryProps["commandClient"] &
+    NonNullable<SessionProviderProps["readClient"]>
+  commandClient?: InstancesProviderProps["commandClient"] &
     SettingsBoundaryProps["commandClient"]
-  subscribeInstances?: InstancesBoundaryProps["subscribe"]
-  subscribeSession?: SessionBoundaryProps["subscribe"]
+  subscribeInstances?: InstancesProviderProps["subscribe"]
+  subscribeSession?: SessionProviderProps["subscribe"]
   initialSessionId?: string
+  /** Overrides sign-in detection (tests, embedded hosts). */
+  authenticated?: boolean
 }
-
-const token = import.meta.env.VITE_AIDE_BEARER_TOKEN
-const readClient = createReadClient(token ? { bearerToken: token } : {})
-const commandClient = createCommandClient(token ? { bearerToken: token } : {})
-
+// The one-time credential arrives via the URL the server prints at boot;
+// only the resulting durable session is ever sent on data requests.
+const auth = createSessionAuth()
+const readClient = createReadClient({ auth })
+const commandClient = createCommandClient({ auth })
 export function App({
   readClient: reads = readClient,
   commandClient: commands = commandClient,
   subscribeInstances = subscribeInstancesEvents,
   subscribeSession = subscribeSessionEvents,
   initialSessionId,
+  authenticated: authenticatedOverride,
 }: AppProps) {
-  const [sessionId, setSessionId] = useState(initialSessionId)
+  const [authenticatedState, setAuthenticatedState] = useState(() =>
+    auth.hasSession()
+  )
+  const authenticated = authenticatedOverride ?? authenticatedState
+
+  useEffect(() => {
+    if (authenticatedOverride !== undefined) return
+    let active = true
+    void auth.bootstrapFromUrl().finally(() => {
+      if (active) setAuthenticatedState(auth.hasSession())
+    })
+    return () => {
+      active = false
+    }
+  }, [authenticatedOverride])
+
+  const workspace = useWorkspaceState()
+  const [routeSessionId, setRouteSessionId] = useSessionRoute()
+  const sessionId = routeSessionId ?? initialSessionId
+  const [view, setView] = useState<SidebarView>(
+    sessionId ? "session" : "welcome"
+  )
+  const [recents, setRecents] = useState<RecentSession[]>(readRecentSessions)
+
+  useEffect(() => {
+    if (routeSessionId) setView("session")
+  }, [routeSessionId])
+
+  function selectSession(nextSessionId: string) {
+    setRouteSessionId(nextSessionId)
+    setRecents(rememberSession({ sessionId: nextSessionId }))
+    setView("session")
+  }
+
+  const showSession = view === "session" && Boolean(sessionId)
+
+  if (!authenticated) {
+    return (
+      <EmptyState
+        icon={<RiKeyLine />}
+        title="Not signed in"
+        description="Start the aide server and open the URL it prints to sign this browser in."
+      />
+    )
+  }
 
   return (
-    <div className="min-h-svh bg-[radial-gradient(circle_at_top_left,var(--color-primary)_0,transparent_24rem)] bg-fixed">
-      <div className="min-h-svh bg-background/94">
-        <header className="border-b border-border bg-background/80 backdrop-blur-xl">
-          <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
-            <div className="flex items-center gap-3">
-              <span className="grid size-9 place-items-center rounded-xl bg-primary text-primary-foreground shadow-sm">
-                <RiTerminalBoxLine className="size-5" aria-hidden="true" />
-              </span>
-              <div>
-                <h1 className="font-heading text-lg font-semibold tracking-tight">
-                  Aide
-                </h1>
-                <p className="text-[0.68rem] font-medium tracking-[0.18em] text-muted-foreground uppercase">
-                  Control plane
-                </p>
-              </div>
-            </div>
-            <span className="rounded-full border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground shadow-sm">
-              Wave 2 · Local operations
-            </span>
-          </div>
-        </header>
-
-        <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8 lg:py-12">
-          <section
-            aria-labelledby="workspace-heading"
-            className="mb-10 min-w-0 rounded-3xl border border-border bg-background/90 p-5 shadow-sm sm:p-6 lg:p-8"
-          >
-            <div className="mb-6 flex items-center gap-3 border-b border-border pb-5">
-              <span className="grid size-9 place-items-center rounded-xl bg-primary/10 text-primary">
-                <RiQuestionAnswerLine className="size-5" aria-hidden="true" />
-              </span>
-              <div>
-                <p className="text-xs font-medium text-muted-foreground uppercase">
-                  Project workspace
-                </p>
-                <h2
-                  id="workspace-heading"
-                  className="font-heading text-2xl font-medium"
+    <TooltipProvider>
+      <InstancesProvider
+        readClient={reads}
+        commandClient={commands}
+        subscribe={subscribeInstances}
+      >
+        <SessionProvider
+          sessionId={showSession ? sessionId : undefined}
+          readClient={reads}
+          commandClient={commands}
+          subscribe={subscribeSession}
+        >
+          <SessionRecorder onRemember={setRecents} />
+          <AppShell
+            sidebarOpen={workspace.sidebarOpen}
+            panelOpen={workspace.panelOpen}
+            sidebar={
+              <Sidebar
+                view={view}
+                activeSessionId={showSession ? sessionId : undefined}
+                recents={recents}
+                onNewSession={() => {
+                  setRouteSessionId(undefined)
+                  setView("welcome")
+                }}
+                onOpenSettings={() => setView("settings")}
+                onSelectSession={selectSession}
+              />
+            }
+            panel={
+              workspace.panelOpen ? (
+                <SurfacePanel
+                  surface={workspace.surface}
+                  onOpenSurface={workspace.openSurface}
+                  onCloseSurface={workspace.closeSurface}
+                  onClosePanel={workspace.togglePanel}
                 >
-                  Sessions
-                </h2>
-              </div>
-            </div>
-
-            <SessionNavigation
-              commandClient={commands}
-              activeSessionId={sessionId}
-              onSelectSession={setSessionId}
+                  {workspace.surface === "activity" ? (
+                    <SessionActivity />
+                  ) : null}
+                  {workspace.surface === "instances" ? <InstancesView /> : null}
+                </SurfacePanel>
+              ) : null
+            }
+          >
+            <ThreadHeader
+              sidebarOpen={workspace.sidebarOpen}
+              onToggleSidebar={workspace.toggleSidebar}
+              panelOpen={workspace.panelOpen}
+              onTogglePanel={workspace.togglePanel}
+              title={
+                showSession ? (
+                  <SessionTitle />
+                ) : (
+                  <ThreadTitle>
+                    {view === "settings" ? "Settings" : "New session"}
+                  </ThreadTitle>
+                )
+              }
+              meta={showSession ? <SessionProject /> : null}
+              actions={showSession ? <SessionActions /> : null}
             />
 
-            {sessionId ? (
-              <div className="mt-8 border-t border-border pt-8">
-                <SessionBoundary
-                  sessionId={sessionId}
-                  readClient={reads}
-                  commandClient={commands}
-                  subscribe={subscribeSession}
-                />
-              </div>
+            {showSession ? (
+              <SessionThread />
+            ) : view === "settings" ? (
+              <ScrollArea className="flex-1">
+                <div className="mx-auto max-w-3xl px-4 py-6">
+                  <SettingsBoundary
+                    readClient={reads}
+                    commandClient={commands}
+                  />
+                </div>
+              </ScrollArea>
             ) : (
-              <p className="mt-6 rounded-2xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
-                Open a project or enter a session ID to view its transcript.
-              </p>
-            )}
-          </section>
-
-          <div className="mb-8 max-w-2xl">
-            <p className="flex items-center gap-2 text-xs font-semibold tracking-[0.16em] text-primary uppercase">
-              <RiPulseLine className="size-4" aria-hidden="true" />
-              Runtime overview
-            </p>
-            <h2 className="mt-3 font-heading text-3xl font-medium tracking-tight sm:text-4xl">
-              Harness operations, without leaving your workspace.
-            </h2>
-            <p className="mt-3 text-sm leading-6 text-muted-foreground sm:text-base">
-              Observe configured runtimes, issue authoritative lifecycle
-              commands, and keep global execution settings in one place.
-            </p>
-          </div>
-
-          <div className="grid items-start gap-6 xl:grid-cols-[minmax(20rem,0.8fr)_minmax(32rem,1.2fr)]">
-            <section
-              aria-labelledby="instances-heading"
-              className="min-w-0 rounded-3xl border border-border bg-background/90 p-5 shadow-sm sm:p-6"
-            >
-              <div className="mb-5 flex items-start justify-between gap-4 border-b border-border pb-4">
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground uppercase">
-                    Operations
-                  </p>
-                  <h2
-                    id="instances-heading"
-                    className="mt-1 font-heading text-2xl font-medium"
-                  >
-                    Instances
-                  </h2>
-                </div>
-                <span className="rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:text-emerald-400">
-                  Live
-                </span>
-              </div>
-              <InstancesBoundary
-                readClient={reads}
+              <WelcomeView
                 commandClient={commands}
-                subscribe={subscribeInstances}
+                onSelectSession={selectSession}
               />
-            </section>
+            )}
+          </AppShell>
+        </SessionProvider>
+      </InstancesProvider>
+    </TooltipProvider>
+  )
+}
 
-            <section
-              aria-labelledby="settings-heading"
-              className="min-w-0 rounded-3xl border border-border bg-background/90 p-5 shadow-sm sm:p-6 lg:p-8"
-            >
-              <div className="mb-7 flex items-center gap-3 border-b border-border pb-5">
-                <span className="grid size-9 place-items-center rounded-xl bg-muted text-muted-foreground">
-                  <RiSettings3Line className="size-5" aria-hidden="true" />
-                </span>
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground uppercase">
-                    Global configuration
-                  </p>
-                  <h2
-                    id="settings-heading"
-                    className="font-heading text-2xl font-medium"
-                  >
-                    Settings
-                  </h2>
-                </div>
-              </div>
-              <SettingsBoundary readClient={reads} commandClient={commands} />
-            </section>
-          </div>
-        </main>
+function WelcomeView({
+  commandClient,
+  onSelectSession,
+}: {
+  commandClient: NonNullable<AppProps["commandClient"]>
+  onSelectSession: (sessionId: string) => void
+}) {
+  return (
+    <ScrollArea className="flex-1">
+      <div className="mx-auto flex max-w-2xl flex-col gap-8 px-4 py-16">
+        <div className="flex flex-col items-center gap-3 text-center">
+          <AideMark size={32} aria-hidden="true" />
+          <h1 className="text-h2">One conversation. Any agent.</h1>
+          <p className="max-w-md text-body text-muted-foreground">
+            Open a project directory to start a session, or resume one you
+            already have.
+          </p>
+        </div>
+        <SessionNavigation
+          commandClient={commandClient}
+          onSelectSession={onSelectSession}
+        />
       </div>
-    </div>
+    </ScrollArea>
+  )
+}
+
+/** Recents are browser-local until the server exposes a session list. */
+function SessionRecorder({
+  onRemember,
+}: {
+  onRemember: (recents: RecentSession[]) => void
+}) {
+  const session = useSession()
+  const sessionId = session?.sessionId
+  const title = session?.state.session?.title
+  const projectName = session?.state.project?.name
+  const messages = session?.state.messages
+  const lastMessage = messages ? lastMessagePreview(messages) : undefined
+  const execution = messages ? latestExecution(messages) : undefined
+  const harnessName = execution?.display.instanceName
+  const driver = execution?.selection.driver
+
+  useEffect(() => {
+    if (!sessionId) return
+    onRemember(
+      rememberSession({
+        sessionId,
+        title,
+        projectName,
+        lastMessage,
+        harnessName,
+        driver,
+      })
+    )
+  }, [
+    driver,
+    harnessName,
+    lastMessage,
+    onRemember,
+    projectName,
+    sessionId,
+    title,
+  ])
+
+  return null
+}
+
+/** The sidebar previews the latest message text, capped for localStorage. */
+function lastMessagePreview(messages: Message[]): string | undefined {
+  const last = [...messages]
+    .sort((a, b) => a.seq - b.seq || a.id.localeCompare(b.id))
+    .at(-1)
+  const text = last?.parts.find((part) => part.type === "text")
+  return text?.type === "text" ? text.text.slice(0, 160) : undefined
+}
+
+export function AppFallback() {
+  return (
+    <EmptyState
+      icon={<RiTerminalBoxLine />}
+      title="aide could not start"
+      description="Reload the page to try again."
+    />
   )
 }

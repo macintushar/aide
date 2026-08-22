@@ -5,17 +5,18 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
 import { createDb } from "../db"
 import { Database } from "../db/test/bun-sqlite-shim"
-import { createCommandGuard } from "../security/command-guard"
+import { createSessionAuth, createSessionGuard } from "../security/session-auth"
 import { createCommandDispatcher } from "./dispatcher"
 import { createCommandRouter } from "./router"
 
 const migrationsFolder = fileURLToPath(
   new URL("../../drizzle", import.meta.url)
 )
-const headers = {
-  Authorization: "Bearer test-token",
+let bearer = ""
+const headers = () => ({
+  Authorization: bearer,
   "Content-Type": "application/json",
-}
+})
 
 function applyMigrations(client: Database): void {
   for (const file of readdirSync(migrationsFolder)
@@ -51,13 +52,10 @@ describe("command router", () => {
       },
     })
     app = new Hono()
-    app.use(
-      "/commands/*",
-      createCommandGuard({
-        bearerToken: "test-token",
-        allowedOrigins: ["http://localhost:3000"],
-      })
-    )
+    const auth = createSessionAuth({ bootstrapToken: "test-token" })
+    const { sessionToken } = auth.exchange("test-token")!
+    bearer = `Bearer ${sessionToken}`
+    app.use("/commands/*", createSessionGuard(auth, ["http://localhost:3000"]))
     app.route("/", createCommandRouter({ dispatcher }))
   })
 
@@ -66,7 +64,7 @@ describe("command router", () => {
   it("validates HTTP commands and maps receipt states to statuses", async () => {
     const completed = await app.request("/commands/session.delete", {
       method: "POST",
-      headers,
+      headers: headers(),
       body: JSON.stringify({ commandId: "cmd-http-1", sessionId: "session-1" }),
     })
     expect(completed.status).toBe(200)
@@ -77,7 +75,7 @@ describe("command router", () => {
 
     const uncertain = await app.request("/commands/instance.start", {
       method: "POST",
-      headers,
+      headers: headers(),
       body: JSON.stringify({ commandId: "cmd-http-2", instanceId: "one" }),
     })
     expect(uncertain.status).toBe(202)
@@ -85,7 +83,7 @@ describe("command router", () => {
 
     const mismatch = await app.request("/commands/session.delete", {
       method: "POST",
-      headers,
+      headers: headers(),
       body: JSON.stringify({
         commandId: "cmd-http-3",
         name: "instance.start",
@@ -97,7 +95,7 @@ describe("command router", () => {
 
     const invalid = await app.request("/commands/session.delete", {
       method: "POST",
-      headers,
+      headers: headers(),
       body: JSON.stringify({ commandId: "cmd-http-4" }),
     })
     expect(invalid.status).toBe(400)
@@ -113,7 +111,7 @@ describe("command router", () => {
 
     const forbidden = await app.request("/commands/session.delete", {
       method: "POST",
-      headers: { ...headers, Origin: "https://evil.example" },
+      headers: { ...headers(), Origin: "https://evil.example" },
       body: JSON.stringify({ commandId: "cmd-http-6", sessionId: "session-1" }),
     })
     expect(forbidden.status).toBe(403)
