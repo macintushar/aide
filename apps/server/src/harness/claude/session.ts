@@ -759,14 +759,14 @@ export async function createClaudeRuntime(
    * one is running, which is what keeps a swap from abandoning a live prompt.
    *
    * Resume keeps the conversation. When the previous turn did not end cleanly
-   * the resume point cannot be trusted, so the caller's portable handoff packet
-   * seeds a fresh query instead; with neither, the send fails rather than
-   * running under a context Aide cannot vouch for.
+   * the resume point cannot be trusted, so a fresh query is opened and the
+   * caller's portable handoff packet is the only context it gets; with neither,
+   * the send fails rather than running under a context Aide cannot vouch for.
    */
   const reopenForEffort = async (
     next: string | undefined,
     handoff: NativeDispatchInput | undefined
-  ): Promise<"resumed" | { seed: string }> => {
+  ): Promise<void> => {
     const resumable = lastOutcome === "none" || lastOutcome === "completed"
     if (!resumable && !handoff) {
       throw runtimeError(
@@ -802,8 +802,6 @@ export async function createClaudeRuntime(
     session = replacement
     await previous.close().catch(() => undefined)
     pump(session)
-    if (resumable) return "resumed"
-    return { seed: handoff.content }
   }
 
   const runtime: ClaudeRuntime = {
@@ -835,13 +833,9 @@ export async function createClaudeRuntime(
         )
       }
 
-      let prefix = input.handoff?.content
       const nextEffort = effortFor(input.execution)
       if (nextEffort !== effort) {
-        const reopened = await reopenForEffort(nextEffort, input.handoff)
-        // A successful native resume already has the conversation; prepending
-        // the portable packet would send it twice.
-        prefix = reopened === "resumed" ? undefined : reopened.seed
+        await reopenForEffort(nextEffort, input.handoff)
       }
 
       const nextModel = input.execution.selection.model.modelId
@@ -901,6 +895,13 @@ export async function createClaudeRuntime(
         .filter((part) => part.type === "text")
         .map((part) => part.text)
         .join("\n")
+      // The core builds a handoff only for the messages this native session has
+      // not ingested — it starts one past the mapping's sync cursor, which only
+      // advances when a turn on this instance completes cleanly. So it is the
+      // gap and never a replay, and a resume above restores exactly the side of
+      // that boundary the packet leaves out. Prepending it is therefore correct
+      // whether or not the effort reopen resumed.
+      const prefix = input.handoff?.content
       session.prompt(prefix ? `${prefix}\n\n${text}` : text)
     },
 

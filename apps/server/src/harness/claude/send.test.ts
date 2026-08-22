@@ -398,7 +398,7 @@ describe("claude send: effort change policy", () => {
     expect(active).toBeUndefined()
   })
 
-  it("does not prepend a portable handoff after a successful native resume", async () => {
+  it("prepends the portable handoff after a successful native resume", async () => {
     const { adapter, handle, nativeSession, createSession } =
       await startSession({
         script: completeImmediately,
@@ -425,7 +425,9 @@ describe("claude send: effort change policy", () => {
       nativeSession,
       commandId: "cmd-2",
       turnId: "turn-2",
-      userMessage: userMessage("second", 3),
+      // Seq 3-4 is an exchange that ran on another instance, so this native
+      // session never saw it; the core's handoff covers exactly that gap.
+      userMessage: userMessage("second", 5),
       execution: execution({ options: { effort: "high" } }),
       handoff: {
         id: "handoff-1",
@@ -433,8 +435,8 @@ describe("claude send: effort change policy", () => {
         instanceId: "claude",
         nativeSessionId: nativeSession.nativeSessionId,
         role: "handoff",
-        fromMessageSeq: 0,
-        throughMessageSeq: 1,
+        fromMessageSeq: 3,
+        throughMessageSeq: 4,
         content: "PRIOR CONTEXT",
         createdAt: new Date(0).toISOString(),
       },
@@ -446,7 +448,9 @@ describe("claude send: effort change policy", () => {
     )
     await stream.stop()
 
-    expect(createSession.sessions[2].prompts[0]).toBe("second")
+    // Resuming restores everything through the sync cursor, so the packet is
+    // the gap and dropping it would lose the exchange it covers.
+    expect(createSession.sessions[2].prompts[0]).toBe("PRIOR CONTEXT\n\nsecond")
   })
 
   it("rolls back effort when reopening the query fails so a retry still reopens", async () => {
@@ -587,7 +591,9 @@ describe("claude send: effort change policy", () => {
       nativeSession,
       commandId: "cmd-2",
       turnId: "turn-2",
-      userMessage: userMessage("second", 3),
+      // Seq 3-4 is an exchange that ran on another instance, so this native
+      // session never saw it; the core's handoff covers exactly that gap.
+      userMessage: userMessage("second", 5),
       execution: execution({ options: { effort: "high" } }),
       handoff: {
         id: "handoff-1",
@@ -595,8 +601,8 @@ describe("claude send: effort change policy", () => {
         instanceId: "claude",
         nativeSessionId: nativeSession.nativeSessionId,
         role: "handoff",
-        fromMessageSeq: 0,
-        throughMessageSeq: 1,
+        fromMessageSeq: 3,
+        throughMessageSeq: 4,
         content: "PORTABLE CONTEXT",
         createdAt: new Date(0).toISOString(),
       },
