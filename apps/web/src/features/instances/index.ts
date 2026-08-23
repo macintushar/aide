@@ -11,7 +11,10 @@ export {
   type InstancesStoreState,
 } from "./instances-store"
 export {
-  InstancesBoundary,
-  type InstancesBoundaryProps,
-} from "./instances-boundary"
-export { useInstancesFeed, type InstancesFeed } from "./use-instances-feed"
+  InstancesProvider,
+  useInstances,
+  type InstancesContextValue,
+  type InstancesProviderProps,
+} from "./instances-provider"
+export { InstancesView } from "./instances-view"
+export { harnessMarkFor } from "./harness-marks"

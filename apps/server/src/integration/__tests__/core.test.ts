@@ -98,8 +98,7 @@ describe("Gate G1 core integration", () => {
       const integration = createAideTestApp({
         db,
         registry,
-        bearerToken: token,
-        allowedOrigins: [origin],
+        auth: { bootstrapToken: token, allowedOrigins: [origin] },
         now,
         id,
       })
@@ -112,6 +111,34 @@ describe("Gate G1 core integration", () => {
     })
   }
 
+  const sessionCache = new WeakMap<object, Record<string, string>>()
+  /**
+   * Exchanges the bootstrap token once per app and returns data-route
+   * headers. Apps created without a bootstrap token are unguarded.
+   */
+  async function sessionHeaders(
+    app: Awaited<ReturnType<typeof boot>>["app"]
+  ): Promise<Record<string, string>> {
+    const cached = sessionCache.get(app)
+    if (cached) return cached
+    const response = await app.request("/auth/session", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, origin },
+    })
+    let headers: Record<string, string>
+    if (response.status === 404) {
+      headers = { origin }
+    } else {
+      expect(response.status).toBe(201)
+      const { sessionToken } = (await response.json()) as {
+        sessionToken: string
+      }
+      headers = { authorization: `Bearer ${sessionToken}`, origin }
+    }
+    sessionCache.set(app, headers)
+    return headers
+  }
+
   async function command(
     app: Awaited<ReturnType<typeof boot>>["app"],
     name: string,
@@ -120,8 +147,7 @@ describe("Gate G1 core integration", () => {
     const response = await app.request(`/commands/${name}`, {
       method: "POST",
       headers: {
-        authorization: `Bearer ${token}`,
-        origin,
+        ...(await sessionHeaders(app)),
         "content-type": "application/json",
       },
       body: JSON.stringify({ name, ...body }),
@@ -152,8 +178,7 @@ describe("Gate G1 core integration", () => {
     try {
       const integration = createAideTestApp({
         db: created.db,
-        bearerToken: token,
-        allowedOrigins: [origin],
+        auth: { bootstrapToken: token, allowedOrigins: [origin] },
       })
       await integration.services.config.update({
         commandId: "command_global_config",
@@ -205,7 +230,7 @@ describe("Gate G1 core integration", () => {
         (await integration.app.request("/projects/project_1/config")).status
       ).toBe(401)
 
-      const headers = { authorization: `Bearer ${token}`, origin }
+      const headers = await sessionHeaders(integration.app)
       await expect(
         (await integration.app.request("/config", { headers })).json()
       ).resolves.toMatchObject({

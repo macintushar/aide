@@ -9,10 +9,14 @@ import {
   type SessionSnapshot,
 } from "@workspace/contracts"
 
+import type { SessionAuth } from "./session-auth"
+
 export type ReadClientOptions = {
   baseUrl?: string
   fetchImpl?: typeof fetch
   bearerToken?: string
+  /** Bootstrap/session auth; takes precedence over a static bearerToken. */
+  auth?: SessionAuth
   headers?: HeadersInit
 }
 
@@ -33,9 +37,16 @@ export function createReadClient(options: ReadClientOptions = {}) {
   const fetchImpl = options.fetchImpl ?? fetch
 
   async function get(path: string): Promise<unknown> {
-    const response = await fetchImpl(`${baseUrl}${path}`, {
-      headers: readHeaders(options),
+    let response = await fetchImpl(`${baseUrl}${path}`, {
+      headers: await readHeaders(options),
     })
+    // A rejected session is re-exchanged exactly once.
+    if (response.status === 401 && options.auth) {
+      options.auth.invalidate()
+      response = await fetchImpl(`${baseUrl}${path}`, {
+        headers: await readHeaders(options),
+      })
+    }
     const body = await readResponseBody(response)
     if (!response.ok) throw new ReadError(response.status, body)
     return body
@@ -64,9 +75,11 @@ export function createReadClient(options: ReadClientOptions = {}) {
   }
 }
 
-function readHeaders(options: ReadClientOptions): Headers {
+async function readHeaders(options: ReadClientOptions): Promise<Headers> {
   const headers = new Headers(options.headers)
-  if (options.bearerToken) {
+  if (options.auth) {
+    headers.set("authorization", `Bearer ${await options.auth.bearer()}`)
+  } else if (options.bearerToken) {
     headers.set("authorization", `Bearer ${options.bearerToken}`)
   }
   return headers

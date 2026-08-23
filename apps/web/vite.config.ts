@@ -30,6 +30,15 @@ function aideApiProxy(): ProxyOptions {
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  build: {
+    rollupOptions: {
+      input: {
+        main: path.resolve(import.meta.dirname, "index.html"),
+        // Design gallery. Delete this entry with `src/gallery/` to remove it.
+        gallery: path.resolve(import.meta.dirname, "gallery.html"),
+      },
+    },
+  },
   server: {
     host: "0.0.0.0",
     allowedHosts: true,

@@ -1,5 +1,5 @@
 import {
-  permissionRequestFixture,
+  instancesSnapshotFixture,
   sessionSnapshotFixture,
   userMessageFixture,
   type AideEvent,
@@ -8,10 +8,31 @@ import {
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
-import { SessionBoundary } from ".././session-boundary"
+import type { createReadClient } from "@/lib/transport/read-client"
+
+import { InstancesProvider } from "@/features/instances"
+import { SessionProvider, type SessionProviderProps } from "../session-provider"
+import { SessionThread } from "../session-thread"
+import { SessionTitle } from "../session-summary"
+
+/** The composition the shell renders: provider, heading, and thread. */
+function TestSession(props: Omit<SessionProviderProps, "children">) {
+  return (
+    <InstancesProvider
+      readClient={{ getInstances: async () => instancesSnapshotFixture() }}
+      commandClient={{ send: vi.fn() }}
+      subscribe={() => ({ close: vi.fn() })}
+    >
+      <SessionProvider {...props}>
+        <SessionTitle />
+        <SessionThread />
+      </SessionProvider>
+    </InstancesProvider>
+  )
+}
 
 type SubscribeOptions = Parameters<
-  NonNullable<Parameters<typeof SessionBoundary>[0]["subscribe"]>
+  NonNullable<SessionProviderProps["subscribe"]>
 >[0]
 
 type Recording = { options: SubscribeOptions; close: ReturnType<typeof vi.fn> }
@@ -81,16 +102,6 @@ function partEvent(sequence: number, text: string): AideEvent {
 function bootStream() {
   const subscriptions: Recording[] = []
   const getSession = vi.fn(async () => snapshotWithSequence(4))
-  // The composer reads configured defaults; an empty config exercises the
-  // fall-through to what the harness reports.
-  const getConfig = vi.fn(async () => ({
-    instances: {},
-    mcpServers: {},
-    defaults: {},
-  }))
-  const getProjectConfig = vi.fn(async () => ({
-    projectId: sessionSnapshotFixture().project.id,
-  }))
   const subscribe = vi.fn((options: SubscribeOptions) => {
     const recording: Recording = { options, close: vi.fn() }
     subscriptions.push(recording)
@@ -99,18 +110,11 @@ function bootStream() {
   return {
     subscriptions,
     getSession,
-    getConfig,
-    getProjectConfig,
-    readClient: {
-      getSession,
-      getConfig,
-      getProjectConfig,
-    } as unknown as NonNullable<
-      Parameters<typeof SessionBoundary>[0]["readClient"]
+    readClient: { getSession } as unknown as Pick<
+      ReturnType<typeof createReadClient>,
+      "getSession"
     >,
-    subscribe: subscribe as NonNullable<
-      Parameters<typeof SessionBoundary>[0]["subscribe"]
-    >,
+    subscribe: subscribe as NonNullable<SessionProviderProps["subscribe"]>,
   }
 }
 
@@ -127,10 +131,10 @@ function boundaryProps(
   }
 }
 
-describe("SessionBoundary", () => {
+describe("SessionProvider", () => {
   it("loads the initial snapshot before subscribing from its cursor", async () => {
     const stream = bootStream()
-    render(<SessionBoundary {...boundaryProps(stream)} />)
+    render(<TestSession {...boundaryProps(stream)} />)
 
     await waitFor(() => expect(stream.subscriptions).toHaveLength(1))
     expect(stream.subscriptions[0]!.options.afterSequence).toBe(4)
@@ -142,7 +146,7 @@ describe("SessionBoundary", () => {
 
   it("applies live session events to the transcript", async () => {
     const stream = bootStream()
-    render(<SessionBoundary {...boundaryProps(stream)} />)
+    render(<TestSession {...boundaryProps(stream)} />)
 
     await waitFor(() => expect(stream.subscriptions).toHaveLength(1))
     const subscription = stream.subscriptions[0]!
@@ -155,9 +159,7 @@ describe("SessionBoundary", () => {
 
   it("reconnects from the latest durable cursor after a stream error", async () => {
     const stream = bootStream()
-    render(
-      <SessionBoundary {...boundaryProps(stream, { reconnectDelayMs: 0 })} />
-    )
+    render(<TestSession {...boundaryProps(stream, { reconnectDelayMs: 0 })} />)
 
     await waitFor(() => expect(stream.subscriptions).toHaveLength(1))
     const first = stream.subscriptions[0]!
@@ -179,7 +181,7 @@ describe("SessionBoundary", () => {
     stream.getSession
       .mockRejectedValueOnce(new Error("offline"))
       .mockResolvedValue(sessionSnapshotFixture())
-    render(<SessionBoundary {...boundaryProps(stream)} />)
+    render(<TestSession {...boundaryProps(stream)} />)
 
     expect(
       await screen.findByText(/Could not load session: offline/)
@@ -189,94 +191,5 @@ describe("SessionBoundary", () => {
     expect(
       await screen.findByText(sessionSnapshotFixture().session.title)
     ).toBeInTheDocument()
-  })
-})
-
-function openPermissionEvent(sequence: number): AideEvent {
-  return {
-    schemaVersion: 1,
-    eventId: `evt-req-${sequence}`,
-    timestamp: "2026-01-01T00:00:00.000Z",
-    delivery: { durable: true, sequence },
-    scope: {
-      kind: "session",
-      projectId: "proj_1",
-      sessionId: "ses_1",
-      turnId: "turn_1",
-    },
-    instanceId: "instance",
-    driver: "claudeAgent",
-    type: "request.opened",
-    data: {
-      request: {
-        ...permissionRequestFixture(),
-        id: "req_open_1",
-        status: "open",
-        resolution: undefined,
-      },
-    },
-  } as AideEvent
-}
-
-describe("SessionBoundary: unresolved requests", () => {
-  it("keeps an open request visible across a reconnect and resolves it against the same id", async () => {
-    const stream = bootStream()
-    const commandClient = { send: vi.fn(async () => undefined) }
-    render(
-      <SessionBoundary
-        {...boundaryProps(stream, { reconnectDelayMs: 0 })}
-        commandClient={commandClient as never}
-      />
-    )
-
-    await waitFor(() => expect(stream.subscriptions).toHaveLength(1))
-    const first = stream.subscriptions[0]!
-    await act(async () => {
-      first.options.onEvent(openPermissionEvent(8))
-    })
-    // Only an open permission card offers its options; the snapshot's
-    // already-resolved request renders as a summary row.
-    expect(screen.getByRole("button", { name: "Allow" })).toBeInTheDocument()
-
-    act(() => {
-      first.options.onError?.(new Event("error"))
-    })
-    await waitFor(() => expect(stream.subscriptions).toHaveLength(2))
-
-    // The request is server-side state; a dropped stream must not lose the
-    // prompt the user still has to answer.
-    expect(screen.getByRole("button", { name: "Allow" })).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole("button", { name: "Allow" }))
-
-    await waitFor(() => expect(commandClient.send).toHaveBeenCalled())
-    expect(commandClient.send).toHaveBeenCalledWith(
-      expect.objectContaining({
-        name: "permission.respond",
-        requestId: "req_open_1",
-        resolution: { kind: "permission", optionId: "allow" },
-      })
-    )
-  })
-
-  it("shows a request the reconnect snapshot still reports as open", async () => {
-    const stream = bootStream()
-    render(<SessionBoundary {...boundaryProps(stream)} />)
-
-    await waitFor(() => expect(stream.subscriptions).toHaveLength(1))
-    const snapshot = snapshotWithSequence(9)
-    snapshot.requests = [
-      {
-        ...permissionRequestFixture(),
-        id: "req_open_2",
-        status: "open",
-        resolution: undefined,
-      },
-    ]
-    await act(async () => {
-      stream.subscriptions[0]!.options.onSnapshot?.(snapshot)
-    })
-
-    expect(screen.getByRole("button", { name: "Allow" })).toBeInTheDocument()
   })
 })

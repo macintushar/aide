@@ -36,15 +36,18 @@ export type SettingsFormProps = {
 }
 
 const FIELD =
-  "h-9 w-full rounded-xl border border-input bg-background px-3 text-sm"
-const LABEL = "text-xs font-medium text-muted-foreground"
+  "h-9 w-full rounded-md border border-input bg-background px-3 text-ui"
+const LABEL = "text-small font-medium text-muted-foreground"
 
 function IssueList({ issues }: { issues: ReturnType<typeof issuesFor> }) {
   if (issues.length === 0) return null
   return (
     <ul role="alert" className="mt-2 flex flex-col gap-1">
       {issues.map((issue, index) => (
-        <li key={`${issue.path}-${index}`} className="text-xs text-destructive">
+        <li
+          key={`${issue.path}-${index}`}
+          className="text-small text-destructive"
+        >
           {issue.message}
         </li>
       ))}
@@ -97,13 +100,10 @@ export function SettingsForm({
   return (
     <form className="flex flex-col gap-8" onSubmit={submit} noValidate>
       <section aria-labelledby="settings-instances">
-        <h2
-          id="settings-instances"
-          className="font-heading text-lg font-medium"
-        >
+        <h2 id="settings-instances" className="text-h3">
           Instances
         </h2>
-        <p className="mt-1 text-sm text-muted-foreground">
+        <p className="mt-1 text-ui text-muted-foreground">
           A named, running use of a driver. Run several of the same driver to
           point at different servers or accounts.
         </p>
@@ -112,9 +112,9 @@ export function SettingsForm({
           {draft.instances.map((instance, index) => (
             <fieldset
               key={index}
-              className="rounded-2xl border border-border bg-card p-4"
+              className="rounded-lg border border-border bg-card p-4"
             >
-              <legend className="px-1 text-sm font-medium">
+              <legend className="px-1 text-ui font-medium">
                 {instance.displayName || instance.instanceId || "New instance"}
               </legend>
               <div className="grid gap-3 sm:grid-cols-2">
@@ -159,7 +159,7 @@ export function SettingsForm({
                   />
                 </label>
                 <div className="flex items-end gap-4">
-                  <label className="flex items-center gap-2 text-sm">
+                  <label className="flex items-center gap-2 text-ui">
                     <input
                       type="checkbox"
                       className="size-4 accent-primary"
@@ -170,7 +170,7 @@ export function SettingsForm({
                     />
                     Enabled
                   </label>
-                  <label className="flex items-center gap-2 text-sm">
+                  <label className="flex items-center gap-2 text-ui">
                     <input
                       type="checkbox"
                       className="size-4 accent-primary"
@@ -185,7 +185,7 @@ export function SettingsForm({
                   </label>
                 </div>
               </div>
-              <p className="mt-2 text-xs text-muted-foreground">
+              <p className="mt-2 text-small text-muted-foreground">
                 Leave &ldquo;Start at boot&rdquo; off for an expensive instance:
                 it stays selectable and starts on first send.
               </p>
@@ -228,10 +228,10 @@ export function SettingsForm({
       </section>
 
       <section aria-labelledby="settings-mcp">
-        <h2 id="settings-mcp" className="font-heading text-lg font-medium">
+        <h2 id="settings-mcp" className="text-h3">
           MCP servers
         </h2>
-        <p className="mt-1 text-sm text-muted-foreground">
+        <p className="mt-1 text-ui text-muted-foreground">
           Merged by name: these, then this project&rsquo;s, then each
           instance&rsquo;s. Aide never edits a harness&rsquo;s own config file.
         </p>
@@ -240,9 +240,9 @@ export function SettingsForm({
           {draft.mcpServers.map((server, index) => (
             <fieldset
               key={index}
-              className="rounded-2xl border border-border bg-card p-4"
+              className="rounded-lg border border-border bg-card p-4"
             >
-              <legend className="px-1 text-sm font-medium">
+              <legend className="px-1 text-ui font-medium">
                 {server.name || "New server"}
               </legend>
               <div className="grid gap-3 sm:grid-cols-2">
@@ -374,10 +374,10 @@ export function SettingsForm({
       </section>
 
       <section aria-labelledby="settings-defaults">
-        <h2 id="settings-defaults" className="font-heading text-lg font-medium">
+        <h2 id="settings-defaults" className="text-h3">
           {target.kind === "project" ? "Project defaults" : "Defaults"}
         </h2>
-        <p className="mt-1 text-sm text-muted-foreground">
+        <p className="mt-1 text-ui text-muted-foreground">
           The selection a new session starts from. Project values win over
           global ones, field by field.
         </p>
@@ -457,7 +457,7 @@ export function SettingsForm({
           {saving ? "Saving…" : "Save settings"}
         </Button>
         {showIssues && validation.issues.length > 0 ? (
-          <span className="text-xs text-destructive">
+          <span className="text-small text-destructive">
             Fix {validation.issues.length} issue
             {validation.issues.length === 1 ? "" : "s"} before saving.
           </span>

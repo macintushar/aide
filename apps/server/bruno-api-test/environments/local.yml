@@ -9,7 +9,11 @@ variables:
   - name: bearerToken
     value: "{{process.env.AIDE_BEARER_TOKEN}}"
     secret: true
-    description: Must match the server's AIDE_BEARER_TOKEN
+    description: Bootstrap credential; copy the authToken the server printed at boot
+  - name: sessionToken
+    value: ""
+    secret: true
+    description: Set by auth/session-exchange; used on all authenticated requests
   - name: projectDirectory
     value: /tmp/aide-bruno
     description: Directory passed to project.open

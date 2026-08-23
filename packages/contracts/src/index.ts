@@ -114,6 +114,9 @@ export type {
   McpServerStatus,
 } from "./inventory"
 
+export { sessionCredentialSchema } from "./auth"
+export type { SessionCredential } from "./auth"
+
 export {
   commandNameSchema,
   commandReceiptSchema,

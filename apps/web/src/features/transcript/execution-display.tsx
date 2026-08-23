@@ -9,7 +9,7 @@ export function ExecutionDisplay({
     execution.display
 
   return (
-    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-small text-muted-foreground">
       <span className="font-medium text-foreground">{instanceName}</span>
       <span aria-hidden="true">/</span>
       <span className="font-medium text-foreground">{modelName}</span>

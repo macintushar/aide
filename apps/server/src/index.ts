@@ -1,8 +1,13 @@
+import { randomBytes } from "node:crypto"
 import { Hono } from "hono"
 
 import { env } from "./env"
 import type { HarnessAdapter } from "./harness/types"
-import { createCommandGuard } from "./security/command-guard"
+import {
+  createBootstrapHandler,
+  createSessionAuth,
+  createSessionGuard,
+} from "./security/session-auth"
 import { loopbackOrigins } from "./security/loopback"
 import { runProductionServer } from "./integration/production"
 
@@ -18,13 +23,12 @@ export * from "./supervisor"
 
 export const app = new Hono()
 
-app.use(
-  "/commands/*",
-  createCommandGuard({
-    bearerToken: env.AIDE_BEARER_TOKEN,
-    allowedOrigins: loopbackOrigins(env.PORT),
-  })
-)
+const bootstrapToken = randomBytes(32).toString("hex")
+const auth = createSessionAuth({ bootstrapToken })
+const allowedOrigins = loopbackOrigins(env.PORT)
+
+app.post("/auth/session", createBootstrapHandler(auth, allowedOrigins))
+app.use("/commands/*", createSessionGuard(auth, allowedOrigins))
 
 app.get("/", (c) => {
   return c.text("Hello Hono!")

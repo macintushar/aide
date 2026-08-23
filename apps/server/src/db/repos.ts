@@ -1543,3 +1543,35 @@ export const sessionFileChangesRepo = {
       .run()
   },
 }
+
+export const authSessionsRepo = {
+  put(
+    db: AideDb,
+    tokenHash: string,
+    createdAt: string,
+    expiresAt: string
+  ): void {
+    db.insert(tables.authSessions)
+      .values({ tokenHash, createdAt, expiresAt })
+      .onConflictDoUpdate({
+        target: tables.authSessions.tokenHash,
+        set: { expiresAt },
+      })
+      .run()
+  },
+
+  expiresAt(db: AideDb, tokenHash: string): string | undefined {
+    return db
+      .select({ expiresAt: tables.authSessions.expiresAt })
+      .from(tables.authSessions)
+      .where(eq(tables.authSessions.tokenHash, tokenHash))
+      .get()?.expiresAt
+  },
+
+  /** Drops expired rows so the table stays bounded across restarts. */
+  deleteExpired(db: AideDb, nowIso: string): void {
+    db.delete(tables.authSessions)
+      .where(sql`${tables.authSessions.expiresAt} <= ${nowIso}`)
+      .run()
+  },
+}

@@ -35,7 +35,7 @@ Add or edit request files for new endpoints. Update existing request bodies, tes
 
 ```bash
 cd apps/server/bruno-api-test
-cp .env.example .env   # set AIDE_BEARER_TOKEN to match the running server
+cp .env.example .env   # set AIDE_BEARER_TOKEN to the token the server printed at boot
 
 bun run --cwd .. test:api
 bun run --cwd .. test:api:smoke
