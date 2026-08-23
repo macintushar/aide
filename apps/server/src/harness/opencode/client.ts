@@ -1,4 +1,14 @@
 import { createOpencode, createOpencodeClient } from "@opencode-ai/sdk/v2"
+import type {
+  McpLocalConfig,
+  McpRemoteConfig,
+  McpStatus,
+  ModelRef,
+  QuestionV2Reply,
+  SessionInputAdmitted,
+  SessionV2Info,
+  V2Event,
+} from "@opencode-ai/sdk/v2"
 
 import type { OpencodeInstanceConfig } from "./config"
 
@@ -37,7 +47,21 @@ export type OpencodeAgent = {
   hidden?: boolean
 }
 
-/** The subset of `client.v2` this adapter calls in Wave 2. */
+export type OpencodeSessionInfo = SessionV2Info
+export type OpencodeSessionEvent = V2Event
+export type OpencodeModelRef = ModelRef
+export type OpencodeMcpStatus = McpStatus
+export type OpencodeMcpConfig = McpLocalConfig | McpRemoteConfig
+
+export type OpencodeSessionEventEnvelope = {
+  id: string
+  event: string
+  data: string
+}
+
+type SessionResponse<T> = { data: T }
+
+/** The subset of the pinned SDK used by the adapter. */
 export type OpencodeApi = {
   global: {
     health(): Promise<OpencodeResult<{ healthy: boolean; version: string }>>
@@ -54,6 +78,85 @@ export type OpencodeApi = {
     agents(parameters?: {
       directory?: string
     }): Promise<OpencodeResult<OpencodeAgent[]>>
+  }
+  v2?: {
+    session: {
+      create(parameters?: {
+        id?: string
+        agent?: string
+        model?: OpencodeModelRef
+        location?: { directory: string; workspaceID?: string }
+      }): Promise<OpencodeResult<SessionResponse<OpencodeSessionInfo>>>
+      get(parameters: {
+        sessionID: string
+      }): Promise<OpencodeResult<SessionResponse<OpencodeSessionInfo>>>
+      active(): Promise<
+        OpencodeResult<SessionResponse<Record<string, unknown>>>
+      >
+      switchAgent(parameters: {
+        sessionID: string
+        agent?: string
+      }): Promise<OpencodeResult<void>>
+      switchModel(parameters: {
+        sessionID: string
+        model?: OpencodeModelRef
+      }): Promise<OpencodeResult<void>>
+      prompt(parameters: {
+        sessionID: string
+        id?: string
+        prompt?: {
+          text: string
+          files?: Array<{ uri: string; name?: string; description?: string }>
+        }
+        delivery?: "steer" | "queue"
+        resume?: boolean
+      }): Promise<OpencodeResult<SessionResponse<SessionInputAdmitted>>>
+      wait(parameters: { sessionID: string }): Promise<OpencodeResult<void>>
+      events(
+        parameters: { sessionID: string; after?: string },
+        options?: { signal?: AbortSignal }
+      ): Promise<{ stream: AsyncGenerator<OpencodeSessionEventEnvelope> }>
+      interrupt(parameters: {
+        sessionID: string
+      }): Promise<OpencodeResult<void>>
+      permission: {
+        reply(parameters: {
+          sessionID: string
+          requestID: string
+          reply?: "once" | "always" | "reject"
+          message?: string
+        }): Promise<OpencodeResult<void>>
+      }
+      question: {
+        reply(parameters: {
+          sessionID: string
+          requestID: string
+          questionV2Reply: QuestionV2Reply
+        }): Promise<OpencodeResult<void>>
+        reject(parameters: {
+          sessionID: string
+          requestID: string
+        }): Promise<OpencodeResult<void>>
+      }
+    }
+  }
+  mcp?: {
+    status(parameters?: {
+      directory?: string
+    }): Promise<OpencodeResult<Record<string, OpencodeMcpStatus>>>
+    add(parameters?: {
+      directory?: string
+      name?: string
+      config?: OpencodeMcpConfig
+    }): Promise<OpencodeResult<Record<string, OpencodeMcpStatus>>>
+    connect(parameters: {
+      name: string
+      directory?: string
+    }): Promise<OpencodeResult<boolean>>
+    disconnect(parameters: {
+      name: string
+      directory?: string
+    }): Promise<OpencodeResult<boolean>>
   }
 }
 
@@ -82,7 +185,7 @@ export const createOpencodeRuntime: OpencodeRuntimeFactory = async ({
       baseUrl: config.baseUrl,
       ...(directory ? { directory } : {}),
     })
-    return { api: client as unknown as OpencodeApi }
+    return { api: client }
   }
 
   const { client, server } = await createOpencode({
@@ -90,7 +193,7 @@ export const createOpencodeRuntime: OpencodeRuntimeFactory = async ({
     ...(config.port === undefined ? {} : { port: config.port }),
   })
   return {
-    api: client as unknown as OpencodeApi,
+    api: client,
     close: () => server.close(),
   }
 }

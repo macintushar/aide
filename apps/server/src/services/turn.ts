@@ -429,6 +429,7 @@ export class TurnService {
         sessionId: turn.sessionId,
         nativeSessionId: mapping.nativeSessionId,
         resumeCursor: mapping.resumeCursor,
+        activeTurn: turn,
       })
       if (native.nativeSessionId !== mapping.nativeSessionId) return false
       if (turnsRepo.get(this.#db, turn.id)?.status !== "running") return false
