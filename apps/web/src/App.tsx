@@ -10,15 +10,9 @@ import { Sidebar, type SidebarView } from "@/components/shell/sidebar"
 import { SurfacePanel } from "@/components/shell/surface-panel"
 import { ThreadHeader, ThreadTitle } from "@/components/shell/thread-header"
 import {
-<<<<<<< HEAD
   InstancesProvider,
   InstancesView,
   type InstancesProviderProps,
-=======
-  InstancesBoundary,
-  useInstancesFeed,
-  type InstancesBoundaryProps,
->>>>>>> origin/main
 } from "@/features/instances"
 import {
   SessionActivity,
@@ -35,12 +29,9 @@ import {
   SettingsBoundary,
   type SettingsBoundaryProps,
 } from "@/features/settings"
-<<<<<<< HEAD
 import { latestExecution } from "@/features/sessions/session-selectors"
 import type { Message } from "@workspace/contracts"
-=======
 import { apiBaseUrl } from "@/lib/transport/base-url"
->>>>>>> origin/main
 import { createCommandClient } from "@/lib/transport/command-client"
 import {
   subscribeInstancesEvents,
@@ -70,31 +61,20 @@ export type AppProps = {
   /** Overrides sign-in detection (tests, embedded hosts). */
   authenticated?: boolean
 }
-<<<<<<< HEAD
 // The one-time credential arrives via the URL the server prints at boot;
 // only the resulting durable session is ever sent on data requests.
-const auth = createSessionAuth()
-const readClient = createReadClient({ auth })
-const commandClient = createCommandClient({ auth })
-=======
-
-const token = import.meta.env.VITE_AIDE_BEARER_TOKEN
-const transport = {
-  baseUrl: apiBaseUrl(),
-  ...(token ? { bearerToken: token } : {}),
-}
-const readClient = createReadClient(transport)
-const commandClient = createCommandClient(transport)
+const auth = createSessionAuth({ baseUrl: apiBaseUrl() })
+const readClient = createReadClient({ baseUrl: apiBaseUrl(), auth })
+const commandClient = createCommandClient({ baseUrl: apiBaseUrl(), auth })
 
 function defaultSubscribeInstances(options: InstancesEventsOptions) {
-  return subscribeInstancesEvents({ ...options, baseUrl: transport.baseUrl })
+  return subscribeInstancesEvents({ ...options, baseUrl: apiBaseUrl() })
 }
 
 function defaultSubscribeSession(options: SessionEventsOptions) {
-  return subscribeSessionEvents({ ...options, baseUrl: transport.baseUrl })
+  return subscribeSessionEvents({ ...options, baseUrl: apiBaseUrl() })
 }
 
->>>>>>> origin/main
 export function App({
   readClient: reads = readClient,
   commandClient: commands = commandClient,
@@ -103,7 +83,6 @@ export function App({
   initialSessionId,
   authenticated: authenticatedOverride,
 }: AppProps) {
-<<<<<<< HEAD
   const [authenticatedState, setAuthenticatedState] = useState(() =>
     auth.hasSession()
   )
@@ -193,56 +172,6 @@ export function App({
                   onOpenSurface={workspace.openSurface}
                   onCloseSurface={workspace.closeSurface}
                   onClosePanel={workspace.togglePanel}
-=======
-  const [sessionId, setSessionId] = useState(initialSessionId)
-  // One feed for both consumers: the operations panel renders it, and the
-  // composer needs the same inventory to describe its controls.
-  const instancesFeed = useInstancesFeed({
-    readClient: reads,
-    subscribe: subscribeInstances,
-  })
-
-  return (
-    <div className="min-h-svh bg-[radial-gradient(circle_at_top_left,var(--color-primary)_0,transparent_24rem)] bg-fixed">
-      <div className="min-h-svh bg-background/94">
-        <header className="border-b border-border bg-background/80 backdrop-blur-xl">
-          <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
-            <div className="flex items-center gap-3">
-              <span className="grid size-9 place-items-center rounded-xl bg-primary text-primary-foreground shadow-sm">
-                <RiTerminalBoxLine className="size-5" aria-hidden="true" />
-              </span>
-              <div>
-                <h1 className="font-heading text-lg font-semibold tracking-tight">
-                  Aide
-                </h1>
-                <p className="text-[0.68rem] font-medium tracking-[0.18em] text-muted-foreground uppercase">
-                  Control plane
-                </p>
-              </div>
-            </div>
-            <span className="rounded-full border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground shadow-sm">
-              Wave 3 · Local operations
-            </span>
-          </div>
-        </header>
-
-        <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8 lg:py-12">
-          <section
-            aria-labelledby="workspace-heading"
-            className="mb-10 min-w-0 rounded-3xl border border-border bg-background/90 p-5 shadow-sm sm:p-6 lg:p-8"
-          >
-            <div className="mb-6 flex items-center gap-3 border-b border-border pb-5">
-              <span className="grid size-9 place-items-center rounded-xl bg-primary/10 text-primary">
-                <RiQuestionAnswerLine className="size-5" aria-hidden="true" />
-              </span>
-              <div>
-                <p className="text-xs font-medium text-muted-foreground uppercase">
-                  Project workspace
-                </p>
-                <h2
-                  id="workspace-heading"
-                  className="font-heading text-2xl font-medium"
->>>>>>> origin/main
                 >
                   {workspace.surface === "activity" ? (
                     <SessionActivity />
@@ -270,7 +199,6 @@ export function App({
               actions={showSession ? <SessionActions /> : null}
             />
 
-<<<<<<< HEAD
             {showSession ? (
               <SessionThread />
             ) : view === "settings" ? (
@@ -282,27 +210,10 @@ export function App({
                   />
                 </div>
               </ScrollArea>
-=======
-            {sessionId ? (
-              <div className="mt-8 border-t border-border pt-8">
-                <SessionBoundary
-                  sessionId={sessionId}
-                  readClient={reads}
-                  commandClient={commands}
-                  subscribe={subscribeSession}
-                  instances={instancesFeed.state.instances}
-                />
-              </div>
->>>>>>> origin/main
             ) : (
               <WelcomeView
                 commandClient={commands}
-<<<<<<< HEAD
                 onSelectSession={selectSession}
-=======
-                subscribe={subscribeInstances}
-                feed={instancesFeed}
->>>>>>> origin/main
               />
             )}
           </AppShell>
