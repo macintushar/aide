@@ -419,13 +419,18 @@ export function Gallery() {
           >
             <Frame>
               <Composer
-                execution={mockExecution}
-                pending={false}
+                sources={{
+                  instances: mockInstances,
+                  lastSent: mockExecution.selection,
+                }}
                 onSend={() => {}}
               />
             </Frame>
             <Frame label="Without a selection">
-              <Composer pending={false} onSend={() => {}} />
+              <Composer
+                sources={{ instances: mockInstances }}
+                onSend={() => {}}
+              />
             </Frame>
           </Section>
 

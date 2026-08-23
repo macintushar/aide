@@ -6,6 +6,7 @@ import { RiQuestionAnswerLine } from "@remixicon/react"
 import { useEffect, useRef } from "react"
 
 import { Composer } from "@/features/composer"
+import { useInstances } from "@/features/instances"
 import { useRequiredSession } from "@/features/sessions/session-provider"
 import { RequestCard } from "@/features/transcript/request-card"
 import { Transcript } from "@/features/transcript/transcript"
@@ -33,6 +34,7 @@ export function SessionThread() {
     retry,
     sessionId,
   } = useRequiredSession()
+  const { state: instancesState } = useInstances()
   const viewportRef = useRef<HTMLDivElement>(null)
   const messageCount = state.messages.length
   const typingNow = latestTurnState(state.turns, state.requests) === "streaming"
@@ -162,9 +164,12 @@ export function SessionThread() {
       </div>
 
       <Composer
-        execution={execution}
-        pending={pending}
-        onSend={(content, selection) => {
+        sources={{
+          instances: instancesState.instances,
+          ...(execution ? { lastSent: execution.selection } : {}),
+        }}
+        disabled={pending}
+        onSend={({ content, execution: selection }) => {
           void send({
             name: "turn.send",
             commandId: newCommandId(),
