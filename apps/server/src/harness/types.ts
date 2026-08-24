@@ -13,6 +13,7 @@ import type {
   NativeDispatchInput,
   ResolvedExecution,
   Request,
+  Turn,
   UserMessage,
 } from "@workspace/contracts"
 
@@ -64,6 +65,8 @@ export type ResumeSessionInput = {
   sessionId: string
   nativeSessionId: string
   resumeCursor?: string
+  /** Present during boot reconciliation so replay can rebuild the live turn. */
+  activeTurn?: Turn
 }
 
 export type SendTurnInput = {

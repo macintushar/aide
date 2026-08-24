@@ -215,6 +215,25 @@ describe("opencode directory-scoped clients", () => {
     expect(harness.created).toEqual([PROJECT_DIRECTORY, "/other/repo"])
   })
 
+  it("deduplicates concurrent runtime creation for one directory", async () => {
+    const harness = createHarness()
+    const adapter = createOpencodeAdapter({
+      createRuntime: harness.createRuntime,
+    })
+    const handle = await adapter.start({
+      instance: instanceConfig(),
+      projectDirectory: PROJECT_DIRECTORY,
+    })
+
+    await Promise.all([
+      adapter.discover({ handle, directory: "/concurrent/repo" }),
+      adapter.discover({ handle, directory: "/concurrent/repo" }),
+    ])
+    expect(
+      harness.created.filter((directory) => directory === "/concurrent/repo")
+    ).toHaveLength(1)
+  })
+
   it("closes every directory-scoped runtime on stop", async () => {
     const harness = createHarness()
     const adapter = createOpencodeAdapter({

@@ -7,12 +7,15 @@ import type {
   HarnessModel,
   InstanceAuth,
   InstanceRuntimeStatus,
+  McpServerConfig,
   McpServerStatus,
   OptionDescriptor,
   SelectOption,
 } from "@workspace/contracts"
 
+import { createEventBus, type EventBus } from "../event-bus"
 import type {
+  ActiveTurnInput,
   DiscoverInput,
   DisposeInput,
   HarnessAdapter,
@@ -23,6 +26,7 @@ import type {
   InstanceHealth,
   InterruptTurnInput,
   McpStatusInput,
+  NativeSession,
   OpenSessionInput,
   PermissionResponseInput,
   ResumeSessionInput,
@@ -45,14 +49,15 @@ import {
   PINNED_OPENCODE_SDK_VERSION,
   type OpencodeInstanceConfig,
 } from "./config"
+import {
+  createOpencodeSessionRuntime,
+  OpencodeRuntimeFailure,
+  type OpencodeSessionRuntime,
+} from "./session"
 
 /**
- * OpenCode v2 adapter — lifecycle, configuration, and discovery.
- *
- * Wave 2 scope. The send path (prompt admission, session events, permission and
- * question replies, interrupt) is Wave 3; those members throw a structured
- * `not_implemented` rather than silently doing nothing, so a caller wiring them
- * early fails loudly.
+ * OpenCode v2 adapter. The SDK boundary is isolated in this directory; Aide's
+ * core only sees normalized inventory, sessions, requests, parts, and events.
  */
 
 export class OpencodeAdapterError extends Error {
@@ -79,14 +84,6 @@ function adapterError(
     retryable,
     ...(detail === undefined ? {} : { detail }),
   })
-}
-
-function notImplemented(instanceId: string, member: string): never {
-  throw adapterError(
-    "not_implemented",
-    `OpenCode adapter ${member} lands in Wave 3`,
-    instanceId
-  )
 }
 
 const CAPABILITIES: HarnessCapabilities = {
@@ -120,7 +117,11 @@ type StartedInstance = {
   version?: string
   /** Directory-scoped runtimes; the empty key is the instance default. */
   runtimes: Map<string, OpencodeRuntime>
-  mcpServers: Record<string, unknown>
+  projectDirectory: string | undefined
+  sessions: Map<string, OpencodeSessionRuntime>
+  bus: EventBus
+  mcpServers: Record<string, McpServerConfig>
+  operation: Promise<void>
 }
 
 export type OpencodeAdapterOptions = {
@@ -135,6 +136,10 @@ export function createOpencodeAdapter(
   const now = options.now ?? (() => new Date().toISOString())
   const instances = new Map<string, StartedInstance>()
 
+  let idCounter = 0
+  const nextId = (prefix: string) =>
+    `${prefix}-${String(++idCounter).padStart(4, "0")}`
+
   const requireInstance = (handle: InstanceHandle): StartedInstance => {
     const instance = instances.get(handle.instanceId)
     if (!instance) {
@@ -147,6 +152,77 @@ export function createOpencodeAdapter(
     return instance
   }
 
+  const applyMcpServers = async (
+    instance: StartedInstance,
+    runtime: OpencodeRuntime,
+    directory: string,
+    servers: Record<string, McpServerConfig>
+  ): Promise<void> => {
+    if (!runtime.api.mcp) return
+    for (const [name, server] of Object.entries(servers)) {
+      const config = toOpencodeMcpConfig(server)
+      if (!config) continue
+      const result = await runtime.api.mcp.add({
+        ...(directory ? { directory } : {}),
+        name,
+        config,
+      })
+      if (result.error) {
+        throw adapterError(
+          "mcp_reconfigure_failed",
+          `OpenCode could not configure MCP server "${name}"`,
+          instance.instanceId,
+          true,
+          result.error
+        )
+      }
+    }
+  }
+
+  const reconcileMcpServers = async (
+    instance: StartedInstance,
+    runtime: OpencodeRuntime,
+    directory: string,
+    previous: Record<string, McpServerConfig>,
+    next: Record<string, McpServerConfig>
+  ): Promise<void> => {
+    if (!runtime.api.mcp) return
+    for (const name of Object.keys(previous)) {
+      if (name in next) continue
+      const result = await runtime.api.mcp.disconnect({
+        name,
+        ...(directory ? { directory } : {}),
+      })
+      if (result.error) {
+        throw adapterError(
+          "mcp_reconfigure_failed",
+          `OpenCode could not disconnect MCP server "${name}"`,
+          instance.instanceId,
+          true,
+          result.error
+        )
+      }
+    }
+    await applyMcpServers(instance, runtime, directory, next)
+  }
+
+  const withInstanceLock = async <T>(
+    instance: StartedInstance,
+    operation: () => Promise<T>
+  ): Promise<T> => {
+    const previous = instance.operation
+    let release!: () => void
+    instance.operation = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    await previous
+    try {
+      return await operation()
+    } finally {
+      release()
+    }
+  }
+
   /**
    * A changed working directory gets its own client. Sessions and inventory are
    * scoped to the selected project directory, and OpenCode resolves project
@@ -157,14 +233,22 @@ export function createOpencodeAdapter(
     directory?: string
   ): Promise<OpencodeRuntime> => {
     const key = directory ?? instance.config.directory ?? ""
-    const existing = instance.runtimes.get(key)
-    if (existing) return existing
-    const runtime = await createRuntime({
-      config: instance.config,
-      ...(key ? { directory: key } : {}),
+    return withInstanceLock(instance, async () => {
+      const current = instance.runtimes.get(key)
+      if (current) return current
+      const runtime = await createRuntime({
+        config: instance.config,
+        ...(key ? { directory: key } : {}),
+      })
+      try {
+        await applyMcpServers(instance, runtime, key, instance.mcpServers)
+        instance.runtimes.set(key, runtime)
+        return runtime
+      } catch (error) {
+        await Promise.resolve(runtime.close?.()).catch(() => undefined)
+        throw error
+      }
     })
-    instance.runtimes.set(key, runtime)
-    return runtime
   }
 
   const readVersion = async (
@@ -206,6 +290,35 @@ export function createOpencodeAdapter(
     )
   }
 
+  const requireSession = (
+    handle: InstanceHandle,
+    nativeSession: NativeSession
+  ): OpencodeSessionRuntime => {
+    const instance = requireInstance(handle)
+    const session = instance.sessions.get(nativeSession.nativeSessionId)
+    if (!session) {
+      throw adapterError(
+        "native_session_not_found",
+        `OpenCode native session "${nativeSession.nativeSessionId}" is not open`,
+        handle.instanceId
+      )
+    }
+    return session
+  }
+
+  const rethrow = (error: unknown, instanceId: string): never => {
+    if (error instanceof OpencodeRuntimeFailure) {
+      throw new OpencodeAdapterError(error.aideError)
+    }
+    if (error instanceof OpencodeAdapterError) throw error
+    throw adapterError(
+      "opencode_adapter_failed",
+      error instanceof Error ? error.message : String(error),
+      instanceId,
+      true
+    )
+  }
+
   const adapter: HarnessAdapter = {
     driver: "opencode",
     configSchema: opencodeConfigSchema as unknown as StandardSchemaV1,
@@ -234,7 +347,11 @@ export function createOpencodeAdapter(
         config: parsed.data,
         status: "starting",
         runtimes: new Map(),
+        projectDirectory: input.projectDirectory,
+        sessions: new Map(),
+        bus: createEventBus(),
         mcpServers: {},
+        operation: Promise.resolve(),
       }
       instances.set(instance.instanceId, instance)
 
@@ -258,7 +375,14 @@ export function createOpencodeAdapter(
       const instance = instances.get(input.handle.instanceId)
       if (!instance) return
       instance.status = "stopped"
+      await Promise.all(
+        [...instance.sessions.values()].map((session) =>
+          session.close().catch(() => undefined)
+        )
+      )
+      instance.sessions.clear()
       await closeRuntimes(instance)
+      instance.bus.close()
       instances.delete(instance.instanceId)
     },
 
@@ -349,52 +473,253 @@ export function createOpencodeAdapter(
     },
 
     async openSession(input: OpenSessionInput) {
-      return notImplemented(input.handle.instanceId, "openSession")
+      const instance = requireInstance(input.handle)
+      const runtime = await runtimeFor(instance, input.projectDirectory)
+      const sessionApi = runtime.api.v2?.session
+      if (!sessionApi) {
+        throw adapterError(
+          "opencode_v2_unavailable",
+          "The connected OpenCode runtime does not expose the pinned v2 session API",
+          instance.instanceId
+        )
+      }
+      const providerID = input.execution.selection.model.providerId
+      if (!providerID) {
+        throw adapterError(
+          "invalid_execution_selection",
+          "OpenCode model selection requires providerId",
+          instance.instanceId
+        )
+      }
+      const model = {
+        id: input.execution.selection.model.modelId,
+        providerID,
+        ...(input.execution.selection.options.variant
+          ? { variant: input.execution.selection.options.variant }
+          : {}),
+      }
+      const created = await sessionApi.create({
+        ...(input.execution.selection.agent
+          ? { agent: input.execution.selection.agent }
+          : {}),
+        model,
+        location: { directory: input.projectDirectory },
+      })
+      if (created.error || !created.data?.data) {
+        throw adapterError(
+          "native_session_create_failed",
+          `OpenCode could not create a session for "${input.sessionId}"`,
+          instance.instanceId,
+          true,
+          created.error
+        )
+      }
+      try {
+        const session = await createOpencodeSessionRuntime({
+          instanceId: instance.instanceId,
+          aideSessionId: input.sessionId,
+          projectDirectory: input.projectDirectory,
+          api: runtime.api,
+          session: created.data.data,
+          mcpServerNames: Object.keys(instance.mcpServers),
+          now,
+          nextId,
+        })
+        instance.sessions.set(session.native.nativeSessionId, session)
+        return session.native
+      } catch (error) {
+        return rethrow(error, instance.instanceId)
+      }
     },
 
     async resumeSession(input: ResumeSessionInput) {
-      return notImplemented(input.handle.instanceId, "resumeSession")
+      const instance = requireInstance(input.handle)
+      const live = instance.sessions.get(input.nativeSessionId)
+      if (live) return live.native
+
+      const runtime = await runtimeFor(instance, instance.projectDirectory)
+      const sessionApi = runtime.api.v2?.session
+      if (!sessionApi) {
+        throw adapterError(
+          "opencode_v2_unavailable",
+          "The connected OpenCode runtime does not expose the pinned v2 session API",
+          instance.instanceId
+        )
+      }
+      const inspected = await sessionApi.get({
+        sessionID: input.nativeSessionId,
+      })
+      if (inspected.error || !inspected.data?.data) {
+        throw adapterError(
+          "native_session_not_resumable",
+          `OpenCode native session "${input.nativeSessionId}" is not available`,
+          instance.instanceId,
+          true,
+          inspected.error
+        )
+      }
+      const info = inspected.data.data
+      const scopedRuntime = await runtimeFor(instance, info.location.directory)
+      try {
+        const session = await createOpencodeSessionRuntime({
+          instanceId: instance.instanceId,
+          aideSessionId: input.sessionId,
+          projectDirectory: info.location.directory,
+          api: scopedRuntime.api,
+          session: info,
+          ...(input.resumeCursor ? { resumeCursor: input.resumeCursor } : {}),
+          ...(input.activeTurn ? { activeTurn: input.activeTurn } : {}),
+          mcpServerNames: Object.keys(instance.mcpServers),
+          now,
+          nextId,
+        })
+        instance.sessions.set(session.native.nativeSessionId, session)
+        return session.native
+      } catch (error) {
+        return rethrow(error, instance.instanceId)
+      }
     },
 
     async send(input: SendTurnInput) {
-      return notImplemented(input.handle.instanceId, "send")
+      const session = requireSession(input.handle, input.nativeSession)
+      try {
+        await session.send({
+          turnId: input.turnId,
+          commandId: input.commandId,
+          userMessage: input.userMessage,
+          execution: input.execution,
+          ...(input.handoff ? { handoff: input.handoff } : {}),
+        })
+      } catch (error) {
+        rethrow(error, input.handle.instanceId)
+      }
+    },
+
+    async activeTurn(input: ActiveTurnInput) {
+      const session = requireSession(input.handle, input.nativeSession)
+      const turnId = await session.activeTurnId()
+      return turnId ? { turnId } : undefined
     },
 
     async interrupt(input: InterruptTurnInput) {
-      return notImplemented(input.handle.instanceId, "interrupt")
+      const session = requireSession(input.handle, input.nativeSession)
+      try {
+        await session.interrupt(input.turnId)
+      } catch (error) {
+        rethrow(error, input.handle.instanceId)
+      }
     },
 
     async respondToPermission(input: PermissionResponseInput) {
-      return notImplemented(input.handle.instanceId, "respondToPermission")
+      if (input.request.kind !== "permission") {
+        throw adapterError(
+          "request_kind_mismatch",
+          "respondToPermission requires a permission request",
+          input.handle.instanceId
+        )
+      }
+      const session = requireSession(input.handle, input.nativeSession)
+      try {
+        await session.respondToPermission(input.request)
+      } catch (error) {
+        rethrow(error, input.handle.instanceId)
+      }
     },
 
     async respondToInput(input: InputResponseInput) {
-      return notImplemented(input.handle.instanceId, "respondToInput")
+      if (input.request.kind !== "input") {
+        throw adapterError(
+          "request_kind_mismatch",
+          "respondToInput requires an input request",
+          input.handle.instanceId
+        )
+      }
+      const session = requireSession(input.handle, input.nativeSession)
+      try {
+        await session.respondToInput(input.request)
+      } catch (error) {
+        rethrow(error, input.handle.instanceId)
+      }
     },
 
     async setMcpServers(input: SetMcpServersInput) {
       const instance = requireInstance(input.handle)
-      instance.mcpServers = { ...input.servers }
+      await withInstanceLock(instance, async () => {
+        const previous = instance.mcpServers
+        const runtimes = [...instance.runtimes.entries()]
+        try {
+          for (const [directory, runtime] of runtimes) {
+            await reconcileMcpServers(
+              instance,
+              runtime,
+              directory,
+              previous,
+              input.servers
+            )
+          }
+        } catch (error) {
+          const rollback = await Promise.allSettled(
+            runtimes.map(([directory, runtime]) =>
+              reconcileMcpServers(
+                instance,
+                runtime,
+                directory,
+                input.servers,
+                previous
+              )
+            )
+          )
+          const rollbackErrors = rollback.flatMap((result) =>
+            result.status === "rejected" ? [result.reason] : []
+          )
+          if (rollbackErrors.length > 0) {
+            throw adapterError(
+              "mcp_rollback_failed",
+              "OpenCode MCP reconfiguration failed and the previous configuration could not be fully restored",
+              instance.instanceId,
+              true,
+              { cause: error, rollbackErrors }
+            )
+          }
+          throw error
+        }
+        instance.mcpServers = { ...input.servers }
+        const names = Object.keys(instance.mcpServers)
+        for (const session of instance.sessions.values()) {
+          session.setMcpServerNames(names)
+        }
+      })
     },
 
     async mcpStatus(input: McpStatusInput): Promise<McpServerStatus[]> {
       const instance = requireInstance(input.handle)
-      return Object.keys(instance.mcpServers).map((name) => ({
-        name,
-        connected: false,
-        error: {
-          code: "mcp_status_unavailable",
-          message:
-            "OpenCode MCP runtime status arrives with the Wave 3 event stream",
-          instanceId: instance.instanceId,
-          retryable: false,
-        },
-      }))
+      const runtime = await runtimeFor(instance, instance.projectDirectory)
+      const result = await runtime.api.mcp?.status(
+        instance.projectDirectory
+          ? { directory: instance.projectDirectory }
+          : undefined
+      )
+      if (!result || result.error || !result.data) {
+        return Object.keys(instance.mcpServers).map((name) => ({
+          name,
+          connected: false,
+          error: {
+            code: "mcp_status_unavailable",
+            message: `OpenCode did not report MCP status for "${name}"`,
+            instanceId: instance.instanceId,
+            retryable: true,
+          },
+        }))
+      }
+      return Object.keys(instance.mcpServers).map((name) =>
+        toMcpServerStatus(instance.instanceId, name, result.data![name])
+      )
     },
 
     events(input: HarnessEventsInput): AsyncIterable<AideEvent> {
-      requireInstance(input.handle)
-      return notImplemented(input.handle.instanceId, "events")
+      const instance = requireInstance(input.handle)
+      if (!input.nativeSession) return instance.bus.subscribe()
+      return requireSession(input.handle, input.nativeSession).events()
     },
 
     async dispose(input: DisposeInput) {
@@ -403,6 +728,77 @@ export function createOpencodeAdapter(
   }
 
   return adapter
+}
+
+function toOpencodeMcpConfig(server: McpServerConfig):
+  | {
+      type: "local"
+      command: string[]
+      environment?: Record<string, string>
+    }
+  | {
+      type: "remote"
+      url: string
+      headers?: Record<string, string>
+      oauth: false
+    }
+  | undefined {
+  switch (server.type) {
+    case "stdio":
+      return {
+        type: "local",
+        command: [server.command, ...(server.args ?? [])],
+        ...(server.env ? { environment: server.env } : {}),
+      }
+    case "http":
+    case "sse":
+      return {
+        type: "remote",
+        url: server.url,
+        ...(server.headers ? { headers: server.headers } : {}),
+        // Aide has no browser callback surface for OpenCode's remote OAuth.
+        oauth: false,
+      }
+    case "aide":
+      return undefined
+  }
+}
+
+function toMcpServerStatus(
+  instanceId: string,
+  name: string,
+  status:
+    | { status: "connected" | "disabled" | "needs_auth" }
+    | { status: "failed" | "needs_client_registration"; error: string }
+    | undefined
+): McpServerStatus {
+  if (status?.status === "connected") return { name, connected: true }
+  const code =
+    status?.status === "needs_auth" ||
+    status?.status === "needs_client_registration"
+      ? "mcp_authentication_unsupported"
+      : status?.status === "failed"
+        ? "mcp_connection_failed"
+        : status?.status === "disabled"
+          ? "mcp_disabled"
+          : "mcp_status_unavailable"
+  const message =
+    status?.status === "needs_auth" ||
+    status?.status === "needs_client_registration"
+      ? `MCP server "${name}" requires OAuth authentication, which this OpenCode adapter cannot complete`
+      : status?.status === "failed"
+        ? status.error
+        : `MCP server "${name}" is ${status?.status ?? "unavailable"}`
+  return {
+    name,
+    connected: false,
+    error: {
+      code,
+      message,
+      instanceId,
+      retryable: status?.status === "failed" || status === undefined,
+    },
+  }
 }
 
 async function closeRuntimes(instance: StartedInstance): Promise<void> {
