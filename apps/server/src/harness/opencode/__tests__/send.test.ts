@@ -563,6 +563,146 @@ describe("opencode send", () => {
     await iterator.return?.()
   })
 
+  it("rejects invalid or stale permission and input responses", async () => {
+    const { adapter, handle, nativeSession, selected, calls } = await subject()
+    const iterator = adapter
+      .events({ handle, nativeSession })
+      [Symbol.asyncIterator]()
+    await adapter.send({
+      handle,
+      nativeSession,
+      commandId: "command-1",
+      turnId: "turn-1",
+      userMessage: userMessage(selected),
+      execution: selected,
+    })
+
+    const permissionEvent = await nextMatching(
+      iterator,
+      (event) =>
+        event.type === "request.opened" &&
+        event.data.request.kind === "permission"
+    )
+    if (
+      permissionEvent.type !== "request.opened" ||
+      permissionEvent.data.request.kind !== "permission"
+    ) {
+      throw new Error("Expected a permission request")
+    }
+    const permission = permissionEvent.data.request
+    await expect(
+      adapter.respondToPermission({
+        handle,
+        nativeSession,
+        request: { ...permission, status: "resolved" } as Request,
+      })
+    ).rejects.toMatchObject({ aideError: { code: "invalid_resolution" } })
+    await expect(
+      adapter.respondToPermission({
+        handle,
+        nativeSession,
+        request: {
+          ...permission,
+          status: "resolved",
+          resolution: { kind: "permission", optionId: "maybe" },
+        } as Request,
+      })
+    ).rejects.toMatchObject({ aideError: { code: "invalid_resolution" } })
+    const allowed: Request = {
+      ...permission,
+      status: "resolved",
+      resolution: { kind: "permission", optionId: "allow" },
+    }
+    await adapter.respondToPermission({
+      handle,
+      nativeSession,
+      request: allowed,
+    })
+    await expect(
+      adapter.respondToPermission({
+        handle,
+        nativeSession,
+        request: allowed,
+      })
+    ).rejects.toMatchObject({ aideError: { code: "request_not_open" } })
+
+    const inputEvent = await nextMatching(
+      iterator,
+      (event) =>
+        event.type === "request.opened" && event.data.request.kind === "input"
+    )
+    if (
+      inputEvent.type !== "request.opened" ||
+      inputEvent.data.request.kind !== "input"
+    ) {
+      throw new Error("Expected an input request")
+    }
+    const input = inputEvent.data.request
+    await expect(
+      adapter.respondToInput({
+        handle,
+        nativeSession,
+        request: { ...input, status: "resolved" } as Request,
+      })
+    ).rejects.toMatchObject({ aideError: { code: "invalid_resolution" } })
+    await expect(
+      adapter.respondToInput({
+        handle,
+        nativeSession,
+        request: {
+          ...input,
+          status: "resolved",
+          resolution: { kind: "input", answers: {} },
+        },
+      })
+    ).rejects.toMatchObject({ aideError: { code: "invalid_resolution" } })
+    await expect(
+      adapter.respondToInput({
+        handle,
+        nativeSession,
+        request: {
+          ...input,
+          status: "resolved",
+          resolution: {
+            kind: "input",
+            answers: { "question-0": { optionIds: ["Maybe"] } },
+          },
+        },
+      })
+    ).rejects.toMatchObject({ aideError: { code: "invalid_resolution" } })
+    const answered: Request = {
+      ...input,
+      status: "resolved",
+      resolution: {
+        kind: "input",
+        answers: { "question-0": { optionIds: ["Yes"] } },
+      },
+    }
+    await adapter.respondToInput({
+      handle,
+      nativeSession,
+      request: answered,
+    })
+    await expect(
+      adapter.respondToInput({
+        handle,
+        nativeSession,
+        request: answered,
+      })
+    ).rejects.toMatchObject({ aideError: { code: "request_not_open" } })
+    expect(calls.permissionReplies).toEqual([
+      { requestID: "permission-1", reply: "once" },
+    ])
+    expect(calls.questionReplies).toEqual([
+      { requestID: "question-1", answers: [["Yes"]] },
+    ])
+
+    await expect(
+      nextMatching(iterator, (event) => event.type === "turn.completed")
+    ).resolves.toMatchObject({ type: "turn.completed" })
+    await iterator.return?.()
+  })
+
   it("emits an error before failing a turn on session.error", async () => {
     const { adapter, handle, nativeSession, selected, controls } =
       await subject()
