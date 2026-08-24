@@ -179,6 +179,33 @@ export function createOpencodeAdapter(
     }
   }
 
+  const reconcileMcpServers = async (
+    instance: StartedInstance,
+    runtime: OpencodeRuntime,
+    directory: string,
+    previous: Record<string, McpServerConfig>,
+    next: Record<string, McpServerConfig>
+  ): Promise<void> => {
+    if (!runtime.api.mcp) return
+    for (const name of Object.keys(previous)) {
+      if (name in next) continue
+      const result = await runtime.api.mcp.disconnect({
+        name,
+        ...(directory ? { directory } : {}),
+      })
+      if (result.error) {
+        throw adapterError(
+          "mcp_reconfigure_failed",
+          `OpenCode could not disconnect MCP server "${name}"`,
+          instance.instanceId,
+          true,
+          result.error
+        )
+      }
+    }
+    await applyMcpServers(instance, runtime, directory, next)
+  }
+
   const withInstanceLock = async <T>(
     instance: StartedInstance,
     operation: () => Promise<T>
@@ -618,30 +645,44 @@ export function createOpencodeAdapter(
     async setMcpServers(input: SetMcpServersInput) {
       const instance = requireInstance(input.handle)
       await withInstanceLock(instance, async () => {
-        const removed = Object.keys(instance.mcpServers).filter(
-          (name) => !(name in input.servers)
-        )
-        await Promise.all(
-          [...instance.runtimes.entries()].map(async ([directory, runtime]) => {
-            if (!runtime.api.mcp) return
-            for (const name of removed) {
-              const result = await runtime.api.mcp.disconnect({
-                name,
-                ...(directory ? { directory } : {}),
-              })
-              if (result.error) {
-                throw adapterError(
-                  "mcp_reconfigure_failed",
-                  `OpenCode could not disconnect MCP server "${name}"`,
-                  instance.instanceId,
-                  true,
-                  result.error
-                )
-              }
-            }
-            await applyMcpServers(instance, runtime, directory, input.servers)
-          })
-        )
+        const previous = instance.mcpServers
+        const runtimes = [...instance.runtimes.entries()]
+        try {
+          for (const [directory, runtime] of runtimes) {
+            await reconcileMcpServers(
+              instance,
+              runtime,
+              directory,
+              previous,
+              input.servers
+            )
+          }
+        } catch (error) {
+          const rollback = await Promise.allSettled(
+            runtimes.map(([directory, runtime]) =>
+              reconcileMcpServers(
+                instance,
+                runtime,
+                directory,
+                input.servers,
+                previous
+              )
+            )
+          )
+          const rollbackErrors = rollback.flatMap((result) =>
+            result.status === "rejected" ? [result.reason] : []
+          )
+          if (rollbackErrors.length > 0) {
+            throw adapterError(
+              "mcp_rollback_failed",
+              "OpenCode MCP reconfiguration failed and the previous configuration could not be fully restored",
+              instance.instanceId,
+              true,
+              { cause: error, rollbackErrors }
+            )
+          }
+          throw error
+        }
         instance.mcpServers = { ...input.servers }
         const names = Object.keys(instance.mcpServers)
         for (const session of instance.sessions.values()) {

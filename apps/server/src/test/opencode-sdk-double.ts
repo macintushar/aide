@@ -127,6 +127,7 @@ export type OpencodeDoubleCalls = {
   questionReplies: Array<{ requestID: string; answers: string[][] }>
   interrupts: string[]
   mcpAdds: Array<{ directory?: string; name: string }>
+  mcpDisconnects: Array<{ directory?: string; name: string }>
 }
 
 export type OpencodeDoubleControls = {
@@ -135,6 +136,8 @@ export type OpencodeDoubleControls = {
     type: OpencodeSessionEvent["type"],
     data: Record<string, unknown>
   ): void
+  failMcpAdd(directory: string | undefined, name: string): void
+  mcpServers(directory?: string): string[]
 }
 
 export function createOpencodeSdkDouble(
@@ -158,10 +161,18 @@ export function createOpencodeSdkDouble(
     questionReplies: [],
     interrupts: [],
     mcpAdds: [],
+    mcpDisconnects: [],
   }
   const sessions = new Map<string, SessionState>()
+  const mcpServers = new Map<string, Set<string>>()
+  const mcpAddFailures = new Set<string>()
   let nextSession = 0
   let nextEvent = 0
+
+  const mcpKey = (directory: string | undefined, name: string) =>
+    `${directory ?? ""}\0${name}`
+  const mcpNames = (directory: string | undefined) =>
+    mcpServers.get(directory ?? "") ?? new Set<string>()
 
   const providers = options.providers ?? {
     providers: [
@@ -584,26 +595,42 @@ export function createOpencodeSdkDouble(
       },
     },
     mcp: {
-      async status() {
+      async status(parameters) {
         return {
           data: Object.fromEntries(
-            calls.mcpAdds.map(({ name }) => [name, { status: "connected" }])
+            [...mcpNames(parameters?.directory)].map((name) => [
+              name,
+              { status: "connected" },
+            ])
           ),
         }
       },
       async add(parameters) {
         const { directory, name } = parameters ?? {}
         if (name) calls.mcpAdds.push({ directory, name })
+        if (name && mcpAddFailures.has(mcpKey(directory, name))) {
+          return { error: { message: `failed to add ${name}` } }
+        }
+        if (name) {
+          const names = mcpNames(directory)
+          names.add(name)
+          mcpServers.set(directory ?? "", names)
+        }
         return {
           data: Object.fromEntries(
-            calls.mcpAdds.map((entry) => [entry.name, { status: "connected" }])
+            [...mcpNames(directory)].map((entry) => [
+              entry,
+              { status: "connected" },
+            ])
           ),
         }
       },
       async connect() {
         return { data: true }
       },
-      async disconnect() {
+      async disconnect({ directory, name }) {
+        calls.mcpDisconnects.push({ directory, name })
+        mcpNames(directory).delete(name)
         return { data: true }
       },
     },
@@ -615,6 +642,12 @@ export function createOpencodeSdkDouble(
     controls: {
       publish(sessionID, type, data) {
         publishSession(requireSession(sessionID), type, data)
+      },
+      failMcpAdd(directory, name) {
+        mcpAddFailures.add(mcpKey(directory, name))
+      },
+      mcpServers(directory) {
+        return [...mcpNames(directory)].sort()
       },
     },
   }
