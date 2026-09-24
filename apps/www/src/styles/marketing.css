@@ -607,6 +607,7 @@ summary:focus-visible {
 }
 
 .diff-row {
+  display: block;
   padding: 0 12px;
   white-space: pre;
 }
