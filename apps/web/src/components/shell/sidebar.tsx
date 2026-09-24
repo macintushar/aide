@@ -178,7 +178,7 @@ export function NavItem({
       className={cn(
         "flex h-8 items-center gap-2 rounded-md px-2 text-ui transition-colors duration-[var(--dur-fast)] outline-none focus-visible:ring-3 focus-visible:ring-ring/30",
         active
-          ? "bg-accent-subtle text-primary"
+          ? "bg-accent-subtle text-accent-ink"
           : "text-[var(--n6)] hover:bg-[var(--n2)] hover:text-foreground"
       )}
     >
@@ -205,7 +205,7 @@ function SessionItem({
       className={cn(
         "flex w-full flex-col items-start gap-0.5 rounded-md px-2 py-1.5 text-left transition-colors duration-[var(--dur-fast)] outline-none focus-visible:ring-3 focus-visible:ring-ring/30",
         active
-          ? "bg-accent-subtle text-primary"
+          ? "bg-accent-subtle text-accent-ink"
           : "text-[var(--n6)] hover:bg-[var(--n2)] hover:text-foreground"
       )}
     >

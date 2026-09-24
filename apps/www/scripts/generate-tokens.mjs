@@ -7,7 +7,7 @@ const monorepo = resolve(root, "..")
 const outPath = resolve(root, "www/src/styles/tokens.css")
 
 const AIDE_PROP =
-  /^(--n[0-8]|--accent-(subtle|dim|base|hi|fg)|--line(-strong)?|--ok$|--warn$|--danger-base$|--diff-(add|del)-(fg|bg)$|--ease$|--dur-(fast|base|slow|pulse)$|--radius$)/
+  /^(--n[0-8]|--accent-(subtle|dim|base|hi|ink|fg)|--line(-strong)?|--ok$|--warn$|--danger-base$|--diff-(add|del)-(fg|bg)$|--ease$|--dur-(fast|base|slow|pulse)$|--radius$)/
 
 function parseBlocks(css) {
   const dark = css.match(/:root,\s*\.dark\s*\{([^}]*)\}/)?.[1] ?? ""

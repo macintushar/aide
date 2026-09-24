@@ -9,8 +9,10 @@ const statusDotVariants = cva("inline-block size-2 shrink-0 rounded-full", {
       quiet: "bg-[var(--n5)]",
       accent: "bg-primary",
       ok: "bg-ok",
-      warn: "bg-warn",
-      danger: "bg-danger",
+      // Shape, not just hue, separates the states that ask for attention (§5):
+      // awaiting is a hollow ring, failed a diamond.
+      warn: "bg-transparent shadow-[inset_0_0_0_2px_var(--warn)]",
+      danger: "scale-[0.85] rotate-45 rounded-[1px] bg-danger",
     },
     /**
      * The only looping animation in the app (§7). Reduced motion drops it to a

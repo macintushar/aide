@@ -1,10 +1,8 @@
 :root {
   --font-sans:
-    "Instrument Sans Variable", ui-sans-serif, system-ui, -apple-system,
-    sans-serif;
-  --font-mono:
-    "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace;
-  --font-display: "Instrument Serif", Georgia, serif;
+    "Geist Variable", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-display: var(--font-sans);
   --radius-sm: calc(var(--radius) * 0.625);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -100,10 +98,9 @@ summary:focus-visible {
 
 .display {
   font-family: var(--font-display);
-  font-style: italic;
-  font-weight: 400;
-  letter-spacing: -0.015em;
-  line-height: 1.1;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.05;
 }
 
 .section {

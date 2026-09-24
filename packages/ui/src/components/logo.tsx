@@ -1,5 +1,3 @@
-import { useId } from "react"
-
 import { cn } from "@workspace/ui/lib/utils"
 
 /**
@@ -57,14 +55,12 @@ export function AideMark({
   )
 }
 
-/** Caret-A knocked out of an accent gradient — dock, favicon, avatar slots. */
+/** Caret-A knocked out of a flat accent tile — dock, favicon, avatar slots. */
 export function AideTile({
   size = 32,
   className,
   ...props
 }: { size?: number } & React.ComponentProps<"svg">) {
-  const gradientId = useId()
-
   return (
     <svg
       data-slot="aide-tile"
@@ -77,13 +73,12 @@ export function AideTile({
       className={cn("shrink-0", className)}
       {...props}
     >
-      <defs>
-        <linearGradient id={gradientId} x1="0" y1="0" x2="64" y2="64">
-          <stop offset="0" stopColor="oklch(0.8 0.13 200)" />
-          <stop offset="1" stopColor="oklch(0.6 0.13 210)" />
-        </linearGradient>
-      </defs>
-      <rect width="64" height="64" rx="15" fill={`url(#${gradientId})`} />
+      <rect
+        width="64"
+        height="64"
+        rx="14"
+        className="fill-[var(--accent-base)]"
+      />
       <path
         d="M12 52 L32 12 L52 52"
         className="stroke-[var(--accent-fg)]"

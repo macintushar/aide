@@ -1,18 +1,23 @@
 /* Maps aide tokens onto Starlight's --sl-* variables per docs/DESIGN.md §10.1.
    Loaded only on /docs pages via Starlight's customCss option. */
 
-@import "@fontsource-variable/instrument-sans";
-@import "@fontsource-variable/jetbrains-mono";
+@import "@fontsource-variable/geist";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
 @import "./tokens.css";
 
 :root,
 :root[data-theme="light"],
 :root[data-theme="dark"] {
   /* accent */
-  --sl-color-accent: var(--accent-base);
+  /* accent-ink, not accent-base: Starlight colors link text with it, and the
+     base blue is too light for text on white (DESIGN.md §2.2). */
+  --sl-color-accent: var(--accent-ink);
   --sl-color-accent-low: var(--accent-subtle);
   --sl-color-accent-high: var(--accent-hi);
-  --sl-color-text-invert: var(--accent-fg);
+  /* Text on an accent fill: near-black on the dark theme's light ink, white on
+     the light theme's deep ink. n0 is exactly that in each theme. */
+  --sl-color-text-invert: var(--n0);
 
   /* surfaces */
   --sl-color-bg: var(--n0);
@@ -39,10 +44,9 @@
 
   /* type */
   --sl-font:
-    "Instrument Sans Variable", ui-sans-serif, system-ui, -apple-system,
-    sans-serif;
+    "Geist Variable", ui-sans-serif, system-ui, -apple-system, sans-serif;
   --sl-font-mono:
-    "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace;
+    "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 
   /* layout */
   --sl-content-width: 45rem;
@@ -64,12 +68,12 @@
 
 /* §3.2 tracking and heading line height */
 main h1 {
-  letter-spacing: -0.038em;
+  letter-spacing: -0.03em;
   line-height: 1.14;
 }
 
 main h2 {
-  letter-spacing: -0.03em;
+  letter-spacing: -0.025em;
   line-height: 1.14;
 }
 
@@ -81,4 +85,9 @@ main h3 {
 ::selection {
   background: var(--accent-subtle);
   color: var(--n8);
+}
+
+/* In light mode the high-contrast accent step is the ink, not the hover shade. */
+:root[data-theme="light"] {
+  --sl-color-accent-high: var(--accent-ink);
 }
