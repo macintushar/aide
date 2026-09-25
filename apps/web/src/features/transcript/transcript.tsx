@@ -4,7 +4,7 @@ import { ExecutionDisplay } from "./execution-display"
 
 const toolStatusStyles: Record<ToolPart["status"], string> = {
   pending: "bg-muted text-muted-foreground",
-  running: "bg-primary/10 text-primary",
+  running: "bg-primary/10 text-accent-ink",
   completed: "bg-muted text-foreground",
   failed: "bg-destructive/10 text-destructive",
 }

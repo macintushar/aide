@@ -107,8 +107,8 @@ const SURFACES = [
   { name: "Active", token: "--n3" },
 ]
 const TYPE_ROLES = [
-  { className: "text-h1", label: "h1 · 40 / 600 / −0.038em" },
-  { className: "text-h2", label: "h2 · 30 / 600 / −0.030em" },
+  { className: "text-h1", label: "h1 · 40 / 600 / −0.030em" },
+  { className: "text-h2", label: "h2 · 30 / 600 / −0.025em" },
   { className: "text-h3", label: "h3 · 20 / 600 / −0.020em" },
   { className: "text-body", label: "body · 15 / 400 / 1.62" },
   { className: "text-ui", label: "ui · 13 / 400" },
@@ -175,7 +175,7 @@ export function Gallery() {
           <Section
             id="color"
             title="Color"
-            note="One tinted neutral ramp, one accent hue, three status roles."
+            note="One black-and-white neutral ramp, one accent hue, three status roles."
           >
             <Row label="Neutral ramp">
               {NEUTRALS.map((token) => (
@@ -221,7 +221,7 @@ export function Gallery() {
           <Section
             id="form"
             title="Form"
-            note="Radius caps at 18px; elevation is a surface step, not a shadow."
+            note="Radius caps at 14px; elevation is a surface step, not a shadow."
           >
             <Row label="Radius">
               {RADII.map((radius) => (

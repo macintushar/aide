@@ -38,17 +38,18 @@ describe("AideMark", () => {
 })
 
 describe("AideTile", () => {
-  it("gives each instance its own gradient id", () => {
+  it("paints a flat accent tile with no ids that could collide", () => {
     const { container } = render(
       <>
         <AideTile />
         <AideTile />
       </>
     )
-    const [first, second] = [...container.querySelectorAll("linearGradient")]
 
-    expect(first?.id).toBeTruthy()
-    expect(first?.id).not.toBe(second?.id)
+    expect(container.querySelectorAll("[id]")).toHaveLength(0)
+    for (const rect of container.querySelectorAll("rect")) {
+      expect(rect).toHaveClass("fill-[var(--accent-base)]")
+    }
   })
 })
 
