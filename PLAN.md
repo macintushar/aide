@@ -239,7 +239,7 @@ The application must not invent instance, model, agent, mode, or option values. 
 
 ## Domain Model
 
-Keep the user-facing domain small. The transcript is messages with ordered parts, inspired by OpenCode v2's document model, owned as Aide types. Do not re-export `@opencode-ai/sdk/v2` or `@anthropic-ai/claude-agent-sdk` types.
+Keep the user-facing domain small. The transcript is messages with ordered parts, inspired by OpenCode v2's document model, owned as Aide types. Do not re-export `@opencode/sdk`, `@opencode/client`, or `@anthropic-ai/claude-agent-sdk` types.
 
 All ids are sortable (UUIDv7 or ULID) so `(createdAt, id)` is a total order.
 
@@ -731,55 +731,49 @@ If the official SDK cannot expose a required capability, the harness remains uns
 
 ## OpenCode v2 Adapter
 
-Targets `@opencode-ai/sdk@1.18.16` and its `client.v2` API. The version is pinned exactly until an explicit adapter compatibility update. The adapter translates OpenCode into Aide types. The rest of Aide does not speak OpenCode.
+Targets `@opencode/sdk@2.0.18` (an in-process OpenCode host) and `@opencode/client@2.0.18` (a client for a user-run server), pinned exactly until an explicit adapter compatibility update. Both expose the same client surface and throw a `ClientError` on failure. The adapter translates OpenCode into Aide types. The rest of Aide does not speak OpenCode.
 
 The adapter must:
 
-- Manage or connect to a local OpenCode runtime per instance through supported SDK facilities.
-- Scope clients and sessions to the selected project directory.
-- Discover configured providers and models through `provider.list`.
-- Discover available OpenCode agents through `app.agents`, and report them as `agentSelection: true` with `interactionModes: []`.
-- Discover model variants through SDK-provided model metadata and expose them as an `OptionDescriptor` with id `variant`.
-- Create and inspect native sessions with `client.v2.session.create` and `client.v2.session.get`. A changed working directory creates a new directory-scoped client and native session; reconstructed canonical context seeds it rather than assuming a v2 fork endpoint.
-- Before admitting a prompt, apply `ExecutionSelection.model` and `ExecutionSelection.options.variant` with `client.v2.session.switchModel`, then apply `ExecutionSelection.agent` with `client.v2.session.switchAgent`. These session-level changes and prompt admission are serialized by Aide's one-active-turn scheduler; queued turns retain their captured selections and are configured only when they become active.
-- Submit prompts with `client.v2.session.prompt`, passing the stable Aide user-message id as the OpenCode prompt `id` and using queue delivery for admission. The v2 prompt endpoint does not accept model, agent, or variant overrides.
-- Configure MCP servers through OpenCode's supported server configuration and use the pinned SDK's MCP status and lifecycle methods for runtime state. OAuth-backed remote servers surface unsupported authentication as an actionable Aide error.
-- Subscribe with `client.v2.session.events` for per-session execution events and the v2/global event stream only for runtime-wide inventory or health events.
-- Reply to requests through the session-scoped `client.v2.permission.reply` and `client.v2.question.reply` APIs; reject questions through `client.v2.question.reject` when cancelled.
-- Interrupt with `client.v2.session.interrupt`.
-- Detect incompatible SDK/runtime versions and return an actionable error.
+- Host OpenCode in process per instance, or connect to a user-run server when `baseUrl` is set. One host serves every project: OpenCode 2 takes the directory as a `location` on each call. The in-process host keeps sessions in its own database file (`databasePath`, defaulting next to Aide's database) with event persistence on; without a file it would keep sessions in memory, and without persistence session logs are empty. The in-process host needs Bun, so it is loaded on demand.
+- Wait for a directory's built-in plugins before reading inventory. OpenCode loads them in the background on first use and lists no agents, models, commands, or skills until they load.
+- Discover models through `model.list` and `model.default`. OpenCode lists models only for providers it can use, so the providers in that list are the instance's authenticated providers.
+- Discover agents through `agent.list`, selecting by agent `id` and labelling by `name`, and report them as `agentSelection: true` with `interactionModes: []`.
+- Discover model variants through `ModelInfo.variants` and expose them as an `OptionDescriptor` with id `variant`.
+- Create and inspect native sessions with `session.create` and `session.get`.
+- Before admitting a prompt, apply `ExecutionSelection.model` and `ExecutionSelection.options.variant` with `session.switchModel`, then apply `ExecutionSelection.agent` with `session.switchAgent`, and verify both with `session.get`. OpenCode 2 has no "no agent" state, so a selection without an agent keeps the session's agent, and a model selected without a variant reads back as variant `default`. These session-level changes and prompt admission are serialized by Aide's one-active-turn scheduler.
+- Submit prompts with `session.prompt`, passing the stable Aide user-message id (behind OpenCode's required `msg_` prefix) as the prompt `id` and using queue delivery. Resubmitting the same id is idempotent.
+- Configure MCP servers per directory with `mcp.add` and `mcp.remove`, and read state with `mcp.list`. OAuth-backed remote servers surface unsupported authentication as an actionable Aide error.
+- Read durable session history from `session.log` (replay from a cursor, then follow) and ephemeral deltas, permissions, forms, and status from `event.subscribe`. Durable events also arrive on the live stream; each is handled once, by sequence number, so a host that keeps no log still completes turns.
+- Reply to permissions with `permission.reply`. OpenCode 2 asks questions as typed forms: each visible field becomes one Aide input question keyed by the field key, answered with `session.form.reply` and cancelled with `session.form.cancel`. External (link-only) fields have no answer Aide could send and are left out.
+- On reattach, re-read open permissions and forms with `permission.list` and `session.form.list`, since neither is in the durable log.
+- Interrupt with `session.interrupt`.
+- Detect incompatible SDK/runtime versions and return an actionable error. An in-process host is the pinned SDK by construction.
 
 Native to Aide mapping:
 
-| OpenCode                                             | Aide                                                        |
-| ---------------------------------------------------- | ----------------------------------------------------------- |
-| Pinned v2 part snapshot event                        | `part.upserted`                                             |
-| Pinned v2 part delta event                           | `part.delta` (not stored)                                   |
-| Pinned v2 session running / terminal events          | `turn.started` / terminal `turn.*`                          |
-| `permission.v2.asked` / `permission.v2.replied`      | `request.opened` / `request.resolved`                       |
-| Pinned v2 question asked / replied / rejected events | `request.opened` / `request.resolved` / `request.cancelled` |
-| Pinned v2 session error event                        | `error.occurred` and `turn.failed`                          |
-| `provider.list` / `app.agents`                       | `harness.inventory_updated`                                 |
-| `mcp.status`                                         | `harness.mcp_status_changed`                                |
+| OpenCode                                                                      | Aide                                                                                           |
+| ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `session.text.*` / `session.reasoning.*` started and ended                    | `part.upserted`                                                                                |
+| `session.tool.input.started` / `tool.called` / `tool.success` / `tool.failed` | tool `part.upserted` (pending / running / completed / failed); file content becomes file parts |
+| `session.text.delta` / `reasoning.delta` / `tool.input.delta`                 | `part.delta` (not stored)                                                                      |
+| `session.execution.succeeded` / `interrupted`                                 | `turn.completed` / `turn.interrupted`                                                          |
+| `session.execution.failed`                                                    | `error.occurred` and `turn.failed`                                                             |
+| `permission.asked` / `permission.replied`                                     | `request.opened` / `request.resolved`                                                          |
+| `form.created` / `form.replied` / `form.cancelled`                            | `request.opened` / `request.resolved` / `request.cancelled`                                    |
+| `session.retry.scheduled`, `session.status` retry, compaction                 | `notice.created`                                                                               |
+| `model.list` / `agent.list`                                                   | `harness.inventory_updated`                                                                    |
+| `mcp.list`                                                                    | `harness.mcp_status_changed`                                                                   |
 
-Conceptually, per-message execution maps to:
+A terminal execution event only settles the turn after that turn's own `session.execution.started`, because an interrupt settles locally before OpenCode confirms it and the late confirmation belongs to the earlier turn.
 
-```ts
-await client.v2.session.prompt({
-  sessionID,
-  id: userMessageId,
-  prompt: renderPrompt(parts),
-  delivery: "queue",
-})
-```
+Immediately before admission, the adapter switches and verifies the session-level model (including variant) and agent from the captured selection. If switching fails, Aide fails the turn before prompt admission rather than running with stale session settings.
 
-Immediately before that admission, the adapter switches and verifies the session-level model (including variant) and agent from the captured selection. If switching fails, Aide fails the turn before prompt admission rather than running with stale session settings.
-
-The adapter's compile-time fixture and integration tests are the authority for exact generated event discriminants and request shapes in the pinned version; upgrade work updates this table and those fixtures together.
+The adapter's SDK double and integration tests are the authority for exact event discriminants and request shapes in the pinned version; upgrade work updates this table and the double together.
 
 ## Claude Agent SDK Adapter
 
-Targets `@anthropic-ai/claude-agent-sdk@0.3.228`, pinned exactly until an explicit adapter compatibility update. This adapter is structurally different from the OpenCode adapter, which is the point: it is what proves the Aide contract is harness-neutral.
+Targets `@anthropic-ai/claude-agent-sdk@0.3.283`, pinned exactly until an explicit adapter compatibility update. This adapter is structurally different from the OpenCode adapter, which is the point: it is what proves the Aide contract is harness-neutral.
 
 The adapter must:
 

@@ -4,107 +4,53 @@ import {
   type InstanceConfig,
 } from "@workspace/contracts"
 
+import { createOpencodeSdkDouble } from "../../../test/opencode-sdk-double"
 import { createOpencodeAdapter } from ".././adapter"
 import type {
-  OpencodeApi,
-  OpencodeRuntime,
+  OpencodeAgent,
+  OpencodeModel,
   OpencodeRuntimeFactory,
 } from ".././client"
 import { isCompatibleRuntimeVersion, opencodeConfigSchema } from ".././config"
 
 const PROJECT_DIRECTORY = "/work/repo"
 
-type ProvidersPayload = NonNullable<
-  Awaited<ReturnType<OpencodeApi["config"]["providers"]>>["data"]
->
-type AgentsPayload = NonNullable<
-  Awaited<ReturnType<OpencodeApi["app"]["agents"]>>["data"]
->
-
-const PROVIDERS: ProvidersPayload = {
-  providers: [
-    {
-      id: "anthropic",
-      name: "Anthropic",
-      source: "env",
-      env: ["ANTHROPIC_API_KEY"],
-      key: "set",
-      models: {
-        "claude-opus-5": {
-          id: "claude-opus-5",
-          providerID: "anthropic",
-          name: "Claude Opus 5",
-          variants: { standard: {}, thinking: {} },
-        },
-        "claude-sonnet-5": {
-          id: "claude-sonnet-5",
-          providerID: "anthropic",
-          name: "Claude Sonnet 5",
-        },
-      },
-    },
-  ],
-  default: { anthropic: "claude-opus-5" },
-}
-
-const AGENTS: AgentsPayload = [
-  { name: "build", mode: "primary" },
-  { name: "plan", mode: "primary" },
-  { name: "explore", mode: "subagent" },
-  { name: "internal", mode: "primary", hidden: true },
-]
-
 function createHarness(
   overrides: {
     version?: string
-    providers?: ProvidersPayload
-    agents?: AgentsPayload
-    providersError?: unknown
-    agentsError?: unknown
+    models?: OpencodeModel[]
+    agents?: OpencodeAgent[]
+    modelsError?: unknown
     healthError?: unknown
   } = {}
 ) {
-  const created: Array<string | undefined> = []
-  const closed: Array<string | undefined> = []
-  const discoverDirectories: Array<string | undefined> = []
+  const created: string[] = []
+  const closed: string[] = []
 
-  const createRuntime: OpencodeRuntimeFactory = async ({ directory }) => {
-    created.push(directory)
-    const api: OpencodeApi = {
-      global: {
-        async health() {
-          if (overrides.healthError) return { error: overrides.healthError }
-          return {
-            data: { healthy: true, version: overrides.version ?? "1.18.16" },
-          }
-        },
-      },
-      config: {
-        async providers(parameters) {
-          if (overrides.providersError) {
-            return { error: overrides.providersError }
-          }
-          if (parameters?.directory !== undefined) {
-            discoverDirectories.push(parameters.directory)
-          }
-          return { data: overrides.providers ?? PROVIDERS }
-        },
-      },
-      app: {
-        async agents() {
-          if (overrides.agentsError) return { error: overrides.agentsError }
-          return { data: overrides.agents ?? AGENTS }
-        },
-      },
+  const createRuntime: OpencodeRuntimeFactory = async ({ instanceId }) => {
+    created.push(instanceId)
+    const { api, calls } = createOpencodeSdkDouble(overrides)
+    if (overrides.healthError) {
+      api.server.info = async () => {
+        throw overrides.healthError
+      }
     }
-    const runtime: OpencodeRuntime = {
+    if (overrides.modelsError) {
+      api.model.list = async () => {
+        throw overrides.modelsError
+      }
+    }
+    discoverCalls.push(calls.directories)
+    return {
       api,
       close: () => {
-        closed.push(directory)
+        closed.push(instanceId)
       },
     }
-    return runtime
   }
+  const discoverCalls: Array<Array<string | undefined>> = []
+  const discoverDirectories = () =>
+    discoverCalls.flat().filter((directory) => directory !== undefined)
 
   return { createRuntime, created, closed, discoverDirectories }
 }
@@ -128,25 +74,29 @@ describe("opencode configSchema", () => {
     expect(opencodeConfigSchema.safeParse({ nope: 1 }).success).toBe(false)
   })
 
-  it("rejects baseUrl combined with a managed-runtime bind", () => {
+  it("rejects baseUrl combined with an in-process database", () => {
     expect(
       opencodeConfigSchema.safeParse({
         baseUrl: "http://127.0.0.1:4096",
-        port: 4096,
+        databasePath: "/tmp/opencode.sqlite",
       }).success
     ).toBe(false)
+  })
+
+  it("rejects the removed managed-server bind options", () => {
+    expect(opencodeConfigSchema.safeParse({ port: 4096 }).success).toBe(false)
   })
 })
 
 describe("opencode version compatibility", () => {
   it("accepts the pinned minor line and later patches", () => {
-    expect(isCompatibleRuntimeVersion("1.18.16")).toBe(true)
-    expect(isCompatibleRuntimeVersion("1.19.0")).toBe(true)
+    expect(isCompatibleRuntimeVersion("2.0.18")).toBe(true)
+    expect(isCompatibleRuntimeVersion("2.1.0")).toBe(true)
   })
 
   it("rejects an older minor and a different major", () => {
-    expect(isCompatibleRuntimeVersion("1.17.9")).toBe(false)
-    expect(isCompatibleRuntimeVersion("2.0.0")).toBe(false)
+    expect(isCompatibleRuntimeVersion("1.18.16")).toBe(false)
+    expect(isCompatibleRuntimeVersion("3.0.0")).toBe(false)
     expect(isCompatibleRuntimeVersion("nonsense")).toBe(false)
   })
 
@@ -197,8 +147,8 @@ describe("opencode version compatibility", () => {
   })
 })
 
-describe("opencode directory-scoped clients", () => {
-  it("creates one runtime per directory and reuses it", async () => {
+describe("opencode runtime lifetime", () => {
+  it("creates one runtime per instance and reuses it across directories", async () => {
     const harness = createHarness()
     const adapter = createOpencodeAdapter({
       createRuntime: harness.createRuntime,
@@ -212,10 +162,10 @@ describe("opencode directory-scoped clients", () => {
     await adapter.discover({ handle, directory: "/other/repo" })
     await adapter.discover({ handle, directory: PROJECT_DIRECTORY })
 
-    expect(harness.created).toEqual([PROJECT_DIRECTORY, "/other/repo"])
+    expect(harness.created).toEqual(["opencode"])
   })
 
-  it("deduplicates concurrent runtime creation for one directory", async () => {
+  it("deduplicates concurrent runtime creation", async () => {
     const harness = createHarness()
     const adapter = createOpencodeAdapter({
       createRuntime: harness.createRuntime,
@@ -229,12 +179,10 @@ describe("opencode directory-scoped clients", () => {
       adapter.discover({ handle, directory: "/concurrent/repo" }),
       adapter.discover({ handle, directory: "/concurrent/repo" }),
     ])
-    expect(
-      harness.created.filter((directory) => directory === "/concurrent/repo")
-    ).toHaveLength(1)
+    expect(harness.created).toHaveLength(1)
   })
 
-  it("closes every directory-scoped runtime on stop", async () => {
+  it("closes the runtime on stop", async () => {
     const harness = createHarness()
     const adapter = createOpencodeAdapter({
       createRuntime: harness.createRuntime,
@@ -246,9 +194,7 @@ describe("opencode directory-scoped clients", () => {
     await adapter.discover({ handle, directory: "/other/repo" })
 
     await adapter.stop({ handle })
-    expect(harness.closed.sort()).toEqual(
-      [PROJECT_DIRECTORY, "/other/repo"].sort()
-    )
+    expect(harness.closed).toEqual(["opencode"])
   })
 
   it("scopes discovery to the requested directory", async () => {
@@ -259,7 +205,7 @@ describe("opencode directory-scoped clients", () => {
     const handle = await adapter.start({ instance: instanceConfig() })
 
     await adapter.discover({ handle, directory: "/scoped" })
-    expect(harness.discoverDirectories).toEqual(["/scoped"])
+    expect(harness.discoverDirectories()).toEqual(["/scoped"])
   })
 })
 
@@ -319,6 +265,10 @@ describe("opencode discovery", () => {
 
     const inventory = await adapter.discover({ handle })
     expect(inventory.agents.map((agent) => agent.id)).toEqual(["build", "plan"])
+    expect(inventory.agents.map((agent) => agent.label)).toEqual([
+      "Build",
+      "Plan",
+    ])
     expect(inventory.agents[0]?.isDefault).toBe(true)
   })
 
@@ -333,7 +283,7 @@ describe("opencode discovery", () => {
     expect(one.revision).toBe(two.revision)
 
     const changed = createHarness({
-      agents: [{ name: "build", mode: "primary" }],
+      agents: [{ id: "build", name: "Build", mode: "primary", hidden: false }],
     })
     const adapterB = createOpencodeAdapter({
       createRuntime: changed.createRuntime,
@@ -346,20 +296,15 @@ describe("opencode discovery", () => {
 
   it("reports unauthenticated when no provider has a credential", async () => {
     const harness = createHarness({
-      providers: {
-        providers: [
-          {
-            id: "anthropic",
-            name: "Anthropic",
-            source: "config",
-            env: [],
-            models: {
-              m: { id: "m", providerID: "anthropic", name: "M" },
-            },
-          },
-        ],
-        default: {},
-      },
+      models: [
+        {
+          id: "m",
+          providerID: "anthropic",
+          name: "M",
+          enabled: false,
+          variants: [],
+        },
+      ],
     })
     const adapter = createOpencodeAdapter({
       createRuntime: harness.createRuntime,
@@ -368,10 +313,11 @@ describe("opencode discovery", () => {
 
     const inventory = await adapter.discover({ handle })
     expect(inventory.auth.status).toBe("unauthenticated")
+    expect(inventory.models).toEqual([])
   })
 
-  it("raises a retryable error when provider discovery fails", async () => {
-    const harness = createHarness({ providersError: { message: "boom" } })
+  it("raises a retryable error when model discovery fails", async () => {
+    const harness = createHarness({ modelsError: new Error("boom") })
     const adapter = createOpencodeAdapter({
       createRuntime: harness.createRuntime,
     })
@@ -380,6 +326,20 @@ describe("opencode discovery", () => {
     await expect(adapter.discover({ handle })).rejects.toMatchObject({
       aideError: { code: "inventory_discovery_failed", retryable: true },
     })
+  })
+
+  it("waits for a directory's plugins to load before reading inventory", async () => {
+    const { api } = createOpencodeSdkDouble()
+    const list = api.agent.list.bind(api.agent)
+    let cold = 2
+    api.agent.list = async (input) => (cold-- > 0 ? { data: [] } : list(input))
+    const adapter = createOpencodeAdapter({
+      createRuntime: async () => ({ api }),
+    })
+    const handle = await adapter.start({ instance: instanceConfig() })
+
+    const inventory = await adapter.discover({ handle, directory: "/cold" })
+    expect(inventory.agents.map((agent) => agent.id)).toEqual(["build", "plan"])
   })
 
   it("refuses discovery for an instance that was never started", async () => {
@@ -403,9 +363,9 @@ describe("opencode health", () => {
     const handle = await adapter.start({ instance: instanceConfig() })
 
     const healthy = await adapter.health({ handle })
-    expect(healthy).toMatchObject({ status: "ready", version: "1.18.16" })
+    expect(healthy).toMatchObject({ status: "ready", version: "2.0.18" })
 
-    const broken = createHarness({ healthError: { message: "gone" } })
+    const broken = createHarness({ healthError: new Error("gone") })
     const brokenAdapter = createOpencodeAdapter({
       createRuntime: broken.createRuntime,
     })

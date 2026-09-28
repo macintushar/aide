@@ -2,6 +2,7 @@ import type { InstanceConfig } from "@workspace/contracts"
 
 import { createOpencodeAdapter } from "../../../src/harness/opencode"
 import type {
+  OpencodeAgent,
   OpencodeApi,
   OpencodeRuntimeFactory,
 } from "../../../src/harness/opencode"
@@ -21,19 +22,14 @@ const PROJECT_DIRECTORY = "/tmp/aide-conformance-opencode"
 export function createFakeOpencodeApi(
   overrides: {
     version?: string
-    providers?: OpencodeProviders
-    agents?: OpencodeAgents
+    models?: OpencodeModels
+    agents?: OpencodeAgent[]
   } = {}
 ): { api: OpencodeApi; calls: { directories: Array<string | undefined> } } {
   return createOpencodeSdkDouble(overrides)
 }
 
-type OpencodeProviders = NonNullable<
-  Awaited<ReturnType<OpencodeApi["config"]["providers"]>>["data"]
->
-type OpencodeAgents = NonNullable<
-  Awaited<ReturnType<OpencodeApi["app"]["agents"]>>["data"]
->
+type OpencodeModels = Awaited<ReturnType<OpencodeApi["model"]["list"]>>["data"]
 
 function subject() {
   const { api } = createFakeOpencodeApi()
@@ -58,5 +54,8 @@ defineHarnessAdapterConformance({
   scope: "full",
   createSubject: subject,
   validConfig: { baseUrl: "http://127.0.0.1:4096" },
-  invalidConfig: { baseUrl: "http://127.0.0.1:4096", port: 4096 },
+  invalidConfig: {
+    baseUrl: "http://127.0.0.1:4096",
+    databasePath: "/tmp/opencode.sqlite",
+  },
 })
