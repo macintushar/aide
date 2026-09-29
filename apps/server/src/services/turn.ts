@@ -100,6 +100,14 @@ type ActiveTurn = {
   native: NativeSession
   stop: AbortController
   phase: "starting" | "dispatching" | "cancelling" | "cancellation_failed"
+  /** Sequence numbers of steering messages the harness refused. */
+  undeliveredSteerSeqs?: number[]
+}
+
+function syncCursorAfter(cursor: number, undelivered: number[] = []): number {
+  return undelivered.length === 0
+    ? cursor
+    : Math.min(cursor, Math.min(...undelivered) - 1)
 }
 
 function errorOf(error: unknown, instanceId?: string): AideError {
@@ -282,14 +290,14 @@ export class TurnService {
         `Project ${session.projectId} was not found`
       )
     }
-    const execution = await this.#resolver.resolve(
-      input.execution,
-      project.directory
-    )
+    // The turn runs in the session's directory (a worktree may carry its own
+    // commands, skills and configuration), so it is validated against that.
+    const directory = sessionDirectory(session, project)
+    const execution = await this.#resolver.resolve(input.execution, directory)
     if (input.invocation) {
       const inventory = this.#resolver.inventory(
         execution.selection.instanceId,
-        project.directory
+        directory
       )
       const offered =
         input.invocation.kind === "command"
@@ -563,7 +571,15 @@ export class TurnService {
         message,
       })
     } catch (error) {
-      // The message is already in the transcript; say it never arrived.
+      // The message is already in the transcript; say it never arrived, and
+      // keep the next handoff from treating it as delivered.
+      if (this.#active.get(input.sessionId)?.turnId === turn.id) {
+        const failed = this.#active.get(input.sessionId)!
+        failed.undeliveredSteerSeqs = [
+          ...(failed.undeliveredSteerSeqs ?? []),
+          message.seq,
+        ]
+      }
       const notice = withTransaction(this.#db, (tx) =>
         this.#events.persistDurable(tx, {
           schemaVersion: 1,
@@ -609,10 +625,26 @@ export class TurnService {
         `Session ${sessionId} was not found`
       )
     }
-    if (turnsRepo.listOpenBySession(this.#db, sessionId).length > 0) {
+    const project = projectsRepo.get(this.#db, session.projectId)
+    const directory = project ? sessionDirectory(session, project) : undefined
+    // Sessions and forks without a worktree of their own share a directory,
+    // so a turn in any of them can be using the files being rewound.
+    const sharing = sessionsRepo
+      .listByProject(this.#db, session.projectId)
+      .filter(
+        (other) =>
+          other.id === sessionId ||
+          (directory !== undefined &&
+            sessionDirectory(other, project!) === directory)
+      )
+    if (
+      sharing.some(
+        (other) => turnsRepo.listOpenBySession(this.#db, other.id).length > 0
+      )
+    ) {
       throw new CoreServiceError(
         "session_busy",
-        `Session ${sessionId} has a queued or running turn; restore after it finishes`
+        `Session ${sessionId} or another session in the same directory has a queued or running turn; restore after it finishes`
       )
     }
     const checkpoint = turnCheckpointsRepo.get(this.#db, turnId)
@@ -996,7 +1028,7 @@ export class TurnService {
       await this.#checkpoint(project.id, session.id, directory, turn)
       // A queued turn keeps its captured selection, but admission must prove the
       // same values are still available in current inventory.
-      await this.#resolver.resolve(turn.execution.selection, project.directory)
+      await this.#resolver.resolve(turn.execution.selection, directory)
       const adapterEntry = this.#registry.get(
         instanceId,
         turn.execution.selection.driver
@@ -1385,16 +1417,21 @@ export class TurnService {
                     nativeSessionId: active.native.nativeSessionId,
                     // Steering messages were delivered natively too, so the
                     // next handoff must not repeat them.
-                    syncCursor: Math.max(
-                      assistant.seq,
-                      ...messagesRepo
-                        .listBySession(tx, turn.sessionId)
-                        .filter(
-                          (message) =>
-                            message.role === "user" &&
-                            message.steer?.turnId === turn.id
-                        )
-                        .map((message) => message.seq)
+                    // Refused steering stays undelivered, so the cursor stops
+                    // short of the first one.
+                    syncCursor: syncCursorAfter(
+                      Math.max(
+                        assistant.seq,
+                        ...messagesRepo
+                          .listBySession(tx, turn.sessionId)
+                          .filter(
+                            (message) =>
+                              message.role === "user" &&
+                              message.steer?.turnId === turn.id
+                          )
+                          .map((message) => message.seq)
+                      ),
+                      active.undeliveredSteerSeqs
                     ),
                     resumeCursor: active.native.resumeCursor,
                   })

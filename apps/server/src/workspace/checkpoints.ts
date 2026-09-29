@@ -147,6 +147,9 @@ export async function restoreCheckpoint(
     target,
     current,
   ])
+  // Diff paths are relative to the repository root, which differs from
+  // `directory` when the project is a subdirectory of the repository.
+  const root = (await git(directory, ["rev-parse", "--show-toplevel"])).trim()
   const restored: string[] = []
   const removed: string[] = []
   const fields = changes.split("\0").filter((field) => field !== "")
@@ -158,15 +161,15 @@ export async function restoreCheckpoint(
     else restored.push(path)
   }
   for (const path of removed) {
-    await unlink(join(directory, path)).catch(() => undefined)
+    await unlink(join(root, path)).catch(() => undefined)
   }
   if (restored.length > 0) {
     await withScratchIndex(async (indexFile) => {
-      await git(directory, ["read-tree", target], indexFile)
+      await git(root, ["read-tree", target], indexFile)
       // Batched so a large restore stays under the argument-length limit.
       for (let start = 0; start < restored.length; start += 200) {
         await git(
-          directory,
+          root,
           [
             "checkout-index",
             "--force",

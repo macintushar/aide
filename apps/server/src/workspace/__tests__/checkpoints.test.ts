@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process"
 import { existsSync } from "node:fs"
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
@@ -32,6 +32,24 @@ afterAll(async () => {
 })
 
 describe("checkpoints", () => {
+  it("restores relative to the repository root when opened from a subdirectory", async () => {
+    const repo = await makeRepo()
+    const sub = join(repo, "packages", "app")
+    await mkdir(sub, { recursive: true })
+    await writeFile(join(sub, "kept.txt"), "original\n")
+    await git(repo, "add", "-A")
+    await git(repo, "commit", "-m", "base")
+
+    const commit = await createCheckpoint(sub, "turn_sub")
+    await writeFile(join(sub, "kept.txt"), "edited\n")
+    await writeFile(join(sub, "created.txt"), "new\n")
+
+    const result = await restoreCheckpoint(sub, commit!)
+    expect(result.removed).toEqual(["packages/app/created.txt"])
+    expect(existsSync(join(sub, "created.txt"))).toBe(false)
+    expect(await readFile(join(sub, "kept.txt"), "utf8")).toBe("original\n")
+  })
+
   it("restores edits, deletions and new files without moving the index or HEAD", async () => {
     const repo = await makeRepo()
     await writeFile(join(repo, "kept.txt"), "original\n")

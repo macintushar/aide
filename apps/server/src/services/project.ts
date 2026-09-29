@@ -157,7 +157,18 @@ export class ProjectService {
         ? messages.find((message) => message.id === turn.assistantMessageId)
         : undefined
       const user = messages.find((message) => message.id === turn.userMessageId)
-      throughSeq = assistant?.seq ?? user?.seq ?? throughSeq
+      // Steering delivered mid-turn lands after the assistant message's
+      // sequence, so the cutoff is the last message the turn produced.
+      const steeringSeqs = messages
+        .filter(
+          (message) =>
+            message.role === "user" && message.steer?.turnId === turn.id
+        )
+        .map((message) => message.seq)
+      const turnSeqs = [assistant?.seq, user?.seq, ...steeringSeqs].filter(
+        (seq): seq is number => seq !== undefined
+      )
+      if (turnSeqs.length > 0) throughSeq = Math.max(...turnSeqs)
     }
 
     const assistantParents = new Map(
@@ -277,13 +288,39 @@ export class ProjectService {
     return session
   }
 
-  deleteSession(sessionId: string, db = this.#db): { deleted: true } {
-    if (!sessionsRepo.delete(db, sessionId)) {
+  /**
+   * Deletes a session. Its worktree directory goes with it unless another
+   * session still works there; the branch is kept so no commits are lost.
+   */
+  async deleteSession(
+    sessionId: string,
+    db = this.#db
+  ): Promise<{ deleted: true }> {
+    const session = sessionsRepo.get(db, sessionId)
+    if (!session) {
       throw new CoreServiceError(
         "session_not_found",
         `Session ${sessionId} was not found`
       )
     }
+    const worktree = session.worktree
+    if (worktree) {
+      const shared = sessionsRepo
+        .listByProject(db, session.projectId)
+        .some(
+          (other) =>
+            other.id !== sessionId && other.worktree?.path === worktree.path
+        )
+      const project = projectsRepo.get(db, session.projectId)
+      if (!shared && project) {
+        await removeWorktree({
+          projectDirectory: project.directory,
+          path: worktree.path,
+          branch: worktree.branch,
+        }).catch(() => undefined)
+      }
+    }
+    sessionsRepo.delete(db, sessionId)
     return { deleted: true }
   }
 

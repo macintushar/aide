@@ -108,9 +108,9 @@ export function createCoreCommandHandlers(
     },
     "session.delete": {
       kind: "local",
-      transactional: true,
-      handle(command: CommandFor<"session.delete">, db) {
-        return services.projects.deleteSession(command.sessionId, db)
+      // Not transactional: removing the worktree runs git first.
+      handle(command: CommandFor<"session.delete">) {
+        return services.projects.deleteSession(command.sessionId)
       },
     },
     "turn.send": {

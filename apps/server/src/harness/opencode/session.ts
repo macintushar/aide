@@ -633,7 +633,14 @@ export async function createOpencodeSessionRuntime(
     const turn = active
     if (!turn || turn.settled || openRequests.has(form.id)) return
     const { questions, fields } = toInputQuestions(form)
-    if (questions.length === 0) return
+    if (questions.length === 0) {
+      // Nothing here Aide can show or answer (only external or hidden
+      // fields). Left pending it would block the turn for good, so decline it.
+      void api.session.form
+        .cancel({ sessionID: session.id, formID: form.id })
+        .catch(() => undefined)
+      return
+    }
     const opened: Request = {
       id: form.id,
       sessionId: aideSessionId,

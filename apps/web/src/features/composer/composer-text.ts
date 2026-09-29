@@ -105,7 +105,12 @@ export function mentionAt(
 
 /** A Markdown link target; angle brackets keep spaces and parentheses intact. */
 export function markdownTarget(path: string): string {
-  return /[\s()<>]/.test(path) ? `<${path.replace(/[<>]/g, "")}>` : path
+  // `#` would read as a URL fragment and `%` as an escape, so both are
+  // percent-encoded; the preview handler decodes them back.
+  const encoded = path.replace(/%/g, "%25").replace(/#/g, "%23")
+  return /[\s()<>]/.test(encoded)
+    ? `<${encoded.replace(/[<>]/g, "")}>`
+    : encoded
 }
 
 export function fileLink(file: FileMatch): string {

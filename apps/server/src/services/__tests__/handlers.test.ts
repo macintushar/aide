@@ -42,7 +42,7 @@ describe("createCoreCommandHandlers", () => {
       open: vi.fn().mockReturnValue({ id: "project" }),
       createSession: vi.fn().mockReturnValue({ id: "session" }),
       renameSession: vi.fn().mockReturnValue({ title: "Renamed" }),
-      deleteSession: vi.fn().mockReturnValue({ deleted: true }),
+      deleteSession: vi.fn().mockResolvedValue({ deleted: true }),
     } as unknown as ProjectService
     const handlers = createCoreCommandHandlers({
       projects,
@@ -77,7 +77,7 @@ describe("createCoreCommandHandlers", () => {
       db
     )
     expect(projects.renameSession).toHaveBeenCalledWith("ses_1", "Renamed", db)
-    expect(projects.deleteSession).toHaveBeenCalledWith("ses_1", db)
+    expect(projects.deleteSession).toHaveBeenCalledWith("ses_1")
   })
 
   it("marks project and session commands as transactional, except create", () => {
@@ -103,7 +103,7 @@ describe("createCoreCommandHandlers", () => {
     expect(
       handlers["session.delete"]?.kind === "local" &&
         handlers["session.delete"].transactional
-    ).toBe(true)
+    ).toBeFalsy()
   })
 
   it("maps fork, restore, worktree and steer commands to their services", async () => {
