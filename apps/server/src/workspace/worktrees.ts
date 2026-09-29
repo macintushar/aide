@@ -61,11 +61,13 @@ export async function removeWorktree(input: {
   path: string
   branch: string
   deleteBranch?: boolean
+  /** Discard uncommitted changes in the worktree. Defaults to true. */
+  force?: boolean
 }): Promise<void> {
   await execGitChecked(input.projectDirectory, [
     "worktree",
     "remove",
-    "--force",
+    ...(input.force === false ? [] : ["--force"]),
     input.path,
   ]).catch(async (error: unknown) => {
     // Already gone from disk: prune the stale registration instead.

@@ -130,13 +130,9 @@ export class ProjectService {
     const project = this.#requireProject(source.projectId)
     const messages = messagesRepo.listBySession(this.#db, source.id)
     const turns = turnsRepo.listBySession(this.#db, source.id)
-    const settledUserMessages = new Set(
-      turns
-        .filter((turn) => TERMINAL.has(turn.status))
-        .map((turn) => turn.userMessageId)
-    )
-
-    let throughSeq = Number.POSITIVE_INFINITY
+    // A turn's messages are not contiguous in sequence (steering lands after
+    // later turns are queued), so the fork selects whole turns, not a range.
+    let included = turns.filter((turn) => TERMINAL.has(turn.status))
     if (input.throughTurnId) {
       const turn = turns.find(
         (candidate) => candidate.id === input.throughTurnId
@@ -153,44 +149,22 @@ export class ProjectService {
           `Turn ${turn.id} is still ${turn.status}; fork after it finishes`
         )
       }
-      const assistant = turn.assistantMessageId
-        ? messages.find((message) => message.id === turn.assistantMessageId)
-        : undefined
-      const user = messages.find((message) => message.id === turn.userMessageId)
-      // Steering delivered mid-turn lands after the assistant message's
-      // sequence, so the cutoff is the last message the turn produced.
-      const steeringSeqs = messages
-        .filter(
-          (message) =>
-            message.role === "user" && message.steer?.turnId === turn.id
-        )
-        .map((message) => message.seq)
-      const turnSeqs = [assistant?.seq, user?.seq, ...steeringSeqs].filter(
-        (seq): seq is number => seq !== undefined
-      )
-      if (turnSeqs.length > 0) throughSeq = Math.max(...turnSeqs)
+      included = included.filter((candidate) => candidate.seq <= turn.seq)
     }
-
-    const assistantParents = new Map(
-      messages.flatMap((message) =>
-        message.role === "assistant"
-          ? [[message.id, message.parentMessageId]]
-          : []
-      )
+    const includedTurnIds = new Set(included.map((turn) => turn.id))
+    const turnByUserMessage = new Map(
+      turns.map((turn) => [turn.userMessageId, turn.id])
     )
     const copied = messages.filter((message) => {
-      if (message.seq > throughSeq) return false
       if (message.role === "user") {
         // Steering belongs to the turn it was delivered into.
-        if (message.steer) {
-          const steered = turns.find(
-            (turn) => turn.id === message.steer!.turnId
-          )
-          return steered !== undefined && TERMINAL.has(steered.status)
-        }
-        return settledUserMessages.has(message.id)
+        const turnId = message.steer
+          ? message.steer.turnId
+          : turnByUserMessage.get(message.id)
+        return turnId !== undefined && includedTurnIds.has(turnId)
       }
-      return settledUserMessages.has(assistantParents.get(message.id)!)
+      const turnId = turnByUserMessage.get(message.parentMessageId)
+      return turnId !== undefined && includedTurnIds.has(turnId)
     })
 
     const id = this.#id("session")
@@ -291,6 +265,8 @@ export class ProjectService {
   /**
    * Deletes a session. Its worktree directory goes with it unless another
    * session still works there; the branch is kept so no commits are lost.
+   * A worktree that cannot be removed (for example, uncommitted changes)
+   * fails the deletion rather than orphaning it.
    */
   async deleteSession(
     sessionId: string,
@@ -301,6 +277,12 @@ export class ProjectService {
       throw new CoreServiceError(
         "session_not_found",
         `Session ${sessionId} was not found`
+      )
+    }
+    if (turnsRepo.listOpenBySession(db, sessionId).length > 0) {
+      throw new CoreServiceError(
+        "session_busy",
+        `Session ${sessionId} has a queued or running turn`
       )
     }
     const worktree = session.worktree
@@ -317,7 +299,10 @@ export class ProjectService {
           projectDirectory: project.directory,
           path: worktree.path,
           branch: worktree.branch,
-        }).catch(() => undefined)
+          // Uncommitted work is not preserved by keeping the branch, so a
+          // dirty worktree blocks deletion; remove it explicitly instead.
+          force: false,
+        })
       }
     }
     sessionsRepo.delete(db, sessionId)

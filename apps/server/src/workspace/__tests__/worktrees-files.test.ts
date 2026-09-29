@@ -83,6 +83,35 @@ describe("worktrees", () => {
       ""
     )
   })
+
+  it("refuses to remove a dirty worktree unless forced", async () => {
+    const repo = await makeRepo()
+    const root = await tempDir("aide-worktree-root-")
+    const path = join(root, "proj_1", "session_2")
+    await createWorktree({
+      projectDirectory: repo,
+      path,
+      branch: "aide/session-2",
+    })
+    await writeFile(join(path, "README.md"), "uncommitted edit\n")
+
+    await expect(
+      removeWorktree({
+        projectDirectory: repo,
+        path,
+        branch: "aide/session-2",
+        force: false,
+      })
+    ).rejects.toBeDefined()
+    expect(existsSync(path)).toBe(true)
+
+    await removeWorktree({
+      projectDirectory: repo,
+      path,
+      branch: "aide/session-2",
+    })
+    expect(existsSync(path)).toBe(false)
+  })
 })
 
 describe("file search", () => {
