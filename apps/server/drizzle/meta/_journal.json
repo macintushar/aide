@@ -36,6 +36,13 @@
       "when": 1790698873070,
       "tag": "0004_spotty_vermin",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1790714612778,
+      "tag": "0005_public_raider",
+      "breakpoints": true
     }
   ]
 }

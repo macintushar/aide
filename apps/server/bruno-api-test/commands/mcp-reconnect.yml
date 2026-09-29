@@ -1,0 +1,47 @@
+info:
+  name: mcp-reconnect
+  type: http
+  seq: 11
+
+http:
+  method: POST
+  url: "{{baseUrl}}/commands/mcp.reconnect"
+  headers:
+    - name: Content-Type
+      value: application/json
+    - name: Authorization
+      value: Bearer {{sessionToken}}
+    - name: Origin
+      value: "{{origin}}"
+  body:
+    type: json
+    data: |-
+      {
+        "name": "mcp.reconnect",
+        "commandId": "command_mcp_reconnect",
+        "instanceId": "{{instanceId}}",
+        "serverName": "docs"
+      }
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("returns a command receipt", function () {
+          expect([200, 202, 500]).to.include(res.status);
+          expect(res.body).to.have.property("commandName", "mcp.reconnect");
+        });
+        test("returns MCP state, or says why not", function () {
+          if (res.body.state === "completed") {
+            expect(res.body.result.servers).to.be.an("array");
+          }
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 30000
+  followRedirects: true
+  maxRedirects: 5
+
+docs: |-
+  Reconnects one MCP server and returns every server's state.

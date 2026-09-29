@@ -197,6 +197,11 @@ export function createAideTestApp(options: CoreIntegrationOptions) {
     app.use("/config", sessionGuard)
     app.use("/projects/:projectId/config", sessionGuard)
     app.use("/sessions/:id/files", sessionGuard)
+    app.use("/sessions/:id/file", sessionGuard)
+    app.use("/sessions/:id/inventory", sessionGuard)
+    app.use("/projects", sessionGuard)
+    app.use("/projects/:projectId/sessions", sessionGuard)
+    app.use("/artifacts/:id", sessionGuard)
   }
   app.route("/", createCommandRouter({ dispatcher }))
   app.route("/", createConfigRouter({ config }))
@@ -216,7 +221,14 @@ export function createAideTestApp(options: CoreIntegrationOptions) {
     })
   )
   app.route("/", createInstancesRouter({ supervisor, eventService }))
-  app.route("/", createWorkspaceRouter({ db: options.db }))
+  app.route(
+    "/",
+    createWorkspaceRouter({
+      db: options.db,
+      registry,
+      resolver: executionResolver,
+    })
+  )
 
   if (options.staticRoot) {
     const serveApp = serveWebApp(options.staticRoot)

@@ -199,6 +199,10 @@ export type ClaudeRuntime = {
   }): Promise<void>
   interrupt(turnId: string): Promise<void>
   steer(turnId: string, message: UserMessage): void
+  /** Runs `/compact` between turns and resolves when it has finished. */
+  compact(): Promise<void>
+  stopTask(turnId: string, taskId: string): Promise<void>
+  reconnectMcpServer(name: string): Promise<void>
   respondToPermission(request: Request): void
   respondToInput(request: Request): void
   setMcpServers(servers: Record<string, unknown>): Promise<void>
@@ -408,6 +412,10 @@ export async function createClaudeRuntime(
   let lastOutcome: TurnOutcome = "none"
   let lastAssistantUuid: string | undefined
   let closed = false
+  /** A `/compact` in flight: settled by the result it produces. */
+  let compaction:
+    | { resolve: () => void; reject: (error: Error) => void }
+    | undefined
   /**
    * The query's cumulative usage as of the last result. A resumed query
    * starts from totals its transcript saved, which Aide cannot see, so the
@@ -769,6 +777,25 @@ export async function createClaudeRuntime(
         return
       }
       case "result": {
+        if (!turn && compaction) {
+          const pending = compaction
+          compaction = undefined
+          if (message.is_error || message.subtype !== "success") {
+            pending.reject(
+              runtimeError(
+                "compaction_failed",
+                message.errors?.join("; ") ??
+                  message.result ??
+                  "Claude could not compact its context",
+                instanceId,
+                true
+              )
+            )
+          } else {
+            pending.resolve()
+          }
+          return
+        }
         if (!turn || turn.settled) return
         if (message.is_error || message.subtype !== "success") {
           reportUsage(turn, message)
@@ -1089,6 +1116,43 @@ export async function createClaudeRuntime(
         return
       }
       session.prompt(prefix ? `${prefix}\n\n${text}` : text)
+    },
+
+    async compact() {
+      if (closed) {
+        throw runtimeError(
+          "native_session_closed",
+          `Claude session "${nativeSessionId}" is closed`,
+          instanceId
+        )
+      }
+      if ((active && !active.settled) || compaction) {
+        throw runtimeError(
+          "session_busy",
+          `Claude session "${nativeSessionId}" is busy; compact between turns`,
+          instanceId
+        )
+      }
+      const done = new Promise<void>((resolve, reject) => {
+        compaction = { resolve, reject }
+      })
+      session.prompt("/compact")
+      await done
+    },
+
+    async stopTask(turnId, taskId) {
+      if (!active || active.turnId !== turnId || active.settled) {
+        throw runtimeError(
+          "turn_not_active",
+          `Claude turn "${turnId}" is not running`,
+          instanceId
+        )
+      }
+      await session.query.stopTask(taskId)
+    },
+
+    async reconnectMcpServer(name) {
+      await session.query.reconnectMcpServer(name)
     },
 
     steer(turnId, message) {

@@ -106,8 +106,8 @@ describe("configuration schemas", () => {
 })
 
 describe("command schemas", () => {
-  it("lists all 19 command names", () => {
-    expect(commandNameSchema.options).toHaveLength(19)
+  it("lists all 21 command names", () => {
+    expect(commandNameSchema.options).toHaveLength(21)
   })
 
   it("requires commandId on every command", () => {

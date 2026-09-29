@@ -73,6 +73,19 @@ export function createCoreCommandHandlers(
         return services.turns.restore(command.sessionId, command.turnId)
       },
     },
+    "session.compact": {
+      kind: "local",
+      handle(command: CommandFor<"session.compact">) {
+        return services.turns.compact(command.sessionId)
+      },
+    },
+    "subagent.stop": {
+      kind: "local",
+      async handle(command: CommandFor<"subagent.stop">) {
+        await services.turns.stopSubagent(command)
+        return { taskId: command.taskId }
+      },
+    },
     "worktree.remove": {
       kind: "local",
       handle(command: CommandFor<"worktree.remove">) {
@@ -195,6 +208,20 @@ function createSupervisionHandlers(
       async handle(command: CommandFor<"instance.restart">) {
         await supervisor.restart(command.instanceId)
         return { status: supervisor.status(command.instanceId) }
+      },
+    }
+  }
+
+  if (supervisor) {
+    handlers["mcp.reconnect"] = {
+      kind: "local",
+      async handle(command: CommandFor<"mcp.reconnect">) {
+        return {
+          servers: await supervisor.reconnectMcp(
+            command.instanceId,
+            command.serverName
+          ),
+        }
       },
     }
   }

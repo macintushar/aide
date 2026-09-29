@@ -39,6 +39,9 @@ import type {
   StartInstanceInput,
   SteerTurnInput,
   StopInstanceInput,
+  CompactInput,
+  StopSubagentInput,
+  ReconnectMcpServerInput,
 } from "../types"
 import {
   createClaudeRuntime,
@@ -129,6 +132,9 @@ const CAPABILITIES: HarnessCapabilities = {
   skills: true,
   subagents: true,
   usage: true,
+  compact: true,
+  subagentStop: true,
+  mcpReconnect: true,
 }
 
 const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const
@@ -476,6 +482,35 @@ export function createClaudeAdapter(
       const runtime = requireRuntime(input.handle, input.nativeSession)
       const turnId = runtime.activeTurnId()
       return turnId ? { turnId } : undefined
+    },
+
+    async compact(input: CompactInput) {
+      const runtime = requireRuntime(input.handle, input.nativeSession)
+      try {
+        await runtime.compact()
+      } catch (error) {
+        rethrow(error, input.handle.instanceId)
+      }
+    },
+
+    async stopSubagent(input: StopSubagentInput) {
+      const runtime = requireRuntime(input.handle, input.nativeSession)
+      try {
+        await runtime.stopTask(input.turnId, input.taskId)
+      } catch (error) {
+        rethrow(error, input.handle.instanceId)
+      }
+    },
+
+    async reconnectMcpServer(input: ReconnectMcpServerInput) {
+      const instance = requireInstance(input.handle)
+      // The inventory query and every session query hold their own connection.
+      await Promise.all([
+        instance.session.query.reconnectMcpServer(input.name),
+        ...[...instance.runtimes.values()].map((runtime) =>
+          runtime.reconnectMcpServer(input.name)
+        ),
+      ])
     },
 
     async steer(input: SteerTurnInput) {

@@ -111,6 +111,8 @@ function createHarness(
         async setMcpServers() {
           return undefined
         },
+        async reconnectMcpServer() {},
+        async stopTask() {},
       },
       messages() {
         return { [Symbol.asyncIterator]: () => ({ next: () => never }) }

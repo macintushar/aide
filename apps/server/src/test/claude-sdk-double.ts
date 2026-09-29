@@ -86,6 +86,8 @@ export type ClaudeSessionDouble = ClaudeSession & {
   readonly prompts: string[]
   /** Prompts sent with options (steering, context-only handoffs). */
   readonly promptOptions: Array<{ text: string } & ClaudePromptOptions>
+  readonly stoppedTasks: string[]
+  readonly reconnectedMcpServers: string[]
 }
 
 type Emitter = {
@@ -349,6 +351,8 @@ export function createClaudeSessionDoubleFactory(
       closed: false,
       prompts: [] as string[],
       promptOptions: [] as Array<{ text: string } & ClaudePromptOptions>,
+      stoppedTasks: [] as string[],
+      reconnectedMcpServers: [] as string[],
     }
 
     const session: ClaudeSessionDouble = {
@@ -373,6 +377,12 @@ export function createClaudeSessionDoubleFactory(
       },
       get promptOptions() {
         return state.promptOptions
+      },
+      get stoppedTasks() {
+        return state.stoppedTasks
+      },
+      get reconnectedMcpServers() {
+        return state.reconnectedMcpServers
       },
       init: {
         // Mirrors `initializationResult()`: models, agents, and account, and
@@ -430,6 +440,12 @@ export function createClaudeSessionDoubleFactory(
           state.setMcpServerCalls.push(servers)
           return { added: [], removed: [] }
         },
+        async reconnectMcpServer(name) {
+          state.reconnectedMcpServers.push(name)
+        },
+        async stopTask(taskId) {
+          state.stoppedTasks.push(taskId)
+        },
       },
       messages: emitter.messages,
       prompt(text, promptOptions) {
@@ -440,6 +456,16 @@ export function createClaudeSessionDoubleFactory(
           return
         }
         state.prompts.push(text)
+        if (text === "/compact") {
+          // A local command: compaction, then a result with no reply.
+          emitter.emit({
+            type: "system",
+            subtype: "compact_boundary",
+            compact_metadata: { trigger: "manual" },
+          } as ClaudeStreamMessage)
+          emitter.emit({ type: "result", subtype: "success", is_error: false })
+          return
+        }
         // The runtime emits system/init at the start of a turn, never before.
         emitter.emit({
           type: "system",

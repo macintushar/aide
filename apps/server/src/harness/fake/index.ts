@@ -19,6 +19,9 @@ import type {
   ActiveTurnInput,
   InterruptTurnInput,
   SteerTurnInput,
+  CompactInput,
+  StopSubagentInput,
+  ReconnectMcpServerInput,
   InputResponseInput,
   McpStatusInput,
   OpenSessionInput,
@@ -127,6 +130,9 @@ export type FakeHarnessControl = {
   steers(): Array<{ turnId: string; text: string }>
   /** The directory each native session was opened in. */
   openedDirectories(): string[]
+  compactions(): string[]
+  stoppedSubagents(): Array<{ turnId: string; taskId: string }>
+  reconnectedMcpServers(): string[]
 }
 
 export function createFakeHarnessAdapter(
@@ -149,6 +155,9 @@ export function createFakeHarnessAdapter(
   const invocations = new Map<string, number>()
   const effects = new Map<string, number>()
   const steers: Array<{ turnId: string; text: string }> = []
+  const compactions: string[] = []
+  const stoppedSubagents: Array<{ turnId: string; taskId: string }> = []
+  const reconnectedMcpServers: string[] = []
   const openedDirectories: string[] = []
   const dispatchModes = new Map<string, FakeDispatchMode>()
 
@@ -793,6 +802,20 @@ export function createFakeHarnessAdapter(
         : undefined
     },
 
+    async compact(input: CompactInput) {
+      requireSession(input.handle, input.nativeSession.nativeSessionId)
+      compactions.push(input.nativeSession.nativeSessionId)
+    },
+
+    async stopSubagent(input: StopSubagentInput) {
+      stoppedSubagents.push({ turnId: input.turnId, taskId: input.taskId })
+    },
+
+    async reconnectMcpServer(input: ReconnectMcpServerInput) {
+      requireInstance(input.handle)
+      reconnectedMcpServers.push(input.name)
+    },
+
     async steer(input: SteerTurnInput) {
       const { session } = requireSession(
         input.handle,
@@ -1038,6 +1061,15 @@ export function createFakeHarnessAdapter(
     },
     openedDirectories() {
       return [...openedDirectories]
+    },
+    compactions() {
+      return [...compactions]
+    },
+    stoppedSubagents() {
+      return [...stoppedSubagents]
+    },
+    reconnectedMcpServers() {
+      return [...reconnectedMcpServers]
     },
     instanceStatus(instanceId) {
       return instances.get(instanceId)?.status

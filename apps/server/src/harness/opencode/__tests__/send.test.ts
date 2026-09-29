@@ -1497,3 +1497,33 @@ describe("opencode commands, skills, usage, subagents, steering", () => {
     ])
   })
 })
+
+describe("opencode compaction and MCP reconnect", () => {
+  it("compacts between turns and refuses while a turn runs", async () => {
+    const { adapter, handle, nativeSession, selected, calls } = await subject()
+    await adapter.compact?.({ handle, nativeSession })
+    expect(calls.compactions).toEqual([nativeSession.nativeSessionId])
+
+    await adapter.send({
+      handle,
+      nativeSession,
+      commandId: "command-1",
+      turnId: "turn-1",
+      userMessage: userMessage(selected),
+      execution: selected,
+    })
+    await expect(
+      adapter.compact?.({ handle, nativeSession })
+    ).rejects.toMatchObject({ aideError: { code: "session_busy" } })
+    await adapter.interrupt({ handle, nativeSession, turnId: "turn-1" })
+  })
+
+  it("reconnects an MCP server in every directory it serves", async () => {
+    const { adapter, handle, calls } = await subject()
+    await adapter.discover({ handle, directory: "/tmp/second-project" })
+    await adapter.reconnectMcpServer?.({ handle, name: "docs" })
+    expect(
+      calls.mcpConnects.map((connect) => connect.directory).sort()
+    ).toEqual([PROJECT_DIRECTORY, "/tmp/second-project"].sort())
+  })
+})

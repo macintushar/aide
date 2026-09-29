@@ -87,6 +87,23 @@ export type SteerTurnInput = {
   message: UserMessage
 }
 
+export type CompactInput = {
+  handle: InstanceHandle
+  nativeSession: NativeSession
+}
+
+export type StopSubagentInput = {
+  handle: InstanceHandle
+  nativeSession: NativeSession
+  turnId: string
+  taskId: string
+}
+
+export type ReconnectMcpServerInput = {
+  handle: InstanceHandle
+  name: string
+}
+
 export type InterruptTurnInput = {
   handle: InstanceHandle
   nativeSession: NativeSession
@@ -155,6 +172,13 @@ export interface HarnessAdapter {
   steer?(input: SteerTurnInput): Promise<void>
   interrupt(input: InterruptTurnInput): Promise<void>
   /**
+   * Compacts the native session's context while no turn is running, and
+   * resolves once the harness has finished. Omitted when the harness cannot.
+   */
+  compact?(input: CompactInput): Promise<void>
+  /** Stops one subagent of the running turn. Omitted when unsupported. */
+  stopSubagent?(input: StopSubagentInput): Promise<void>
+  /**
    * Reports the turn this native session is currently executing, if any.
    * Boot reconciliation needs it because an event stream only carries what
    * happens after subscribing: a turn that reached its terminal state while
@@ -168,6 +192,8 @@ export interface HarnessAdapter {
 
   setMcpServers(input: SetMcpServersInput): Promise<void>
   mcpStatus(input: McpStatusInput): Promise<McpServerStatus[]>
+  /** Reconnects one MCP server. Omitted when the harness cannot. */
+  reconnectMcpServer?(input: ReconnectMcpServerInput): Promise<void>
 
   /**
    * Streams events for an instance, or for one native session. Events emitted

@@ -1,0 +1,46 @@
+info:
+  name: session-compact
+  type: http
+  seq: 9
+
+http:
+  method: POST
+  url: "{{baseUrl}}/commands/session.compact"
+  headers:
+    - name: Content-Type
+      value: application/json
+    - name: Authorization
+      value: Bearer {{sessionToken}}
+    - name: Origin
+      value: "{{origin}}"
+  body:
+    type: json
+    data: |-
+      {
+        "name": "session.compact",
+        "commandId": "command_session_compact",
+        "sessionId": "{{sessionId}}"
+      }
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("returns a command receipt", function () {
+          expect([200, 202, 500]).to.include(res.status);
+          expect(res.body).to.have.property("commandName", "session.compact");
+        });
+        test("compacts, or says why not", function () {
+          if (res.body.state === "failed") {
+            expect(res.body.error.code).to.be.oneOf(["nothing_to_compact", "session_busy", "compact_unsupported"]);
+          }
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 30000
+  followRedirects: true
+  maxRedirects: 5
+
+docs: |-
+  Compacts the native session of the instance that ran the latest completed turn.

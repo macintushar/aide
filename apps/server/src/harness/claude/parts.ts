@@ -200,6 +200,7 @@ export function createPartSynthesizer(messageId: string): PartSynthesizer {
         type: "agent",
         name: agent.name ?? "subagent",
         ...(agent.status ? { status: agent.status } : {}),
+        ...(record.toolUseId ? { taskId: record.toolUseId } : {}),
         ...(agent.description ? { description: agent.description } : {}),
         ...(agent.summary ? { summary: agent.summary } : {}),
         ...(agent.progress ? { progress: agent.progress } : {}),
@@ -398,6 +399,7 @@ export function createPartSynthesizer(messageId: string): PartSynthesizer {
 
     applyTask(taskId, update) {
       const record = byTaskId.get(taskId) ?? create(`task-${taskId}`, "agent")
+      record.toolUseId = taskId
       byTaskId.set(taskId, record)
       const defined = Object.fromEntries(
         Object.entries(update).filter(([, value]) => value !== undefined)

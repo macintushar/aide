@@ -21,6 +21,8 @@ export const commandNameSchema = z.enum([
   "session.delete",
   "session.fork",
   "session.restore",
+  "session.compact",
+  "subagent.stop",
   "worktree.remove",
   "turn.send",
   "turn.steer",
@@ -119,6 +121,23 @@ export const sessionRestoreCommandSchema = commandEnvelopeSchema.extend({
   name: z.literal("session.restore"),
   sessionId: idSchema,
   turnId: idSchema,
+})
+
+/**
+ * Compacts the context of the session's native session on the instance that
+ * ran its latest turn. The Aide transcript is unchanged.
+ */
+export const sessionCompactCommandSchema = commandEnvelopeSchema.extend({
+  name: z.literal("session.compact"),
+  sessionId: idSchema,
+})
+
+/** Stops one running subagent; the turn that started it carries on. */
+export const subagentStopCommandSchema = commandEnvelopeSchema.extend({
+  name: z.literal("subagent.stop"),
+  sessionId: idSchema,
+  turnId: idSchema,
+  taskId: z.string().min(1),
 })
 
 /** Deletes the session's worktree and its branch; the session keeps its history. */
@@ -231,6 +250,8 @@ export const commandSchema = z.discriminatedUnion("name", [
   sessionDeleteCommandSchema,
   sessionForkCommandSchema,
   sessionRestoreCommandSchema,
+  sessionCompactCommandSchema,
+  subagentStopCommandSchema,
   worktreeRemoveCommandSchema,
   turnSendCommandSchema,
   turnSteerCommandSchema,

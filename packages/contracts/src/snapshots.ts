@@ -14,6 +14,7 @@ import {
   harnessInventorySchema,
   instanceAuthSchema,
   instanceRuntimeStatusSchema,
+  mcpServerStatusSchema,
 } from "./inventory"
 import {
   aideErrorSchema,
@@ -58,6 +59,8 @@ export const instanceSnapshotEntrySchema = z.object({
   installed: z.boolean().optional(),
   auth: instanceAuthSchema,
   inventory: harnessInventorySchema.optional(),
+  /** The latest MCP connection state, as `harness.mcp_status_changed` last reported. */
+  mcpServers: z.array(mcpServerStatusSchema).optional(),
   error: aideErrorSchema.optional(),
 })
 

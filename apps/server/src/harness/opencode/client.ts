@@ -148,6 +148,8 @@ export type OpencodeApi = {
       resume?: boolean
     }): Promise<unknown>
     wait(input: { sessionID: string }): Promise<void>
+    /** Queues a compaction of the session's context. */
+    compact(input: { sessionID: string }): Promise<unknown>
     interrupt(input: { sessionID: string }): Promise<unknown>
     /** Durable per-session history; `follow` keeps it open for new events. */
     log(
@@ -183,6 +185,7 @@ export type OpencodeApi = {
       input: Location & { server: string; config: OpencodeMcpConfig }
     ): Promise<void>
     remove(input: Location & { server: string }): Promise<void>
+    connect(input: Location & { server: string }): Promise<void>
   }
 }
 

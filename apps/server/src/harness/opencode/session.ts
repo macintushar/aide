@@ -118,6 +118,7 @@ export type OpencodeSessionRuntime = {
     handoff?: NativeDispatchInput
   }): Promise<void>
   steer(turnId: string, message: UserMessage): Promise<void>
+  compact(): Promise<void>
   interrupt(turnId: string): Promise<void>
   respondToPermission(request: Request): Promise<void>
   respondToInput(request: Request): Promise<void>
@@ -1301,6 +1302,37 @@ export async function createOpencodeSessionRuntime(
           retryable: true,
         })
       })
+    },
+
+    async compact() {
+      if (closed) {
+        throw runtimeError(
+          "native_session_closed",
+          `OpenCode session "${session.id}" is closed`,
+          instanceId
+        )
+      }
+      if (active && !active.settled) {
+        throw runtimeError(
+          "session_busy",
+          `OpenCode session "${session.id}" is running a turn; compact between turns`,
+          instanceId
+        )
+      }
+      await call(
+        () => api.session.compact({ sessionID: session.id }),
+        "compaction_failed",
+        `OpenCode could not compact session "${session.id}"`,
+        instanceId,
+        true
+      )
+      await call(
+        () => api.session.wait({ sessionID: session.id }),
+        "compaction_failed",
+        `OpenCode did not finish compacting session "${session.id}"`,
+        instanceId,
+        true
+      )
     },
 
     async steer(turnId, message) {

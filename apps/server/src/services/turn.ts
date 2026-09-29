@@ -162,6 +162,8 @@ export class TurnService {
   readonly #pending = new Map<string, PendingDispatch>()
   readonly #active = new Map<string, ActiveTurn>()
   readonly #pumping = new Set<string>()
+  /** Sessions compacting right now; their queued turns wait. */
+  readonly #compacting = new Set<string>()
 
   constructor({
     db,
@@ -645,6 +647,116 @@ export class TurnService {
     return result
   }
 
+  /**
+   * Compacts the native session of the instance that ran the latest turn.
+   * Only between turns: turns queued meanwhile wait until it finishes.
+   */
+  async compact(sessionId: string): Promise<{ instanceId: string }> {
+    const session = sessionsRepo.get(this.#db, sessionId)
+    if (!session) {
+      throw new CoreServiceError(
+        "session_not_found",
+        `Session ${sessionId} was not found`
+      )
+    }
+    if (
+      this.#compacting.has(sessionId) ||
+      this.#active.has(sessionId) ||
+      turnsRepo.listOpenBySession(this.#db, sessionId).length > 0
+    ) {
+      throw new CoreServiceError(
+        "session_busy",
+        `Session ${sessionId} is busy; compact between turns`
+      )
+    }
+    const latest = turnsRepo
+      .listBySession(this.#db, sessionId)
+      .filter((turn) => turn.status === "completed")
+      .at(-1)
+    const instanceId = latest?.execution.selection.instanceId
+    const mapping = instanceId
+      ? nativeMappingsRepo.get(this.#db, sessionId, instanceId)
+      : undefined
+    if (!latest || !instanceId || !mapping || mapping.unsafe) {
+      throw new CoreServiceError(
+        "nothing_to_compact",
+        "This session has no native session to compact yet; send a message first"
+      )
+    }
+    const entry = this.#registry.get(
+      instanceId,
+      latest.execution.selection.driver
+    )
+    if (!entry.adapter.compact) {
+      throw new CoreServiceError(
+        "compact_unsupported",
+        `Instance ${instanceId} cannot compact on request`
+      )
+    }
+    this.#compacting.add(sessionId)
+    try {
+      const native = await entry.adapter.resumeSession({
+        handle: entry.handle,
+        sessionId,
+        nativeSessionId: mapping.nativeSessionId,
+        resumeCursor: mapping.resumeCursor,
+      })
+      await entry.adapter.compact({
+        handle: entry.handle,
+        nativeSession: native,
+      })
+      const event = withTransaction(this.#db, (tx) =>
+        this.#events.persistDurable(tx, {
+          schemaVersion: 1,
+          eventId: this.#id("event"),
+          timestamp: this.#now(),
+          scope: { kind: "session", projectId: session.projectId, sessionId },
+          instanceId,
+          driver: latest.execution.selection.driver,
+          type: "notice.created",
+          data: {
+            title: "Context compacted",
+            message: `${latest.execution.display.instanceName} compacted this session's context. The Aide transcript is unchanged.`,
+            level: "info",
+          },
+        })
+      )
+      this.#events.broadcastDurable(event)
+      return { instanceId }
+    } finally {
+      this.#compacting.delete(sessionId)
+      this.#schedule(sessionId)
+    }
+  }
+
+  /** Stops one subagent of the running turn; the turn itself carries on. */
+  async stopSubagent(input: {
+    sessionId: string
+    turnId: string
+    taskId: string
+  }): Promise<void> {
+    const active = this.#active.get(input.sessionId)
+    if (!active || active.turnId !== input.turnId) {
+      throw new CoreServiceError(
+        "turn_not_active",
+        `Turn ${input.turnId} is not running`
+      )
+    }
+    const entry = this.#registry.get(active.instanceId)
+    if (!entry.adapter.stopSubagent) {
+      throw new CoreServiceError(
+        "subagent_stop_unsupported",
+        `Instance ${active.instanceId} cannot stop a single subagent`
+      )
+    }
+    await entry.adapter.stopSubagent({
+      handle: entry.handle,
+      nativeSession: active.native,
+      turnId: input.turnId,
+      taskId: input.taskId,
+    })
+  }
+
   /** Logs what a finished turn used, when the harness reported it. */
   #reportUsage(turnId: string): void {
     if (!this.#logUsage) return
@@ -845,7 +957,13 @@ export class TurnService {
   }
 
   #schedule(sessionId: string): void {
-    if (this.#pumping.has(sessionId) || this.#active.has(sessionId)) return
+    if (
+      this.#pumping.has(sessionId) ||
+      this.#active.has(sessionId) ||
+      this.#compacting.has(sessionId)
+    ) {
+      return
+    }
     this.#pumping.add(sessionId)
     queueMicrotask(() => {
       void this.#pump(sessionId).finally(() => this.#pumping.delete(sessionId))

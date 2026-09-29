@@ -11,7 +11,7 @@ import type {
 } from "@workspace/contracts"
 import { afterAll, afterEach, describe, expect, it } from "vitest"
 
-import { eventLogRepo, nativeMappingsRepo } from "../../db"
+import { artifactsRepo, eventLogRepo, nativeMappingsRepo } from "../../db"
 import { createFakeHarnessAdapter } from "../../harness/fake"
 import { AdapterRegistry } from "../../services"
 import type { TurnUsageLogEntry } from "../../services/turn"
@@ -553,5 +553,162 @@ describe("worktrees and file search", () => {
     const result = (await response.json()) as FileSearchResult
     expect(result.root).toBe(directory)
     expect(result.files.map((file) => file.path)).toEqual(["src-main.ts"])
+  })
+})
+
+describe("browsing, previews, compaction and subagents", () => {
+  it("lists projects and their sessions", async () => {
+    const directory = await gitRepo()
+    const subject = await boot({ directory })
+    await subject.command("session.create", {
+      projectId: subject.project.id,
+      title: "One",
+    })
+    await subject.command("session.create", {
+      projectId: subject.project.id,
+      title: "Two",
+    })
+
+    const projects = await (
+      await subject.app.request("/projects", { headers: subject.headers })
+    ).json()
+    expect(projects).toEqual({
+      projects: [
+        expect.objectContaining({ id: subject.project.id, sessionCount: 2 }),
+      ],
+    })
+    const sessions = await (
+      await subject.app.request(`/projects/${subject.project.id}/sessions`, {
+        headers: subject.headers,
+      })
+    ).json()
+    expect(
+      (sessions as { sessions: Array<{ title: string }> }).sessions
+        .map((session) => session.title)
+        .sort()
+    ).toEqual(["One", "Two"])
+    expect((await subject.app.request("/projects")).status).toBe(401)
+  })
+
+  it("previews a file inside the working directory and refuses one outside", async () => {
+    const directory = await gitRepo()
+    const subject = await boot({ directory })
+    const session = (
+      await subject.command("session.create", { projectId: subject.project.id })
+    ).result as { id: string }
+
+    const preview = await subject.app.request(
+      `/sessions/${session.id}/file?path=notes.md`,
+      { headers: subject.headers }
+    )
+    expect(await preview.json()).toEqual({
+      path: "notes.md",
+      content: "original\n",
+      binary: false,
+      truncated: false,
+      size: 9,
+    })
+    const escape = await subject.app.request(
+      `/sessions/${session.id}/file?path=${encodeURIComponent("../../etc/passwd")}`,
+      { headers: subject.headers }
+    )
+    expect(escape.status).toBe(403)
+    const missing = await subject.app.request(
+      `/sessions/${session.id}/file?path=nope.md`,
+      { headers: subject.headers }
+    )
+    expect(missing.status).toBe(404)
+  })
+
+  it("serves stored tool output as an artifact", async () => {
+    const directory = await gitRepo()
+    const subject = await boot({ directory })
+    artifactsRepo.create(subject.db, {
+      id: "artifact_1",
+      mimeType: "text/plain; charset=utf-8",
+      data: Buffer.from("the full output", "utf8"),
+      byteLength: 15,
+      createdAt: "2026-01-01T00:00:00.000Z",
+    })
+    const response = await subject.app.request("/artifacts/artifact_1", {
+      headers: subject.headers,
+    })
+    expect(response.headers.get("content-type")).toContain("text/plain")
+    expect(await response.text()).toBe("the full output")
+    expect((await subject.app.request("/artifacts/artifact_1")).status).toBe(
+      401
+    )
+  })
+
+  it("serves inventory for the session's project, including commands", async () => {
+    const directory = await gitRepo()
+    const subject = await boot({ directory })
+    const session = (
+      await subject.command("session.create", { projectId: subject.project.id })
+    ).result as { id: string }
+    const response = await subject.app.request(
+      `/sessions/${session.id}/inventory?instanceId=fake-primary`,
+      { headers: subject.headers }
+    )
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      instanceId: "fake-primary",
+      commands: [{ name: "review" }],
+      skills: [{ id: "pdf" }],
+    })
+  })
+
+  it("compacts the native session between turns", async () => {
+    const directory = await gitRepo()
+    const subject = await boot({ directory })
+    const session = (
+      await subject.command("session.create", { projectId: subject.project.id })
+    ).result as { id: string }
+
+    const early = await subject.command("session.compact", {
+      sessionId: session.id,
+    })
+    expect(early).toMatchObject({
+      state: "failed",
+      error: { code: "nothing_to_compact" },
+    })
+
+    await subject.completeTurn(session.id, "hello")
+    const receipt = await subject.command("session.compact", {
+      sessionId: session.id,
+    })
+    expect(receipt.state).toBe("completed")
+    expect(subject.control.compactions()).toHaveLength(1)
+    expect(subject.snapshot(session.id).notices).toContainEqual(
+      expect.objectContaining({ title: "Context compacted" })
+    )
+  })
+
+  it("stops one subagent of the running turn", async () => {
+    const directory = await gitRepo()
+    const subject = await boot({ directory })
+    const session = (
+      await subject.command("session.create", { projectId: subject.project.id })
+    ).result as { id: string }
+    await subject.command("turn.send", {
+      sessionId: session.id,
+      content: "delegate",
+      execution: selection,
+    })
+    const turnId = await waitFor(
+      () =>
+        subject.snapshot(session.id).requests.find((r) => r.status === "open")
+          ?.turnId
+    )
+    const receipt = await subject.command("subagent.stop", {
+      sessionId: session.id,
+      turnId,
+      taskId: "task-7",
+    })
+    expect(receipt.state).toBe("completed")
+    expect(subject.control.stoppedSubagents()).toEqual([
+      { turnId, taskId: "task-7" },
+    ])
+    await subject.command("turn.interrupt", { sessionId: session.id, turnId })
   })
 })

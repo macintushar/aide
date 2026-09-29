@@ -162,6 +162,8 @@ export type OpencodeDoubleCalls = {
     | { type: "command"; sessionID: string; name: string; text: string }
   >
   steers: Array<{ sessionID: string; id?: string; text: string }>
+  compactions: string[]
+  mcpConnects: Array<{ directory?: string; name: string }>
   synthetic: Array<{ sessionID: string; text: string; resume?: boolean }>
   skillPrompts: Array<{ sessionID: string; skills: string[]; text: string }>
   permissionReplies: Array<{ requestID: string; reply: string }>
@@ -223,6 +225,8 @@ export function createOpencodeSdkDouble(
     mcpAdds: [],
     mcpRemoves: [],
     steers: [],
+    compactions: [],
+    mcpConnects: [],
     synthetic: [],
     skillPrompts: [],
   }
@@ -556,6 +560,11 @@ export function createOpencodeSdkDouble(
         state.wait = deferred<void>()
         queueMicrotask(() => void runTurn(state, messageID, `/${name} ${text}`))
       },
+      async compact({ sessionID }) {
+        requireSession(sessionID)
+        calls.compactions.push(sessionID)
+        return {}
+      },
       async synthetic({ sessionID, text, resume }) {
         requireSession(sessionID)
         calls.synthetic.push({ sessionID, text, resume })
@@ -677,6 +686,9 @@ export function createOpencodeSdkDouble(
         const names = mcpNames(directory)
         names.add(server)
         mcpServers.set(directory ?? "", names)
+      },
+      async connect({ location, server }) {
+        calls.mcpConnects.push({ directory: location?.directory, name: server })
       },
       async remove({ location, server }) {
         const directory = location?.directory

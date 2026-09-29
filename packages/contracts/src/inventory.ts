@@ -33,6 +33,12 @@ export const harnessCapabilitiesSchema = z.object({
   subagents: z.boolean().optional(),
   /** Reports token usage and cost per turn. */
   usage: z.boolean().optional(),
+  /** Compacts a native session's context on request. */
+  compact: z.boolean().optional(),
+  /** Stops a running subagent without interrupting the turn. */
+  subagentStop: z.boolean().optional(),
+  /** Reconnects one MCP server on request. */
+  mcpReconnect: z.boolean().optional(),
 })
 
 export type HarnessCapabilities = z.infer<typeof harnessCapabilitiesSchema>

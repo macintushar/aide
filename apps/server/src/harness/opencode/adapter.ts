@@ -36,6 +36,8 @@ import type {
   StartInstanceInput,
   SteerTurnInput,
   StopInstanceInput,
+  CompactInput,
+  ReconnectMcpServerInput,
 } from "../types"
 import {
   createOpencodeRuntime,
@@ -117,6 +119,10 @@ const CAPABILITIES: HarnessCapabilities = {
   skills: true,
   subagents: true,
   usage: true,
+  compact: true,
+  // OpenCode's task tool has no way to stop one subagent on its own.
+  subagentStop: false,
+  mcpReconnect: true,
 }
 
 type StartedInstance = {
@@ -625,6 +631,37 @@ export function createOpencodeAdapter(
         })
       } catch (error) {
         rethrow(error, input.handle.instanceId)
+      }
+    },
+
+    async compact(input: CompactInput) {
+      const session = requireSession(input.handle, input.nativeSession)
+      try {
+        await session.compact()
+      } catch (error) {
+        rethrow(error, input.handle.instanceId)
+      }
+    },
+
+    async reconnectMcpServer(input: ReconnectMcpServerInput) {
+      const instance = requireInstance(input.handle)
+      const runtime = instance.runtime ? await instance.runtime : undefined
+      if (!runtime) return
+      try {
+        for (const directory of instance.directories) {
+          await runtime.api.mcp.connect({
+            ...location(directory),
+            server: input.name,
+          })
+        }
+      } catch (error) {
+        throw adapterError(
+          "mcp_reconnect_failed",
+          `OpenCode could not reconnect MCP server "${input.name}"`,
+          instance.instanceId,
+          true,
+          error instanceof Error ? { message: error.message } : error
+        )
       }
     },
 

@@ -1602,3 +1602,48 @@ describe("claude send: subagents, usage, steering, invocations", () => {
     await stream.stop()
   })
 })
+
+describe("claude compaction, subagent stop and MCP reconnect", () => {
+  it("compacts between turns with /compact and refuses mid-turn", async () => {
+    const { adapter, handle, nativeSession, createSession } =
+      await startSession({ script: parkOnPermission })
+    const session = createSession.sessions.at(-1)!
+
+    await adapter.compact?.({ handle, nativeSession })
+    expect(session.prompts).toEqual(["/compact"])
+
+    const stream = collect(adapter.events({ handle, nativeSession }))
+    await adapter.send({
+      handle,
+      nativeSession,
+      commandId: "cmd-1",
+      turnId: "turn-1",
+      userMessage: userMessage("list"),
+      execution: execution(),
+    })
+    await stream.waitFor((event) => event.type === "request.opened", "request")
+    await expect(
+      adapter.compact?.({ handle, nativeSession })
+    ).rejects.toMatchObject({ aideError: { code: "session_busy" } })
+
+    await adapter.stopSubagent?.({
+      handle,
+      nativeSession,
+      turnId: "turn-1",
+      taskId: "task-9",
+    })
+    expect(session.stoppedTasks).toEqual(["task-9"])
+    await adapter.interrupt({ handle, nativeSession, turnId: "turn-1" })
+    await stream.stop()
+  })
+
+  it("reconnects an MCP server on every live query", async () => {
+    const { adapter, handle, createSession } = await startSession({
+      script: completeImmediately,
+    })
+    await adapter.reconnectMcpServer?.({ handle, name: "docs" })
+    for (const session of createSession.sessions) {
+      expect(session.reconnectedMcpServers).toEqual(["docs"])
+    }
+  })
+})

@@ -218,6 +218,8 @@ export type ClaudeQuery = {
   setModel(model?: string): Promise<void>
   setPermissionMode(mode: ClaudePermissionMode): Promise<void>
   setMcpServers(servers: Record<string, unknown>): Promise<unknown>
+  reconnectMcpServer(serverName: string): Promise<void>
+  stopTask(taskId: string): Promise<void>
 }
 
 /** A live query plus the init facts it reported and the means to drive it. */

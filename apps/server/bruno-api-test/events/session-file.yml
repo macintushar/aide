@@ -1,0 +1,34 @@
+info:
+  name: session-file
+  type: http
+  seq: 7
+
+http:
+  method: GET
+  url: "{{baseUrl}}/sessions/{{sessionId}}/file?path=README.md"
+  headers:
+    - name: Authorization
+      value: Bearer {{sessionToken}}
+    - name: Origin
+      value: "{{origin}}"
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("previews a file or reports it missing", function () {
+          expect([200, 404]).to.include(res.status);
+          if (res.status === 200) {
+            expect(res.body).to.have.property("binary").that.is.a("boolean");
+            expect(res.body).to.have.property("truncated").that.is.a("boolean");
+          }
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 10000
+  followRedirects: true
+  maxRedirects: 5
+
+docs: |-
+  Previews one file from the session's working directory; paths outside it are refused with 403.

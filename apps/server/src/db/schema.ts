@@ -123,7 +123,7 @@ export const commandReceipts = sqliteTable(
   (table) => [
     check(
       "command_receipts_command_name_check",
-      sql`${table.commandName} in ('project.open', 'project.updateDefaults', 'session.create', 'session.rename', 'session.delete', 'session.fork', 'session.restore', 'worktree.remove', 'turn.send', 'turn.steer', 'turn.interrupt', 'permission.respond', 'input.respond', 'inventory.refresh', 'instance.start', 'instance.stop', 'instance.restart', 'config.update', 'mcp.reconnect')`
+      sql`${table.commandName} in ('project.open', 'project.updateDefaults', 'session.create', 'session.rename', 'session.delete', 'session.fork', 'session.restore', 'session.compact', 'subagent.stop', 'worktree.remove', 'turn.send', 'turn.steer', 'turn.interrupt', 'permission.respond', 'input.respond', 'inventory.refresh', 'instance.start', 'instance.stop', 'instance.restart', 'config.update', 'mcp.reconnect')`
     ),
     check(
       "command_receipts_state_check",

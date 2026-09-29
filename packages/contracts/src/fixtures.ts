@@ -332,6 +332,14 @@ export function commandFixtures(): Command[] {
       turnId: "turn_1",
     },
     { name: "worktree.remove", commandId: "cmd_0018", sessionId: "ses_1" },
+    { name: "session.compact", commandId: "cmd_0020", sessionId: "ses_1" },
+    {
+      name: "subagent.stop",
+      commandId: "cmd_0021",
+      sessionId: "ses_1",
+      turnId: "turn_1",
+      taskId: "task_1",
+    },
     {
       name: "turn.send",
       commandId: "cmd_0006",

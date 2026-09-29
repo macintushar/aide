@@ -167,6 +167,8 @@ export const agentPartSchema = partBaseSchema.extend({
   name: z.string().min(1),
   status: z.string().min(1).optional(),
   description: z.string().optional(),
+  /** The harness's handle for the subagent, for stopping it. */
+  taskId: z.string().min(1).optional(),
   /** Latest progress line while running, final report summary once done. */
   summary: z.string().optional(),
   progress: z
@@ -430,3 +432,35 @@ export const fileSearchResultSchema = z.object({
 })
 
 export type FileSearchResult = z.infer<typeof fileSearchResultSchema>
+
+/** A project with how many sessions it has, for the project browser. */
+export const projectSummarySchema = projectSchema.extend({
+  sessionCount: z.number().int().nonnegative(),
+})
+
+export type ProjectSummary = z.infer<typeof projectSummarySchema>
+
+export const projectListSchema = z.object({
+  projects: z.array(projectSummarySchema),
+})
+
+export type ProjectList = z.infer<typeof projectListSchema>
+
+export const sessionListSchema = z.object({
+  sessions: z.array(sessionSchema),
+})
+
+export type SessionList = z.infer<typeof sessionListSchema>
+
+/** One file from a session's working directory, for previewing a link. */
+export const filePreviewSchema = z.object({
+  path: z.string().min(1),
+  /** Absent for binary files. */
+  content: z.string().optional(),
+  binary: z.boolean(),
+  /** True when the file was larger than the preview limit. */
+  truncated: z.boolean(),
+  size: z.number().int().nonnegative(),
+})
+
+export type FilePreview = z.infer<typeof filePreviewSchema>
