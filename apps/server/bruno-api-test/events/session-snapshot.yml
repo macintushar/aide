@@ -22,6 +22,11 @@ runtime:
         test("includes cursor metadata", function () {
           expect(res.body).to.have.property("cursor");
         });
+
+        test("includes notices and checkpoints", function () {
+          expect(res.body).to.have.property("notices").that.is.an("array");
+          expect(res.body).to.have.property("checkpoints").that.is.an("array");
+        });
   assertions:
     - expression: res.status
       operator: eq

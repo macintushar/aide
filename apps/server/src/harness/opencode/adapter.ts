@@ -1,6 +1,7 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 import type {
   AideError,
+  AuthProvider,
   AideEvent,
   HarnessCapabilities,
   HarnessInventory,
@@ -33,6 +34,7 @@ import type {
   SendTurnInput,
   SetMcpServersInput,
   StartInstanceInput,
+  SteerTurnInput,
   StopInstanceInput,
 } from "../types"
 import {
@@ -40,7 +42,9 @@ import {
   type OpencodeAgent,
   type OpencodeMcpConfig,
   type OpencodeMcpServer,
+  type OpencodeIntegration,
   type OpencodeModel,
+  type OpencodeProviderInfo,
   type OpencodeRuntime,
   type OpencodeRuntimeFactory,
 } from "./client"
@@ -109,6 +113,10 @@ const CAPABILITIES: HarnessCapabilities = {
     inProcess: false,
     runtimeReconfigure: true,
   },
+  commands: true,
+  skills: true,
+  subagents: true,
+  usage: true,
 }
 
 type StartedInstance = {
@@ -439,12 +447,33 @@ export function createOpencodeAdapter(
       let catalog: OpencodeModel[]
       let defaultModel: OpencodeModel | null
       let agents: OpencodeAgent[]
+      let commands: Array<{ name: string; description?: string }>
+      let skills: Array<{ id: string; name: string; description?: string }>
+      let providers: OpencodeProviderInfo[]
+      let integrations: OpencodeIntegration[]
       try {
         agents = await warmAgents(runtime, scope, warmupMs)
-        ;[catalog, defaultModel] = await Promise.all([
-          runtime.api.model.list(scope).then((result) => result.data),
-          runtime.api.model.default(scope).then((result) => result.data),
-        ])
+        ;[catalog, defaultModel, commands, skills, providers, integrations] =
+          await Promise.all([
+            runtime.api.model.list(scope).then((result) => result.data),
+            runtime.api.model.default(scope).then((result) => result.data),
+            runtime.api.command
+              .list(scope)
+              .then((result) => result.data)
+              .catch(() => []),
+            runtime.api.skill
+              .list(scope)
+              .then((result) => result.data)
+              .catch(() => []),
+            runtime.api.provider
+              .list(scope)
+              .then((result) => result.data)
+              .catch(() => []),
+            runtime.api.integration
+              .list(scope)
+              .then((result) => result.data)
+              .catch(() => []),
+          ])
       } catch (error) {
         throw adapterError(
           "inventory_discovery_failed",
@@ -462,11 +491,26 @@ export function createOpencodeAdapter(
       return {
         instanceId: instance.instanceId,
         driver: "opencode",
-        revision: inventoryRevision(models, agents),
+        revision: inventoryRevision(models, agents, [
+          ...commands.map((command) => `/${command.name}`),
+          ...skills.map((skill) => `skill:${skill.id}`),
+        ]),
         discoveredAt: now(),
         stale: false,
         capabilities: CAPABILITIES,
-        auth: authFromModels(catalog),
+        auth: {
+          ...authFromModels(catalog),
+          providers: authProviders(providers, integrations),
+        },
+        commands: commands.map((command) => ({
+          name: command.name,
+          ...(command.description ? { description: command.description } : {}),
+        })),
+        skills: skills.map((skill) => ({
+          id: skill.id,
+          name: skill.name,
+          ...(skill.description ? { description: skill.description } : {}),
+        })),
         models,
         agents: toAgentOptions(agents),
         // OpenCode has no mode axis distinct from agents.
@@ -579,6 +623,15 @@ export function createOpencodeAdapter(
           execution: input.execution,
           ...(input.handoff ? { handoff: input.handoff } : {}),
         })
+      } catch (error) {
+        rethrow(error, input.handle.instanceId)
+      }
+    },
+
+    async steer(input: SteerTurnInput) {
+      const session = requireSession(input.handle, input.nativeSession)
+      try {
+        await session.steer(input.turnId, input.message)
       } catch (error) {
         rethrow(error, input.handle.instanceId)
       }
@@ -907,19 +960,52 @@ function authFromModels(models: OpencodeModel[]): InstanceAuth {
 }
 
 /**
+ * The providers OpenCode can use, and how each one is connected. A provider
+ * with no stored credential or environment variable (OpenCode's own, for one)
+ * is still listed: it is usable, just not through anything the user set up.
+ */
+function authProviders(
+  providers: OpencodeProviderInfo[],
+  integrations: OpencodeIntegration[]
+): AuthProvider[] {
+  const byId = new Map(integrations.map((entry) => [entry.id, entry]))
+  return providers
+    .filter((provider) => provider.activation !== "disabled")
+    .map((provider) => {
+      const connection = byId.get(provider.integrationID ?? provider.id)
+        ?.connections[0]
+      return {
+        id: provider.id,
+        label: provider.name,
+        connected: true,
+        ...(connection
+          ? {
+              method:
+                connection.type === "env"
+                  ? `env:${connection.name}`
+                  : connection.method,
+            }
+          : {}),
+      }
+    })
+}
+
+/**
  * A stable digest of what the composer can offer. It changes exactly when the
  * selectable surface changes, so a revision comparison is a meaningful cache
  * check.
  */
 function inventoryRevision(
   models: HarnessModel[],
-  agents: OpencodeAgent[]
+  agents: OpencodeAgent[],
+  invocables: string[] = []
 ): string {
   const surface = JSON.stringify({
     models: models
       .map((model) => `${model.providerId ?? ""}/${model.modelId}`)
       .sort(),
     agents: agents.map((agent) => agent.id).sort(),
+    ...(invocables.length > 0 ? { invocables: [...invocables].sort() } : {}),
   })
   let hash = 5381
   for (let index = 0; index < surface.length; index += 1) {

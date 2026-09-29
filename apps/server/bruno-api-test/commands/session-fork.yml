@@ -1,0 +1,54 @@
+info:
+  name: session-fork
+  type: http
+  seq: 5
+
+http:
+  method: POST
+  url: "{{baseUrl}}/commands/session.fork"
+  headers:
+    - name: Content-Type
+      value: application/json
+    - name: Authorization
+      value: Bearer {{sessionToken}}
+    - name: Origin
+      value: "{{origin}}"
+  body:
+    type: json
+    data: |-
+      {
+        "name": "session.fork",
+        "commandId": "command_session_fork",
+        "sessionId": "{{sessionId}}",
+        "title": "Bruno fork"
+      }
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("returns a command receipt", function () {
+          expect([200, 202, 500]).to.include(res.status);
+          expect(res.body).to.have.property("commandName", "session.fork");
+        });
+        test("creates a forked session", function () {
+          expect(res.status).to.equal(200);
+          expect(res.body.result).to.have.property("title", "Bruno fork");
+          expect(res.body.result.id).to.not.equal(bru.getVar("sessionId"));
+          bru.setVar("forkSessionId", res.body.result.id);
+        });
+  assertions:
+    - expression: res.body.commandName
+      operator: eq
+      value: session.fork
+
+settings:
+  encodeUrl: true
+  timeout: 30000
+  followRedirects: true
+  maxRedirects: 5
+
+docs: |-
+  Copies the session's settled history into a new session. Add
+  `throughTurnId` to stop at a turn, and `worktree` to give the fork its own
+  worktree.

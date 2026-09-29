@@ -25,6 +25,10 @@ export const sessions = sqliteTable("sessions", {
   title: text("title").notNull(),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
+  /** `SessionWorktree` JSON when the session runs in an Aide worktree. */
+  worktreeJson: text("worktree_json"),
+  /** `SessionForkOrigin` JSON when the session was forked. */
+  forkedFromJson: text("forked_from_json"),
 })
 
 export const artifacts = sqliteTable(
@@ -53,6 +57,9 @@ export const messages = sqliteTable(
     parentMessageId: text("parent_message_id"),
     executionJson: text("execution_json"),
     usageJson: text("usage_json"),
+    invocationJson: text("invocation_json"),
+    /** The running turn a steering user message was delivered into. */
+    steerTurnId: text("steer_turn_id"),
     createdAt: text("created_at").notNull(),
     completedAt: text("completed_at"),
   },
@@ -116,7 +123,7 @@ export const commandReceipts = sqliteTable(
   (table) => [
     check(
       "command_receipts_command_name_check",
-      sql`${table.commandName} in ('project.open', 'project.updateDefaults', 'session.create', 'session.rename', 'session.delete', 'turn.send', 'turn.interrupt', 'permission.respond', 'input.respond', 'inventory.refresh', 'instance.start', 'instance.stop', 'instance.restart', 'config.update', 'mcp.reconnect')`
+      sql`${table.commandName} in ('project.open', 'project.updateDefaults', 'session.create', 'session.rename', 'session.delete', 'session.fork', 'session.restore', 'worktree.remove', 'turn.send', 'turn.steer', 'turn.interrupt', 'permission.respond', 'input.respond', 'inventory.refresh', 'instance.start', 'instance.stop', 'instance.restart', 'config.update', 'mcp.reconnect')`
     ),
     check(
       "command_receipts_state_check",
@@ -337,6 +344,22 @@ export const sessionFileChanges = sqliteTable(
     ),
   ]
 )
+
+/**
+ * The working tree as it was just before a turn ran, kept as a git commit
+ * under `refs/aide/checkpoints/` so git's garbage collection leaves it alone.
+ */
+export const turnCheckpoints = sqliteTable("turn_checkpoints", {
+  turnId: text("turn_id")
+    .primaryKey()
+    .references(() => turns.id, { onDelete: "cascade" }),
+  sessionId: text("session_id")
+    .notNull()
+    .references(() => sessions.id, { onDelete: "cascade" }),
+  directory: text("directory").notNull(),
+  commit: text("commit").notNull(),
+  createdAt: text("created_at").notNull(),
+})
 
 /**
  * Durable client credentials. Only the SHA-256 hash of each session token is

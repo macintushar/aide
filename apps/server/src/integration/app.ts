@@ -33,6 +33,8 @@ import {
   type BackoffPolicy,
 } from "../supervisor"
 import { SessionChangesTracker } from "../workspace/changes"
+import { createWorkspaceRouter } from "../workspace/router"
+import type { TurnUsageLogEntry } from "../services/turn"
 
 export type CoreIntegrationOptions = {
   db: AideDb
@@ -78,6 +80,15 @@ export type CoreIntegrationOptions = {
    * out to git on every turn boundary; production turns it on.
    */
   trackWorkspaceChanges?: boolean
+  /**
+   * Take a git checkpoint of the working tree before each turn so it can be
+   * restored. Off by default for the same reason as change tracking.
+   */
+  checkpoints?: boolean
+  /** Directory Aide creates session worktrees in. Omit to disable worktrees. */
+  worktreeRoot?: string
+  /** Receives per-turn token usage and cost. */
+  logUsage?: (entry: TurnUsageLogEntry) => void
 }
 
 export function createAideTestApp(options: CoreIntegrationOptions) {
@@ -88,6 +99,7 @@ export function createAideTestApp(options: CoreIntegrationOptions) {
     db: options.db,
     now: options.now,
     id: options.id,
+    ...(options.worktreeRoot ? { worktreeRoot: options.worktreeRoot } : {}),
   })
   const executionResolver = new ExecutionResolver(options.db, registry)
   const changes = options.trackWorkspaceChanges
@@ -106,6 +118,8 @@ export function createAideTestApp(options: CoreIntegrationOptions) {
     handoffMaxCharacters: options.handoffMaxCharacters,
     toolOutputMaxCharacters: options.toolOutputMaxCharacters,
     ...(changes ? { changes } : {}),
+    ...(options.checkpoints ? { checkpoints: true } : {}),
+    ...(options.logUsage ? { logUsage: options.logUsage } : {}),
   })
 
   const byDriver = new Map(
@@ -182,6 +196,7 @@ export function createAideTestApp(options: CoreIntegrationOptions) {
     app.use("/commands/*", sessionGuard)
     app.use("/config", sessionGuard)
     app.use("/projects/:projectId/config", sessionGuard)
+    app.use("/sessions/:id/files", sessionGuard)
   }
   app.route("/", createCommandRouter({ dispatcher }))
   app.route("/", createConfigRouter({ config }))
@@ -201,6 +216,7 @@ export function createAideTestApp(options: CoreIntegrationOptions) {
     })
   )
   app.route("/", createInstancesRouter({ supervisor, eventService }))
+  app.route("/", createWorkspaceRouter({ db: options.db }))
 
   if (options.staticRoot) {
     const serveApp = serveWebApp(options.staticRoot)

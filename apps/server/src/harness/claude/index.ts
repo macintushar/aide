@@ -30,14 +30,17 @@ export {
   type ClaudeInitInfo,
   type ClaudeMcpServerStatus,
   type ClaudeModelInfo,
+  type ClaudeModelUsage,
   type ClaudePermissionAsk,
   type ClaudePermissionDecision,
   type ClaudePermissionMode,
+  type ClaudePromptOptions,
   type ClaudeQuery,
   type ClaudeRawStreamEvent,
   type ClaudeSession,
   type ClaudeSessionFactory,
   type ClaudeSessionOpenInput,
+  type ClaudeSlashCommand,
   type ClaudeStreamMessage,
 } from "./query"
 export {

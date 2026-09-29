@@ -46,6 +46,20 @@ export type OpencodeAgent = Pick<
   description?: string
 }
 export type OpencodeMcpServer = McpServer
+export type OpencodeProviderInfo = {
+  id: string
+  name: string
+  integrationID?: string
+  activation?: "auto" | "enabled" | "disabled"
+}
+export type OpencodeIntegration = {
+  id: string
+  name: string
+  connections: Array<
+    | { type: "credential"; id: string; label: string; method: "key" | "oauth" }
+    | { type: "env"; name: string }
+  >
+}
 export type OpencodeSessionInfo = SessionInfo
 export type OpencodeLiveEvent = V2Event
 export type OpencodeLogEvent = SessionLogOutput
@@ -83,6 +97,20 @@ export type OpencodeApi = {
   agent: {
     list(input?: Location): Listed<OpencodeAgent>
   }
+  command: {
+    list(input?: Location): Listed<{ name: string; description?: string }>
+  }
+  skill: {
+    list(
+      input?: Location
+    ): Listed<{ id: string; name: string; description?: string }>
+  }
+  provider: {
+    list(input?: Location): Listed<OpencodeProviderInfo>
+  }
+  integration: {
+    list(input?: Location): Listed<OpencodeIntegration>
+  }
   session: {
     create(input: {
       agent?: string
@@ -101,8 +129,24 @@ export type OpencodeApi = {
       id?: string
       text: string
       files?: Array<{ uri: string; name?: string }>
+      skills?: Array<{ id: string }>
       delivery?: "steer" | "queue"
     }): Promise<Pick<SessionInboxUser, "id">>
+    /** Runs a command; its text is the command's arguments. */
+    command(input: {
+      sessionID: string
+      name: string
+      text: string
+      files?: Array<{ uri: string; name?: string }>
+      delivery?: "steer" | "queue"
+    }): Promise<void>
+    /** Adds context to the session; `resume: false` starts no execution. */
+    synthetic(input: {
+      sessionID: string
+      text: string
+      description?: string
+      resume?: boolean
+    }): Promise<unknown>
     wait(input: { sessionID: string }): Promise<void>
     interrupt(input: { sessionID: string }): Promise<unknown>
     /** Durable per-session history; `follow` keeps it open for new events. */

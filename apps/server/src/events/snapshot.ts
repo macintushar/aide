@@ -15,6 +15,7 @@ import {
   projectsRepo,
   requestsRepo,
   sessionsRepo,
+  turnCheckpointsRepo,
   turnsRepo,
 } from "../db"
 
@@ -64,6 +65,30 @@ export class SnapshotService {
       messages: messagesRepo.listBySession(this.#db, sessionId),
       turns: turnsRepo.listBySession(this.#db, sessionId),
       requests: requestsRepo.listBySession(this.#db, sessionId),
+      notices: eventLogRepo
+        .listByType(this.#db, { kind: "session", sessionId }, "notice.created")
+        .flatMap((event) =>
+          event.type === "notice.created"
+            ? [
+                {
+                  id: event.eventId,
+                  ...(event.scope.kind === "session" && event.scope.turnId
+                    ? { turnId: event.scope.turnId }
+                    : {}),
+                  title: event.data.title,
+                  message: event.data.message,
+                  ...(event.data.level ? { level: event.data.level } : {}),
+                  createdAt: event.timestamp,
+                },
+              ]
+            : []
+        ),
+      checkpoints: turnCheckpointsRepo
+        .listBySession(this.#db, sessionId)
+        .map((checkpoint) => ({
+          turnId: checkpoint.turnId,
+          createdAt: checkpoint.createdAt,
+        })),
     })
   }
 

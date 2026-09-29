@@ -1212,3 +1212,288 @@ describe("opencode send", () => {
     await iterator.return?.()
   })
 })
+
+describe("opencode commands, skills, usage, subagents, steering", () => {
+  it("reports the turn's usage summed over its steps", async () => {
+    const { adapter, handle, nativeSession, selected, controls } =
+      await subject()
+    const iterator = adapter
+      .events({ handle, nativeSession })
+      [Symbol.asyncIterator]()
+    const events: AideEvent[] = []
+    await adapter.send({
+      handle,
+      nativeSession,
+      commandId: "command-1",
+      turnId: "turn-1",
+      userMessage: userMessage(selected),
+      execution: selected,
+    })
+    const onMessage = {
+      sessionID: nativeSession.nativeSessionId,
+      assistantMessageID: "msg_user-message-1-assistant",
+    }
+    for (const cost of [0.01, 0.02]) {
+      controls.publish(nativeSession.nativeSessionId, "session.step.ended", {
+        ...onMessage,
+        finish: "tool-calls",
+        cost,
+        tokens: {
+          input: 100,
+          output: 20,
+          reasoning: 4,
+          cache: { read: 7, write: 1 },
+        },
+      })
+    }
+    controls.publish(
+      nativeSession.nativeSessionId,
+      "session.execution.succeeded",
+      { sessionID: nativeSession.nativeSessionId }
+    )
+    await nextMatching(
+      iterator,
+      (event) => event.type === "turn.completed",
+      events
+    )
+
+    const usage = events.flatMap((event) =>
+      event.type === "message.upserted" &&
+      event.data.message.role === "assistant" &&
+      event.data.message.usage
+        ? [event.data.message.usage]
+        : []
+    )
+    expect(usage).toHaveLength(1)
+    expect(usage[0]).toMatchObject({
+      inputTokens: 200,
+      outputTokens: 40,
+      reasoningTokens: 8,
+      cacheReadTokens: 14,
+      cacheWriteTokens: 2,
+    })
+    expect(usage[0]!.costUsd).toBeCloseTo(0.03)
+    await iterator.return?.()
+  })
+
+  it("renders the task tool as a subagent part", async () => {
+    const { adapter, handle, nativeSession, selected, controls } =
+      await subject()
+    const iterator = adapter
+      .events({ handle, nativeSession })
+      [Symbol.asyncIterator]()
+    await adapter.send({
+      handle,
+      nativeSession,
+      commandId: "command-1",
+      turnId: "turn-1",
+      userMessage: userMessage(selected),
+      execution: selected,
+    })
+    const onMessage = {
+      sessionID: nativeSession.nativeSessionId,
+      assistantMessageID: "msg_user-message-1-assistant",
+    }
+    controls.publish(
+      nativeSession.nativeSessionId,
+      "session.tool.input.started",
+      {
+        ...onMessage,
+        id: "task-call",
+        name: "task",
+      }
+    )
+    controls.publish(nativeSession.nativeSessionId, "session.tool.called", {
+      ...onMessage,
+      id: "task-call",
+      input: {
+        subagent_type: "explore",
+        description: "Map the modules",
+        prompt: "…",
+      },
+      executed: true,
+    })
+    controls.publish(nativeSession.nativeSessionId, "session.tool.success", {
+      ...onMessage,
+      id: "task-call",
+      executed: true,
+      content: [{ type: "text", text: "Three modules found" }],
+    })
+
+    await expect(
+      nextMatching(
+        iterator,
+        (event) =>
+          event.type === "part.upserted" &&
+          event.data.part.type === "agent" &&
+          event.data.part.status === "completed"
+      )
+    ).resolves.toMatchObject({
+      data: {
+        part: {
+          id: "turn-1-agent-task-call",
+          name: "explore",
+          description: "Map the modules",
+          summary: "Three modules found",
+        },
+      },
+    })
+    await adapter.interrupt({ handle, nativeSession, turnId: "turn-1" })
+    await iterator.return?.()
+  })
+
+  it("runs a command with its arguments and hands history over first", async () => {
+    const { adapter, handle, nativeSession, selected, calls } = await subject()
+    await adapter.send({
+      handle,
+      nativeSession,
+      commandId: "command-1",
+      turnId: "turn-1",
+      userMessage: {
+        ...userMessage(selected),
+        parts: [
+          {
+            id: "user-message-1-part-0",
+            messageId: "user-message-1",
+            index: 0,
+            type: "text",
+            text: "/review the last commit",
+          },
+        ],
+        invocation: { kind: "command", name: "review" },
+      },
+      execution: selected,
+      handoff: {
+        id: "handoff-1",
+        turnId: "turn-1",
+        instanceId: "opencode",
+        nativeSessionId: nativeSession.nativeSessionId,
+        role: "handoff",
+        fromMessageSeq: 0,
+        throughMessageSeq: 0,
+        content: "PRIOR CONTEXT",
+        createdAt: new Date(0).toISOString(),
+      },
+    })
+
+    expect(calls.synthetic).toEqual([
+      {
+        sessionID: nativeSession.nativeSessionId,
+        text: "PRIOR CONTEXT",
+        resume: false,
+      },
+    ])
+    expect(calls.selections.at(-1)).toEqual({
+      type: "command",
+      sessionID: nativeSession.nativeSessionId,
+      name: "review",
+      text: "the last commit",
+    })
+    await adapter.interrupt({ handle, nativeSession, turnId: "turn-1" })
+  })
+
+  it("attaches an invoked skill to the prompt", async () => {
+    const { adapter, handle, nativeSession, selected, calls } = await subject()
+    await adapter.send({
+      handle,
+      nativeSession,
+      commandId: "command-1",
+      turnId: "turn-1",
+      userMessage: {
+        ...userMessage(selected),
+        parts: [
+          {
+            id: "user-message-1-part-0",
+            messageId: "user-message-1",
+            index: 0,
+            type: "text",
+            text: "/pdf summarise report.pdf",
+          },
+        ],
+        invocation: { kind: "skill", name: "pdf" },
+      },
+      execution: selected,
+    })
+    expect(calls.skillPrompts).toEqual([
+      {
+        sessionID: nativeSession.nativeSessionId,
+        skills: ["pdf"],
+        text: "summarise report.pdf",
+      },
+    ])
+    await adapter.interrupt({ handle, nativeSession, turnId: "turn-1" })
+  })
+
+  it("steers the running turn and refuses once it is over", async () => {
+    const { adapter, handle, nativeSession, selected, calls } = await subject()
+    await adapter.send({
+      handle,
+      nativeSession,
+      commandId: "command-1",
+      turnId: "turn-1",
+      userMessage: userMessage(selected),
+      execution: selected,
+    })
+    const steer: UserMessage = {
+      ...userMessage(selected),
+      id: "steer-1",
+      seq: 3,
+      parts: [
+        {
+          id: "steer-1-part-0",
+          messageId: "steer-1",
+          index: 0,
+          type: "text",
+          text: "skip the tests",
+        },
+      ],
+      steer: { turnId: "turn-1" },
+    }
+    await adapter.steer?.({
+      handle,
+      nativeSession,
+      turnId: "turn-1",
+      message: steer,
+    })
+    expect(calls.steers).toEqual([
+      {
+        sessionID: nativeSession.nativeSessionId,
+        id: "msg_steer-1",
+        text: "skip the tests",
+      },
+    ])
+    await adapter.interrupt({ handle, nativeSession, turnId: "turn-1" })
+    await expect(
+      adapter.steer?.({
+        handle,
+        nativeSession,
+        turnId: "turn-1",
+        message: steer,
+      })
+    ).rejects.toMatchObject({ aideError: { code: "turn_not_active" } })
+  })
+
+  it("lists commands, skills and connected providers in inventory", async () => {
+    const { adapter, handle } = await subject()
+    const inventory = await adapter.discover({
+      handle,
+      directory: PROJECT_DIRECTORY,
+    })
+    expect(inventory.commands).toEqual([
+      { name: "init", description: "guided AGENTS.md setup" },
+      { name: "review", description: "review changes" },
+    ])
+    expect(inventory.skills).toEqual([
+      { id: "pdf", name: "pdf", description: "Work with PDFs" },
+    ])
+    expect(inventory.auth.providers).toEqual([
+      {
+        id: "anthropic",
+        label: "Anthropic",
+        connected: true,
+        method: "env:ANTHROPIC_API_KEY",
+      },
+      { id: "opencode", label: "OpenCode", connected: true },
+    ])
+  })
+})

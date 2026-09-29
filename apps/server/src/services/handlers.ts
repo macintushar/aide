@@ -37,13 +37,48 @@ export function createCoreCommandHandlers(
       },
     },
     "session.create": {
+      // Not transactional: a worktree session runs git before it commits.
       kind: "local",
-      transactional: true,
       handle(command: CommandFor<"session.create">, db) {
+        if (command.worktree) {
+          return services.projects.createWorktreeSession(
+            command.projectId,
+            command.worktree,
+            command.title
+          )
+        }
         return services.projects.createSession(
           command.projectId,
           command.title,
           db
+        )
+      },
+    },
+    "session.fork": {
+      kind: "local",
+      handle(command: CommandFor<"session.fork">) {
+        return services.projects.forkSession({
+          sessionId: command.sessionId,
+          ...(command.throughTurnId
+            ? { throughTurnId: command.throughTurnId }
+            : {}),
+          ...(command.title ? { title: command.title } : {}),
+          ...(command.worktree ? { worktree: command.worktree } : {}),
+        })
+      },
+    },
+    "session.restore": {
+      kind: "local",
+      handle(command: CommandFor<"session.restore">) {
+        return services.turns.restore(command.sessionId, command.turnId)
+      },
+    },
+    "worktree.remove": {
+      kind: "local",
+      handle(command: CommandFor<"worktree.remove">) {
+        return services.projects.removeWorktree(
+          command.sessionId,
+          command.deleteBranch ?? false
         )
       },
     },
@@ -70,6 +105,12 @@ export function createCoreCommandHandlers(
       async handle(command: CommandFor<"turn.send">, context) {
         context.defer()
         await services.turns.submit({ ...command, context })
+      },
+    },
+    "turn.steer": {
+      kind: "external",
+      async handle(command: CommandFor<"turn.steer">, context) {
+        await services.turns.steer({ ...command, context })
       },
     },
     "turn.interrupt": {

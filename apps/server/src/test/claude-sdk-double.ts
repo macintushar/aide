@@ -5,9 +5,11 @@ import type {
   ClaudeMcpServerStatus,
   ClaudeModelInfo,
   ClaudePermissionDecision,
+  ClaudePromptOptions,
   ClaudeSession,
   ClaudeSessionFactory,
   ClaudeSessionOpenInput,
+  ClaudeSlashCommand,
   ClaudeStreamMessage,
 } from "../harness/claude"
 
@@ -64,6 +66,10 @@ export type ClaudeSessionDoubleOptions = {
   agents?: ClaudeAgentInfo[]
   mcpStatuses?: ClaudeMcpServerStatus[]
   account?: ClaudeAccountInfo
+  /** What `supportedCommands()` lists (commands and skills together). */
+  commands?: ClaudeSlashCommand[]
+  /** What `reloadSkills()` names as skills. */
+  skills?: ClaudeSlashCommand[]
   onDiscover?: () => void
   onOpen?: (input: ClaudeSessionOpenInput) => void
   /** Defaults to {@link conformanceTurnScript}. */
@@ -78,6 +84,8 @@ export type ClaudeSessionDouble = ClaudeSession & {
   readonly interruptCount: number
   readonly closed: boolean
   readonly prompts: string[]
+  /** Prompts sent with options (steering, context-only handoffs). */
+  readonly promptOptions: Array<{ text: string } & ClaudePromptOptions>
 }
 
 type Emitter = {
@@ -340,6 +348,7 @@ export function createClaudeSessionDoubleFactory(
       interruptCount: 0,
       closed: false,
       prompts: [] as string[],
+      promptOptions: [] as Array<{ text: string } & ClaudePromptOptions>,
     }
 
     const session: ClaudeSessionDouble = {
@@ -362,6 +371,9 @@ export function createClaudeSessionDoubleFactory(
       get prompts() {
         return state.prompts
       },
+      get promptOptions() {
+        return state.promptOptions
+      },
       init: {
         // Mirrors `initializationResult()`: models, agents, and account, and
         // deliberately no version — the real handshake has none.
@@ -375,6 +387,7 @@ export function createClaudeSessionDoubleFactory(
         },
         models: options.models ?? DEFAULT_CLAUDE_MODELS,
         agents: options.agents ?? [{ name: "Explore" }],
+        commands: options.commands ?? [],
       },
       query: {
         async supportedModels() {
@@ -383,6 +396,21 @@ export function createClaudeSessionDoubleFactory(
         },
         async supportedAgents() {
           return options.agents ?? [{ name: "Explore" }]
+        },
+        async supportedCommands() {
+          return options.commands ?? []
+        },
+        async reloadSkills() {
+          return { skills: options.skills ?? [] }
+        },
+        async accountInfo() {
+          return (
+            options.account ?? {
+              email: "double@example.test",
+              apiProvider: "firstParty",
+              subscriptionType: "Claude Pro",
+            }
+          )
         },
         async mcpServerStatus() {
           return options.mcpStatuses ?? []
@@ -404,7 +432,13 @@ export function createClaudeSessionDoubleFactory(
         },
       },
       messages: emitter.messages,
-      prompt(text) {
+      prompt(text, promptOptions) {
+        if (promptOptions) state.promptOptions.push({ text, ...promptOptions })
+        // Context-only and steering prompts join the running conversation;
+        // they do not start a scripted turn of their own.
+        if (promptOptions?.shouldQuery === false || promptOptions?.priority) {
+          return
+        }
         state.prompts.push(text)
         // The runtime emits system/init at the start of a turn, never before.
         emitter.emit({

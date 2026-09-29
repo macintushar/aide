@@ -18,12 +18,35 @@ export const projectSchema = z.object({
 
 export type Project = z.infer<typeof projectSchema>
 
+/**
+ * A git worktree Aide created for a session. Aide owns the directory: it lives
+ * under Aide's data directory, not inside the project, and turns in the
+ * session run there instead of in the project directory.
+ */
+export const sessionWorktreeSchema = z.object({
+  path: z.string().min(1),
+  branch: z.string().min(1),
+  baseRef: z.string().min(1),
+})
+
+export type SessionWorktree = z.infer<typeof sessionWorktreeSchema>
+
+/** Where a forked session's copied history came from. */
+export const sessionForkOriginSchema = z.object({
+  sessionId: idSchema,
+  throughMessageSeq: z.number().int().nonnegative(),
+})
+
+export type SessionForkOrigin = z.infer<typeof sessionForkOriginSchema>
+
 export const sessionSchema = z.object({
   id: idSchema,
   projectId: idSchema,
   title: z.string().min(1),
   createdAt: timestampSchema,
   updatedAt: timestampSchema,
+  worktree: sessionWorktreeSchema.optional(),
+  forkedFrom: sessionForkOriginSchema.optional(),
 })
 
 export type Session = z.infer<typeof sessionSchema>
@@ -126,10 +149,34 @@ export const filePartSchema = partBaseSchema.extend({
   mime: z.string().min(1).optional(),
 })
 
+export const subagentStatusSchema = z.enum([
+  "running",
+  "completed",
+  "failed",
+  "stopped",
+])
+
+export type SubagentStatus = z.infer<typeof subagentStatusSchema>
+
+/**
+ * A subagent the turn delegated to. One part per subagent, updated in place as
+ * it runs, the same way a tool part changes `status`.
+ */
 export const agentPartSchema = partBaseSchema.extend({
   type: z.literal("agent"),
   name: z.string().min(1),
   status: z.string().min(1).optional(),
+  description: z.string().optional(),
+  /** Latest progress line while running, final report summary once done. */
+  summary: z.string().optional(),
+  progress: z
+    .object({
+      totalTokens: z.number().nonnegative().optional(),
+      toolUses: z.number().int().nonnegative().optional(),
+      durationMs: z.number().nonnegative().optional(),
+      lastToolName: z.string().optional(),
+    })
+    .optional(),
 })
 
 export const partSchema = z.discriminatedUnion("type", [
@@ -147,6 +194,14 @@ export type ToolPart = z.infer<typeof toolPartSchema>
 export type FilePart = z.infer<typeof filePartSchema>
 export type AgentPart = z.infer<typeof agentPartSchema>
 
+/** A harness command or skill the user invoked, with the text as its arguments. */
+export const invocationSchema = z.object({
+  kind: z.enum(["command", "skill"]),
+  name: z.string().min(1),
+})
+
+export type Invocation = z.infer<typeof invocationSchema>
+
 export const userMessageSchema = z.object({
   id: idSchema,
   sessionId: idSchema,
@@ -154,6 +209,12 @@ export const userMessageSchema = z.object({
   role: z.literal("user"),
   parts: z.array(partSchema),
   execution: resolvedExecutionSchema,
+  invocation: invocationSchema.optional(),
+  /**
+   * Set when the message steered a turn that was already running rather than
+   * starting one of its own.
+   */
+  steer: z.object({ turnId: idSchema }).optional(),
   createdAt: timestampSchema,
 })
 
@@ -164,6 +225,7 @@ export const usageSchema = z.object({
   outputTokens: z.number().nonnegative().optional(),
   cacheReadTokens: z.number().nonnegative().optional(),
   cacheWriteTokens: z.number().nonnegative().optional(),
+  reasoningTokens: z.number().nonnegative().optional(),
   costUsd: z.number().optional(),
 })
 
@@ -331,3 +393,40 @@ export const requestSchema = z.discriminatedUnion("kind", [
 ])
 
 export type Request = z.infer<typeof requestSchema>
+
+/** A harness notice (compaction, retries, and the like) kept with the session. */
+export const noticeSchema = z.object({
+  id: idSchema,
+  turnId: idSchema.optional(),
+  title: z.string().min(1),
+  message: z.string().min(1),
+  level: z.enum(["info", "warning", "error"]).optional(),
+  createdAt: timestampSchema,
+})
+
+export type Notice = z.infer<typeof noticeSchema>
+
+/** A restore point: the working tree as it was just before a turn ran. */
+export const checkpointSchema = z.object({
+  turnId: idSchema,
+  createdAt: timestampSchema,
+})
+
+export type Checkpoint = z.infer<typeof checkpointSchema>
+
+/** One project file matched by a file search. */
+export const fileMatchSchema = z.object({
+  /** Relative to the session's working directory, with forward slashes. */
+  path: z.string().min(1),
+  name: z.string().min(1),
+})
+
+export type FileMatch = z.infer<typeof fileMatchSchema>
+
+export const fileSearchResultSchema = z.object({
+  /** The directory the paths are relative to. */
+  root: z.string().min(1),
+  files: z.array(fileMatchSchema),
+})
+
+export type FileSearchResult = z.infer<typeof fileSearchResultSchema>

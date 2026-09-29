@@ -1350,3 +1350,255 @@ describe("claude dialog normalization", () => {
     expect(questions?.[0].allowFreeText).toBe(false)
   })
 })
+
+describe("claude send: subagents, usage, steering, invocations", () => {
+  /**
+   * Delegates to a subagent whose own messages carry `parent_tool_use_id`,
+   * then reports cumulative usage as the SDK does.
+   */
+  const delegateScript = async (context: ClaudeTurnScriptContext) => {
+    context.emit({
+      type: "system",
+      subtype: "task_started",
+      task_id: "task-1",
+      tool_use_id: "toolu_task",
+      description: "Survey the repository",
+      subagent_type: "Explore",
+    } as never)
+    // The subagent's own reply must not land in the main transcript.
+    context.emit({
+      type: "assistant",
+      uuid: "uuid-sub",
+      parent_tool_use_id: "toolu_task",
+      message: { id: "msg_sub", content: [{ type: "text", text: "inner" }] },
+    })
+    context.emit({
+      type: "system",
+      subtype: "task_progress",
+      task_id: "task-1",
+      description: "Survey the repository",
+      usage: { total_tokens: 1200, tool_uses: 3, duration_ms: 4000 },
+      last_tool_name: "Grep",
+    } as never)
+    context.emit({
+      type: "system",
+      subtype: "task_notification",
+      task_id: "task-1",
+      status: "completed",
+      summary: "Found three entry points",
+      usage: { total_tokens: 1500, tool_uses: 4, duration_ms: 5000 },
+    } as never)
+    context.emit({
+      type: "assistant",
+      uuid: "uuid-main",
+      message: { id: "msg_main", content: [{ type: "text", text: "outer" }] },
+    })
+    context.emit({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      usage: { input_tokens: 10, output_tokens: 5 },
+      total_cost_usd: 0.25,
+      modelUsage: {
+        "claude-opus-5": {
+          inputTokens: 100,
+          outputTokens: 40,
+          cacheReadInputTokens: 20,
+          cacheCreationInputTokens: 10,
+          costUSD: 0.2,
+        },
+        "claude-haiku": {
+          inputTokens: 50,
+          outputTokens: 10,
+          cacheReadInputTokens: 0,
+          cacheCreationInputTokens: 0,
+          costUSD: 0.05,
+        },
+      },
+    })
+  }
+
+  it("reports subagents as agent parts and keeps their messages out", async () => {
+    const { adapter, handle, nativeSession } = await startSession({
+      script: delegateScript,
+    })
+    const stream = collect(adapter.events({ handle, nativeSession }))
+
+    await adapter.send({
+      handle,
+      nativeSession,
+      commandId: "cmd-1",
+      turnId: "turn-1",
+      userMessage: userMessage("look around"),
+      execution: execution(),
+    })
+    await stream.waitFor(
+      (event) => event.type === "turn.completed",
+      "turn.completed"
+    )
+
+    const parts = stream.events.flatMap((event) =>
+      event.type === "part.upserted" ? [event.data.part] : []
+    )
+    const agent = parts.filter((part) => part.type === "agent").at(-1)
+    expect(agent).toMatchObject({
+      type: "agent",
+      name: "Explore",
+      status: "completed",
+      description: "Survey the repository",
+      summary: "Found three entry points",
+      progress: { totalTokens: 1500, toolUses: 4, durationMs: 5000 },
+    })
+    const texts = parts.flatMap((part) =>
+      part.type === "text" ? [part.text] : []
+    )
+    expect(texts).toContain("outer")
+    expect(texts).not.toContain("inner")
+    await stream.stop()
+  })
+
+  it("reports per-turn usage by differencing the SDK's cumulative totals", async () => {
+    let turns = 0
+    const { adapter, handle, nativeSession } = await startSession({
+      script: async (context) => {
+        turns += 1
+        context.emit({
+          type: "assistant",
+          uuid: `uuid-${turns}`,
+          message: {
+            id: `msg-${turns}`,
+            content: [{ type: "text", text: "ok" }],
+          },
+        })
+        context.emit({
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          total_cost_usd: 0.1 * turns,
+          modelUsage: {
+            "claude-opus-5": {
+              inputTokens: 100 * turns,
+              outputTokens: 10 * turns,
+              cacheReadInputTokens: 0,
+              cacheCreationInputTokens: 0,
+              costUSD: 0.1 * turns,
+            },
+          },
+        })
+      },
+    })
+    const stream = collect(adapter.events({ handle, nativeSession }))
+
+    for (const turnId of ["turn-1", "turn-2"]) {
+      await adapter.send({
+        handle,
+        nativeSession,
+        commandId: `cmd-${turnId}`,
+        turnId,
+        userMessage: userMessage("go", turnId === "turn-1" ? 1 : 3),
+        execution: execution(),
+      })
+      await stream.waitFor(
+        (event) =>
+          event.type === "turn.completed" &&
+          event.scope.kind === "session" &&
+          event.scope.turnId === turnId,
+        `${turnId} completed`
+      )
+    }
+
+    const usages = stream.events.flatMap((event) =>
+      event.type === "message.upserted" &&
+      event.data.message.role === "assistant" &&
+      event.data.message.usage
+        ? [event.data.message.usage]
+        : []
+    )
+    expect(usages).toHaveLength(2)
+    expect(usages[1]).toMatchObject({ inputTokens: 100, outputTokens: 10 })
+    expect(usages[1]!.costUsd).toBeCloseTo(0.1)
+    await stream.stop()
+  })
+
+  it("steers a running turn with a next-priority prompt", async () => {
+    const { adapter, handle, nativeSession, createSession } =
+      await startSession({ script: parkOnPermission })
+    const stream = collect(adapter.events({ handle, nativeSession }))
+    await adapter.send({
+      handle,
+      nativeSession,
+      commandId: "cmd-1",
+      turnId: "turn-1",
+      userMessage: userMessage("list files"),
+      execution: execution(),
+    })
+    await stream.waitFor(
+      (event) => event.type === "request.opened",
+      "request.opened"
+    )
+
+    await adapter.steer?.({
+      handle,
+      nativeSession,
+      turnId: "turn-1",
+      message: {
+        ...userMessage("only the src folder", 2),
+        steer: { turnId: "turn-1" },
+      },
+    })
+
+    const session = createSession.sessions.at(-1)!
+    expect(session.promptOptions).toContainEqual({
+      text: "only the src folder",
+      priority: "next",
+    })
+    await expect(
+      adapter.steer?.({
+        handle,
+        nativeSession,
+        turnId: "turn-9",
+        message: userMessage("nope", 3),
+      })
+    ).rejects.toMatchObject({ aideError: { code: "turn_not_active" } })
+    await adapter.interrupt({ handle, nativeSession, turnId: "turn-1" })
+    await stream.stop()
+  })
+
+  it("sends a handoff ahead of a command as context that starts no turn", async () => {
+    const { adapter, handle, nativeSession, createSession } =
+      await startSession({ script: completeImmediately })
+    const stream = collect(adapter.events({ handle, nativeSession }))
+    await adapter.send({
+      handle,
+      nativeSession,
+      commandId: "cmd-1",
+      turnId: "turn-1",
+      userMessage: {
+        ...userMessage("/review 42"),
+        invocation: { kind: "command", name: "review" },
+      },
+      execution: execution(),
+      handoff: {
+        id: "handoff-1",
+        turnId: "turn-1",
+        instanceId: "claude",
+        nativeSessionId: nativeSession.nativeSessionId,
+        role: "handoff",
+        fromMessageSeq: 0,
+        throughMessageSeq: 0,
+        content: "EARLIER CONTEXT",
+        createdAt: new Date(0).toISOString(),
+      },
+    })
+    await stream.waitFor(
+      (event) => event.type === "turn.completed",
+      "turn.completed"
+    )
+    const session = createSession.sessions.at(-1)!
+    expect(session.promptOptions).toEqual([
+      { text: "EARLIER CONTEXT", shouldQuery: false },
+    ])
+    expect(session.prompts).toEqual(["/review 42"])
+    await stream.stop()
+  })
+})

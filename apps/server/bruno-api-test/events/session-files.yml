@@ -1,0 +1,39 @@
+info:
+  name: session-files
+  type: http
+  seq: 4
+
+http:
+  method: GET
+  url: "{{baseUrl}}/sessions/{{sessionId}}/files?query=readme&limit=5"
+  headers:
+    - name: Authorization
+      value: Bearer {{sessionToken}}
+    - name: Origin
+      value: "{{origin}}"
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("searches files in the session's working directory", function () {
+          expect(res.status).to.equal(200);
+          expect(res.body).to.have.property("root").that.is.a("string");
+          expect(res.body).to.have.property("files").that.is.an("array");
+          expect(res.body.files.length).to.be.at.most(5);
+        });
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: "200"
+
+settings:
+  encodeUrl: true
+  timeout: 10000
+  followRedirects: true
+  maxRedirects: 5
+
+docs: |-
+  Fuzzy file search for linking files from the composer. Paths are relative
+  to the session's working directory: its worktree when it has one,
+  otherwise the project directory. Requires a session token.

@@ -1,7 +1,9 @@
 import { z } from "zod"
 
 import {
+  checkpointSchema,
   messageSchema,
+  noticeSchema,
   projectSchema,
   requestSchema,
   sessionSchema,
@@ -38,6 +40,9 @@ export const sessionSnapshotSchema = z.object({
   messages: z.array(messageSchema),
   turns: z.array(turnSchema),
   requests: z.array(requestSchema),
+  notices: z.array(noticeSchema).optional(),
+  /** Turns whose pre-turn working tree can be restored. */
+  checkpoints: z.array(checkpointSchema).optional(),
 })
 
 export type SessionSnapshot = z.infer<typeof sessionSnapshotSchema>

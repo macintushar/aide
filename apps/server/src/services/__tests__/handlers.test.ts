@@ -18,6 +18,12 @@ const context = {
 
 const db = {} as AideDb
 
+function fixture(name: string) {
+  const found = commandFixtures().find((command) => command.name === name)
+  if (!found) throw new Error(`no fixture for ${name}`)
+  return found
+}
+
 function localHandler(handler: unknown): {
   handle(command: unknown, db: AideDb): unknown
 } {
@@ -42,12 +48,23 @@ describe("createCoreCommandHandlers", () => {
       projects,
       turns: {} as TurnService,
     })
-    const commands = commandFixtures()
 
-    await localHandler(handlers["project.open"]).handle(commands[0], db)
-    await localHandler(handlers["session.create"]).handle(commands[2], db)
-    await localHandler(handlers["session.rename"]).handle(commands[3], db)
-    await localHandler(handlers["session.delete"]).handle(commands[4], db)
+    await localHandler(handlers["project.open"]).handle(
+      fixture("project.open"),
+      db
+    )
+    await localHandler(handlers["session.create"]).handle(
+      fixture("session.create"),
+      db
+    )
+    await localHandler(handlers["session.rename"]).handle(
+      fixture("session.rename"),
+      db
+    )
+    await localHandler(handlers["session.delete"]).handle(
+      fixture("session.delete"),
+      db
+    )
 
     expect(projects.open).toHaveBeenCalledWith(
       "/Users/tushar/projects/aide",
@@ -63,7 +80,7 @@ describe("createCoreCommandHandlers", () => {
     expect(projects.deleteSession).toHaveBeenCalledWith("ses_1", db)
   })
 
-  it("marks project and session commands as transactional", () => {
+  it("marks project and session commands as transactional, except create", () => {
     const handlers = createCoreCommandHandlers({
       projects: {} as ProjectService,
       turns: {} as TurnService,
@@ -73,10 +90,12 @@ describe("createCoreCommandHandlers", () => {
       handlers["project.open"]?.kind === "local" &&
         handlers["project.open"].transactional
     ).toBe(true)
+    // A worktree session runs git before it commits, so create cannot hold
+    // the receipt transaction open.
     expect(
       handlers["session.create"]?.kind === "local" &&
         handlers["session.create"].transactional
-    ).toBe(true)
+    ).toBeFalsy()
     expect(
       handlers["session.rename"]?.kind === "local" &&
         handlers["session.rename"].transactional
@@ -85,6 +104,57 @@ describe("createCoreCommandHandlers", () => {
       handlers["session.delete"]?.kind === "local" &&
         handlers["session.delete"].transactional
     ).toBe(true)
+  })
+
+  it("maps fork, restore, worktree and steer commands to their services", async () => {
+    const projects = {
+      forkSession: vi.fn().mockResolvedValue({ id: "fork" }),
+      removeWorktree: vi.fn().mockResolvedValue({ id: "ses_1" }),
+      createWorktreeSession: vi.fn().mockResolvedValue({ id: "wt" }),
+    } as unknown as ProjectService
+    const turns = {
+      restore: vi.fn().mockResolvedValue({ restored: [], removed: [] }),
+      steer: vi.fn(),
+    } as unknown as TurnService
+    const handlers = createCoreCommandHandlers({ projects, turns })
+
+    await localHandler(handlers["session.fork"]).handle(
+      fixture("session.fork"),
+      db
+    )
+    await localHandler(handlers["session.restore"]).handle(
+      fixture("session.restore"),
+      db
+    )
+    await localHandler(handlers["worktree.remove"]).handle(
+      fixture("worktree.remove"),
+      db
+    )
+    await localHandler(handlers["session.create"]).handle(
+      { ...fixture("session.create"), worktree: { branch: "aide/x" } },
+      db
+    )
+    await externalHandler(handlers["turn.steer"]).handle(
+      fixture("turn.steer"),
+      context
+    )
+
+    expect(projects.forkSession).toHaveBeenCalledWith({
+      sessionId: "ses_1",
+      throughTurnId: "turn_1",
+      worktree: { branch: "aide/fork" },
+    })
+    expect(turns.restore).toHaveBeenCalledWith("ses_1", "turn_1")
+    expect(projects.removeWorktree).toHaveBeenCalledWith("ses_1", false)
+    expect(projects.createWorktreeSession).toHaveBeenCalledWith(
+      "proj_1",
+      { branch: "aide/x" },
+      "New session"
+    )
+    expect(turns.steer).toHaveBeenCalledWith({
+      ...fixture("turn.steer"),
+      context,
+    })
   })
 
   it("maps external turn and request commands and defers only turn submission", async () => {
@@ -98,24 +168,29 @@ describe("createCoreCommandHandlers", () => {
       projects: {} as ProjectService,
       turns,
     })
-    const commands = commandFixtures()
 
-    await externalHandler(handlers["turn.send"]).handle(commands[5], context)
+    await externalHandler(handlers["turn.send"]).handle(
+      fixture("turn.send"),
+      context
+    )
     await externalHandler(handlers["turn.interrupt"]).handle(
-      commands[6],
+      fixture("turn.interrupt"),
       context
     )
     await externalHandler(handlers["permission.respond"]).handle(
-      commands[7],
+      fixture("permission.respond"),
       context
     )
     await externalHandler(handlers["input.respond"]).handle(
-      commands[8],
+      fixture("input.respond"),
       context
     )
 
     expect(context.defer).toHaveBeenCalledOnce()
-    expect(turns.submit).toHaveBeenCalledWith({ ...commands[5], context })
+    expect(turns.submit).toHaveBeenCalledWith({
+      ...fixture("turn.send"),
+      context,
+    })
     expect(turns.interrupt).toHaveBeenCalledWith("ses_1", "turn_1", context)
     expect(turns.respondToPermission).toHaveBeenCalledWith(
       "req_perm_1",

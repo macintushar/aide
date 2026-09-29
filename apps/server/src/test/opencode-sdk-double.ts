@@ -159,7 +159,11 @@ export type OpencodeDoubleCalls = {
     | { type: "model"; sessionID: string; model: OpencodeModelRef }
     | { type: "agent"; sessionID: string; agent: string }
     | { type: "prompt"; sessionID: string; id: string; text: string }
+    | { type: "command"; sessionID: string; name: string; text: string }
   >
+  steers: Array<{ sessionID: string; id?: string; text: string }>
+  synthetic: Array<{ sessionID: string; text: string; resume?: boolean }>
+  skillPrompts: Array<{ sessionID: string; skills: string[]; text: string }>
   permissionReplies: Array<{ requestID: string; reply: string }>
   formReplies: Array<{ formID: string; answer: FormAnswer }>
   interrupts: string[]
@@ -218,6 +222,9 @@ export function createOpencodeSdkDouble(
     interrupts: [],
     mcpAdds: [],
     mcpRemoves: [],
+    steers: [],
+    synthetic: [],
+    skillPrompts: [],
   }
   const sessions = new Map<string, SessionState>()
   const live = new EventFanout<OpencodeLiveEvent>()
@@ -389,8 +396,13 @@ export function createOpencodeSdkDouble(
     publishSession(state, "session.step.ended", {
       ...onMessage,
       finish: "stop",
-      cost: 0,
-      tokens: {},
+      cost: 0.0125,
+      tokens: {
+        input: 120,
+        output: 30,
+        reasoning: 5,
+        cache: { read: 10, write: 2 },
+      },
     })
     publishSession(state, "session.execution.succeeded", { sessionID })
     state.running = false
@@ -424,6 +436,57 @@ export function createOpencodeSdkDouble(
     agent: {
       async list() {
         return { data: agents }
+      },
+    },
+    command: {
+      async list() {
+        return {
+          data: [
+            { name: "init", description: "guided AGENTS.md setup" },
+            { name: "review", description: "review changes" },
+          ],
+        }
+      },
+    },
+    skill: {
+      async list() {
+        return {
+          data: [{ id: "pdf", name: "pdf", description: "Work with PDFs" }],
+        }
+      },
+    },
+    provider: {
+      async list() {
+        return {
+          data: [
+            {
+              id: "anthropic",
+              name: "Anthropic",
+              integrationID: "anthropic",
+              activation: "enabled" as const,
+            },
+            {
+              id: "opencode",
+              name: "OpenCode",
+              activation: "enabled" as const,
+            },
+          ],
+        }
+      },
+    },
+    integration: {
+      async list() {
+        return {
+          data: [
+            {
+              id: "anthropic",
+              name: "Anthropic",
+              connections: [
+                { type: "env" as const, name: "ANTHROPIC_API_KEY" },
+              ],
+            },
+          ],
+        }
       },
     },
     session: {
@@ -484,8 +547,33 @@ export function createOpencodeSdkDouble(
         }
         calls.selections.push({ type: "model", sessionID, model })
       },
-      async prompt({ sessionID, id, text }) {
+      async command({ sessionID, name, text }) {
         const state = requireSession(sessionID)
+        calls.selections.push({ type: "command", sessionID, name, text })
+        const messageID = `msg_command_${Date.now()}`
+        state.interrupted = false
+        state.running = true
+        state.wait = deferred<void>()
+        queueMicrotask(() => void runTurn(state, messageID, `/${name} ${text}`))
+      },
+      async synthetic({ sessionID, text, resume }) {
+        requireSession(sessionID)
+        calls.synthetic.push({ sessionID, text, resume })
+        return {}
+      },
+      async prompt({ sessionID, id, text, delivery, skills }) {
+        const state = requireSession(sessionID)
+        if (delivery === "steer") {
+          calls.steers.push({ sessionID, ...(id ? { id } : {}), text })
+          return { id: id ?? `msg_${Date.now()}` }
+        }
+        if (skills && skills.length > 0) {
+          calls.skillPrompts.push({
+            sessionID,
+            skills: skills.map((skill) => skill.id),
+            text,
+          })
+        }
         if (id !== undefined && !id.startsWith("msg_")) {
           throw new Error('Expected a string starting with "msg_"')
         }

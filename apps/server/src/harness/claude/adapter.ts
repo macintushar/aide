@@ -5,8 +5,10 @@ import type {
   AideError,
   AideEvent,
   HarnessCapabilities,
+  HarnessCommand,
   HarnessInventory,
   HarnessModel,
+  HarnessSkill,
   InstanceAuth,
   InstanceRuntimeStatus,
   McpServerConfig,
@@ -35,6 +37,7 @@ import type {
   SendTurnInput,
   SetMcpServersInput,
   StartInstanceInput,
+  SteerTurnInput,
   StopInstanceInput,
 } from "../types"
 import {
@@ -54,6 +57,7 @@ import {
   type ClaudeAccountInfo,
   type ClaudeModelInfo,
   type ClaudeSession,
+  type ClaudeSlashCommand,
   type ClaudeSessionFactory,
 } from "./query"
 
@@ -121,6 +125,10 @@ const CAPABILITIES: HarnessCapabilities = {
     inProcess: true,
     runtimeReconfigure: true,
   },
+  commands: true,
+  skills: true,
+  subagents: true,
+  usage: true,
 }
 
 const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const
@@ -338,10 +346,22 @@ export function createClaudeAdapter(
 
       let models: ClaudeModelInfo[]
       let agents: Array<{ name: string }>
+      let commands: ClaudeSlashCommand[]
+      let skills: ClaudeSlashCommand[]
+      let account: ClaudeAccountInfo
       try {
-        ;[models, agents] = await Promise.all([
+        ;[models, agents, commands, skills, account] = await Promise.all([
           instance.session.query.supportedModels(),
           instance.session.query.supportedAgents(),
+          instance.session.query.supportedCommands(),
+          // Skills also appear among the commands; this names which ones.
+          instance.session.query
+            .reloadSkills()
+            .then((result) => result.skills)
+            .catch(() => []),
+          instance.session.query
+            .accountInfo()
+            .catch(() => instance.session.init.account),
         ])
       } catch (error) {
         throw adapterError(
@@ -361,15 +381,19 @@ export function createClaudeAdapter(
       return {
         instanceId: instance.instanceId,
         driver: "claudeAgent",
-        revision: inventoryRevision(harnessModels, agents),
+        revision: inventoryRevision(harnessModels, agents, [
+          ...commands.map((command) => `/${command.name}`),
+          ...skills.map((skill) => `skill:${skill.name}`),
+        ]),
         discoveredAt: now(),
         stale: false,
         capabilities: CAPABILITIES,
-        auth: authFromAccount(instance.session.init.account),
+        auth: authFromAccount(account),
         models: harnessModels,
         // agentSelection is false; subagents are not a composer control.
         agents: [],
         interactionModes: INTERACTION_MODES,
+        ...splitCommands(commands, skills),
       }
     },
 
@@ -452,6 +476,15 @@ export function createClaudeAdapter(
       const runtime = requireRuntime(input.handle, input.nativeSession)
       const turnId = runtime.activeTurnId()
       return turnId ? { turnId } : undefined
+    },
+
+    async steer(input: SteerTurnInput) {
+      const runtime = requireRuntime(input.handle, input.nativeSession)
+      try {
+        runtime.steer(input.turnId, input.message)
+      } catch (error) {
+        rethrow(error, input.handle.instanceId)
+      }
     },
 
     async interrupt(input: InterruptTurnInput) {
@@ -585,6 +618,7 @@ function authFromAccount(account: ClaudeAccountInfo): InstanceAuth {
   const source = account.apiKeySource ?? account.tokenSource
   const provider = account.apiProvider
   if (!source && !provider && !account.email) return { status: "unknown" }
+  const providerId = provider ?? "firstParty"
   return {
     status: "authenticated",
     ...((source ?? provider) ? { type: source ?? provider! } : {}),
@@ -593,16 +627,68 @@ function authFromAccount(account: ClaudeAccountInfo): InstanceAuth {
         ? (account.subscriptionType ?? "Claude account")
         : (provider ?? `API key (${source})`),
     ...(account.email ? { account: account.email } : {}),
+    ...(account.organization ? { organization: account.organization } : {}),
+    // Claude Code talks to exactly one provider at a time.
+    providers: [
+      {
+        id: providerId,
+        label: PROVIDER_LABELS[providerId] ?? providerId,
+        connected: true,
+        ...(source && source !== "none" ? { method: source } : {}),
+      },
+    ],
+  }
+}
+
+const PROVIDER_LABELS: Record<string, string> = {
+  firstParty: "Anthropic",
+  bedrock: "Amazon Bedrock",
+  vertex: "Google Vertex AI",
+  foundry: "Microsoft Foundry",
+}
+
+/**
+ * `supportedCommands()` lists skills alongside commands, so the skill list
+ * decides which entries are skills. Both are invoked the same way, as `/name`.
+ */
+function splitCommands(
+  commands: ClaudeSlashCommand[],
+  skills: ClaudeSlashCommand[]
+): { commands: HarnessCommand[]; skills: HarnessSkill[] } {
+  const skillNames = new Set(skills.map((skill) => skill.name))
+  const describe = (entry: ClaudeSlashCommand) =>
+    entry.description ? { description: entry.description } : {}
+  const skillEntries = new Map<string, ClaudeSlashCommand>()
+  for (const entry of [...skills, ...commands]) {
+    if (skillNames.has(entry.name) && !skillEntries.has(entry.name)) {
+      skillEntries.set(entry.name, entry)
+    }
+  }
+  return {
+    commands: commands
+      .filter((entry) => !skillNames.has(entry.name))
+      .map((entry) => ({
+        name: entry.name,
+        ...describe(entry),
+        ...(entry.argumentHint ? { argumentHint: entry.argumentHint } : {}),
+      })),
+    skills: [...skillEntries.values()].map((entry) => ({
+      id: entry.name,
+      name: entry.name,
+      ...describe(entry),
+    })),
   }
 }
 
 function inventoryRevision(
   models: HarnessModel[],
-  agents: Array<{ name: string }>
+  agents: Array<{ name: string }>,
+  invocables: string[] = []
 ): string {
   const surface = JSON.stringify({
     models: models.map((model) => model.modelId).sort(),
     agents: agents.map((agent) => agent.name).sort(),
+    ...(invocables.length > 0 ? { invocables: [...invocables].sort() } : {}),
   })
   let hash = 5381
   for (let index = 0; index < surface.length; index += 1) {

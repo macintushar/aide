@@ -25,15 +25,36 @@ export const harnessCapabilitiesSchema = z.object({
     inProcess: z.boolean(),
     runtimeReconfigure: z.boolean(),
   }),
+  /** Invokes `commands` from inventory. */
+  commands: z.boolean().optional(),
+  /** Invokes `skills` from inventory. */
+  skills: z.boolean().optional(),
+  /** Reports subagents as agent parts. */
+  subagents: z.boolean().optional(),
+  /** Reports token usage and cost per turn. */
+  usage: z.boolean().optional(),
 })
 
 export type HarnessCapabilities = z.infer<typeof harnessCapabilitiesSchema>
+
+export const authProviderSchema = z.object({
+  id: z.string().min(1),
+  label: z.string().min(1),
+  connected: z.boolean(),
+  /** How the credential was supplied (API key, OAuth, environment, ...). */
+  method: z.string().min(1).optional(),
+})
+
+export type AuthProvider = z.infer<typeof authProviderSchema>
 
 export const instanceAuthSchema = z.object({
   status: z.enum(["authenticated", "unauthenticated", "expired", "unknown"]),
   type: z.string().min(1).optional(),
   label: z.string().min(1).optional(),
   account: z.string().min(1).optional(),
+  organization: z.string().min(1).optional(),
+  /** Model providers the instance can reach, and whether each is connected. */
+  providers: z.array(authProviderSchema).optional(),
 })
 
 export type InstanceAuth = z.infer<typeof instanceAuthSchema>
@@ -50,6 +71,23 @@ export const harnessModelSchema = z.object({
 
 export type HarnessModel = z.infer<typeof harnessModelSchema>
 
+/** A harness slash command. Invoked by name; the message text is its arguments. */
+export const harnessCommandSchema = z.object({
+  name: z.string().min(1),
+  description: z.string().optional(),
+  argumentHint: z.string().optional(),
+})
+
+export type HarnessCommand = z.infer<typeof harnessCommandSchema>
+
+export const harnessSkillSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string().optional(),
+})
+
+export type HarnessSkill = z.infer<typeof harnessSkillSchema>
+
 export const harnessInventorySchema = z.object({
   instanceId: z.string().min(1),
   driver: driverIdSchema,
@@ -61,6 +99,8 @@ export const harnessInventorySchema = z.object({
   models: z.array(harnessModelSchema),
   agents: z.array(selectOptionSchema),
   interactionModes: z.array(selectOptionSchema),
+  commands: z.array(harnessCommandSchema).optional(),
+  skills: z.array(harnessSkillSchema).optional(),
 })
 
 export type HarnessInventory = z.infer<typeof harnessInventorySchema>

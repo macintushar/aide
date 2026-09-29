@@ -13,11 +13,12 @@ import type {
   SelectOption,
   ToolCategory,
   Turn,
+  Usage,
   UserMessage,
 } from "@workspace/contracts"
 
 import { createEventBus } from "../event-bus"
-import type { NativeSession } from "../types"
+import { messageText, type NativeSession } from "../types"
 import type {
   OpencodeApi,
   OpencodeForm,
@@ -67,6 +68,10 @@ type ActiveTurn = {
   parts: Map<string, Part>
   indexes: Map<string, number>
   toolNames: Map<string, string>
+  /** Subagent (`task` tool) calls, which render as agent parts. */
+  subagentCalls: Set<string>
+  /** Token usage and cost summed over the turn's steps. */
+  usage: Usage | undefined
   /**
    * Set once this turn's `session.execution.started` is seen. A terminal
    * execution event before that belongs to an earlier, already-settled turn
@@ -112,6 +117,7 @@ export type OpencodeSessionRuntime = {
     execution: ResolvedExecution
     handoff?: NativeDispatchInput
   }): Promise<void>
+  steer(turnId: string, message: UserMessage): Promise<void>
   interrupt(turnId: string): Promise<void>
   respondToPermission(request: Request): Promise<void>
   respondToInput(request: Request): Promise<void>
@@ -374,6 +380,8 @@ export async function createOpencodeSessionRuntime(
         parts: new Map(),
         indexes: new Map(),
         toolNames: new Map(),
+        subagentCalls: new Set(),
+        usage: undefined,
         executing: false,
         settled: false,
         interrupting: false,
@@ -466,6 +474,95 @@ export async function createOpencodeSessionRuntime(
     return turn.nativeAssistantMessageIds.has(assistantMessageId)
       ? turn
       : undefined
+  }
+
+  /** OpenCode delegates to a subagent through its `task` tool. */
+  const SUBAGENT_TOOL = "task"
+
+  const agentPart = (
+    turn: ActiveTurn,
+    callId: string,
+    update: {
+      status: "running" | "completed" | "failed"
+      input?: unknown
+      summary?: string
+    }
+  ): void => {
+    const previous = turn.parts.get(`agent-${callId}`)
+    const input =
+      typeof update.input === "object" && update.input !== null
+        ? (update.input as Record<string, unknown>)
+        : {}
+    const name =
+      typeof input.subagent_type === "string" && input.subagent_type
+        ? input.subagent_type
+        : previous?.type === "agent"
+          ? previous.name
+          : "subagent"
+    const description =
+      typeof input.description === "string"
+        ? input.description
+        : previous?.type === "agent"
+          ? previous.description
+          : undefined
+    upsertPart(turn, `agent-${callId}`, {
+      messageId: turn.assistantMessageId,
+      type: "agent",
+      name,
+      status: update.status,
+      ...(description ? { description } : {}),
+      ...(update.summary ? { summary: update.summary.slice(0, 2_000) } : {}),
+    })
+  }
+
+  /** Adds one step's accounting to the turn. */
+  const addUsage = (
+    turn: ActiveTurn,
+    step: {
+      cost?: number
+      tokens?: {
+        input: number
+        output: number
+        reasoning: number
+        cache?: { read: number; write: number }
+      }
+    }
+  ): void => {
+    if (step.cost === undefined && step.tokens === undefined) return
+    const current = turn.usage ?? {}
+    turn.usage = {
+      inputTokens: (current.inputTokens ?? 0) + (step.tokens?.input ?? 0),
+      outputTokens: (current.outputTokens ?? 0) + (step.tokens?.output ?? 0),
+      reasoningTokens:
+        (current.reasoningTokens ?? 0) + (step.tokens?.reasoning ?? 0),
+      cacheReadTokens:
+        (current.cacheReadTokens ?? 0) + (step.tokens?.cache?.read ?? 0),
+      cacheWriteTokens:
+        (current.cacheWriteTokens ?? 0) + (step.tokens?.cache?.write ?? 0),
+      costUsd: (current.costUsd ?? 0) + (step.cost ?? 0),
+    }
+  }
+
+  /** Reports the turn's usage on its assistant message before it settles. */
+  const reportUsage = (turn: ActiveTurn): void => {
+    if (!turn.usage) return
+    emit({
+      type: "message.upserted",
+      data: {
+        message: {
+          id: turn.assistantMessageId,
+          sessionId: aideSessionId,
+          // The core keeps its own metadata; only usage is taken from here.
+          seq: 0,
+          role: "assistant",
+          parentMessageId: turn.turn.userMessageId,
+          createdAt: turn.turn.startedAt ?? now(),
+          usage: turn.usage,
+        },
+      },
+      turnId: turn.turnId,
+      messageId: turn.assistantMessageId,
+    })
   }
 
   const toolPart = (
@@ -618,10 +715,15 @@ export async function createOpencodeSessionRuntime(
     active = undefined
   }
 
-  const notice = (turn: ActiveTurn, title: string, message: string): void => {
+  const notice = (
+    turn: ActiveTurn,
+    title: string,
+    message: string,
+    level: "info" | "warning" | "error" = "warning"
+  ): void => {
     emit({
       type: "notice.created",
-      data: { title, message, level: "warning" },
+      data: { title, message, level },
       turnId: turn.turnId,
     })
   }
@@ -672,12 +774,24 @@ export async function createOpencodeSessionRuntime(
         const owner = turnFor(event.data.assistantMessageID)
         if (!owner) return
         owner.toolNames.set(event.data.id, event.data.name)
+        if (event.data.name.toLowerCase() === SUBAGENT_TOOL) {
+          owner.subagentCalls.add(event.data.id)
+          agentPart(owner, event.data.id, { status: "running" })
+          return
+        }
         toolPart(owner, event.data.id, { status: "pending" })
         return
       }
       case "session.tool.called": {
         const owner = turnFor(event.data.assistantMessageID)
         if (!owner) return
+        if (owner.subagentCalls.has(event.data.id)) {
+          agentPart(owner, event.data.id, {
+            status: "running",
+            input: event.data.input,
+          })
+          return
+        }
         toolPart(owner, event.data.id, {
           status: "running",
           input: event.data.input,
@@ -692,6 +806,17 @@ export async function createOpencodeSessionRuntime(
         const text = content
           .flatMap((entry) => (entry.type === "text" ? [entry.text] : []))
           .join("\n")
+        if (owner.subagentCalls.has(event.data.id)) {
+          agentPart(owner, event.data.id, {
+            status:
+              event.type === "session.tool.success" ? "completed" : "failed",
+            summary:
+              event.type === "session.tool.failed"
+                ? event.data.error.message
+                : text,
+          })
+          return
+        }
         toolPart(owner, event.data.id, {
           status:
             event.type === "session.tool.success" ? "completed" : "failed",
@@ -721,6 +846,13 @@ export async function createOpencodeSessionRuntime(
         )
         return
       }
+      case "session.step.ended":
+      case "session.step.failed": {
+        const owner = turnFor(event.data.assistantMessageID)
+        if (!owner) return
+        addUsage(owner, event.data)
+        return
+      }
       case "session.compaction.started":
         if (!turn || turn.settled) return
         notice(
@@ -729,16 +861,36 @@ export async function createOpencodeSessionRuntime(
           "OpenCode is compacting its context."
         )
         return
+      case "session.compaction.ended":
+        if (!turn || turn.settled) return
+        notice(
+          turn,
+          "Context compacted",
+          "OpenCode compacted its context. Compaction is harness-private; the Aide transcript is unchanged.",
+          "info"
+        )
+        return
+      case "session.compaction.failed":
+        if (!turn || turn.settled) return
+        notice(
+          turn,
+          "Compaction failed",
+          "OpenCode could not compact its context."
+        )
+        return
       case "session.execution.succeeded":
         if (!turn || !turn.executing) return
+        reportUsage(turn)
         settle(turn.interrupting ? "turn.interrupted" : "turn.completed")
         return
       case "session.execution.interrupted":
         if (!turn || !turn.executing) return
+        reportUsage(turn)
         settle("turn.interrupted")
         return
       case "session.execution.failed": {
         if (!turn || !turn.executing) return
+        reportUsage(turn)
         if (turn.interrupting) {
           settle("turn.interrupted")
           return
@@ -1060,6 +1212,8 @@ export async function createOpencodeSessionRuntime(
         parts: new Map(),
         indexes: new Map(),
         toolNames: new Map(),
+        subagentCalls: new Set(),
+        usage: undefined,
         executing: false,
         settled: false,
         interrupting: false,
@@ -1081,10 +1235,8 @@ export async function createOpencodeSessionRuntime(
         messageId: assistantMessageId,
       })
 
-      const text = input.userMessage.parts
-        .filter((part) => part.type === "text")
-        .map((part) => part.text)
-        .join("\n")
+      const { text, arguments: args } = messageText(input.userMessage)
+      const invocation = input.userMessage.invocation
       const prefix = input.handoff?.content
       const files = input.userMessage.parts
         .filter((part) => part.type === "file")
@@ -1099,13 +1251,37 @@ export async function createOpencodeSessionRuntime(
         native.resumeCursor = String(observedCursor)
       }
       try {
-        await api.session.prompt({
-          sessionID: session.id,
-          id: nativeMessageId(input.userMessage.id),
-          text: prefix ? `${prefix}\n\n${text}` : text,
-          ...(files.length > 0 ? { files } : {}),
-          delivery: "queue",
-        })
+        if (invocation?.kind === "command") {
+          // A command takes only its arguments, so earlier history goes in
+          // first as context that starts no execution of its own.
+          if (prefix) {
+            await api.session.synthetic({
+              sessionID: session.id,
+              text: prefix,
+              description: "Conversation so far, handed over by Aide",
+              resume: false,
+            })
+          }
+          await api.session.command({
+            sessionID: session.id,
+            name: invocation.name,
+            text: args,
+            ...(files.length > 0 ? { files } : {}),
+            delivery: "queue",
+          })
+        } else {
+          const body = invocation ? args : text
+          await api.session.prompt({
+            sessionID: session.id,
+            id: nativeMessageId(input.userMessage.id),
+            text: prefix ? `${prefix}\n\n${body}` : body,
+            ...(files.length > 0 ? { files } : {}),
+            ...(invocation?.kind === "skill"
+              ? { skills: [{ id: invocation.name }] }
+              : {}),
+            delivery: "queue",
+          })
+        }
       } catch (error) {
         active = undefined
         throw runtimeError(
@@ -1125,6 +1301,30 @@ export async function createOpencodeSessionRuntime(
           retryable: true,
         })
       })
+    },
+
+    async steer(turnId, message) {
+      const turn = active
+      if (!turn || turn.turnId !== turnId || turn.settled) {
+        throw runtimeError(
+          "turn_not_active",
+          `OpenCode turn "${turnId}" is not running, so it cannot be steered`,
+          instanceId
+        )
+      }
+      await call(
+        () =>
+          api.session.prompt({
+            sessionID: session.id,
+            id: nativeMessageId(message.id),
+            text: messageText(message).text,
+            delivery: "steer",
+          }),
+        "steer_failed",
+        `OpenCode did not accept the steering message for turn "${turnId}"`,
+        instanceId,
+        true
+      )
     },
 
     async interrupt(turnId) {
