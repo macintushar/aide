@@ -1,7 +1,9 @@
 import type {
   Command,
   CommandReceipt,
+  FilePreview,
   FileSearchResult,
+  HarnessInventory,
   Session,
 } from "@workspace/contracts"
 import {
@@ -22,8 +24,14 @@ import {
 import { createReadClient } from "@/lib/transport/read-client"
 import { createSessionStore, type SessionStoreState } from "@/store/event-store"
 
-type ReadClient = Pick<ReturnType<typeof createReadClient>, "getSession"> &
-  Partial<Pick<ReturnType<typeof createReadClient>, "searchFiles">>
+type FullReadClient = ReturnType<typeof createReadClient>
+type ReadClient = Pick<FullReadClient, "getSession"> &
+  Partial<
+    Pick<
+      FullReadClient,
+      "searchFiles" | "getFile" | "getArtifact" | "getSessionInventory"
+    >
+  >
 type CommandClient = Pick<ReturnType<typeof createCommandClient>, "send">
 type Subscribe = (options: SessionEventsOptions) => { close(): void }
 
@@ -39,6 +47,12 @@ export type SessionContextValue = {
   retry: () => void
   /** Present when the server can search this session's files. */
   searchFiles?: (query: string) => Promise<FileSearchResult>
+  readFile?: (path: string) => Promise<FilePreview>
+  readArtifact?: (artifactId: string) => Promise<string>
+  /** Inventory for this session's project directory on one instance. */
+  sessionInventory?: (instanceId: string) => Promise<HarnessInventory>
+  /** Called after this session is deleted, so the host can navigate away. */
+  onDeleted?: () => void
   /** Opens another session (a fork, for one), when the host allows it. */
   openSession?: (sessionId: string) => void
   /** Applies a session record a command returned (e.g. worktree removal). */
@@ -52,6 +66,7 @@ export type SessionProviderProps = {
   subscribe?: Subscribe
   reconnectDelayMs?: number
   openSession?: (sessionId: string) => void
+  onSessionDeleted?: () => void
   children: React.ReactNode
 }
 
@@ -98,6 +113,7 @@ function SessionController({
   subscribe = subscribeSessionEvents,
   reconnectDelayMs = 1_000,
   openSession,
+  onSessionDeleted,
   children,
 }: SessionProviderProps & { sessionId: string }) {
   const [store] = useState(createSessionStore)
@@ -165,6 +181,29 @@ function SessionController({
     [readClient, sessionId]
   )
 
+  const reads = useMemo(
+    () => ({
+      ...(readClient.getFile
+        ? {
+            readFile: (path: string) => readClient.getFile!(sessionId, path),
+          }
+        : {}),
+      ...(readClient.getArtifact
+        ? {
+            readArtifact: (artifactId: string) =>
+              readClient.getArtifact!(artifactId),
+          }
+        : {}),
+      ...(readClient.getSessionInventory
+        ? {
+            sessionInventory: (instanceId: string) =>
+              readClient.getSessionInventory!(sessionId, instanceId),
+          }
+        : {}),
+    }),
+    [readClient, sessionId]
+  )
+
   async function send(command: Command) {
     setCommandError(undefined)
     setPending(true)
@@ -188,6 +227,8 @@ function SessionController({
     send,
     retry: () => setAttempt((current) => current + 1),
     ...(searchFiles ? { searchFiles } : {}),
+    ...reads,
+    ...(onSessionDeleted ? { onDeleted: onSessionDeleted } : {}),
     ...(openSession ? { openSession } : {}),
     applySession: store.applySession,
   }

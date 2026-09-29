@@ -2,9 +2,11 @@ import {
   projectSchema,
   sessionSchema,
   type Project,
+  type ProjectList,
+  type ProjectSummary,
 } from "@workspace/contracts"
 import { Button } from "@workspace/ui/components/button"
-import { useState, type FormEvent } from "react"
+import { useEffect, useState, type FormEvent } from "react"
 
 import {
   createCommandClient,
@@ -16,10 +18,13 @@ type CommandClient = Pick<ReturnType<typeof createCommandClient>, "send">
 export function SessionNavigation({
   commandClient,
   activeSessionId,
+  listProjects,
   onSelectSession,
 }: {
   commandClient: CommandClient
   activeSessionId?: string
+  /** Lists projects the server already knows, so they need no retyping. */
+  listProjects?: () => Promise<ProjectList>
   onSelectSession: (sessionId: string) => void
 }) {
   const [sessionId, setSessionId] = useState(activeSessionId ?? "")
@@ -29,6 +34,20 @@ export function SessionNavigation({
   const [pending, setPending] = useState(false)
   const [useWorktree, setUseWorktree] = useState(false)
   const [branch, setBranch] = useState("")
+  const [known, setKnown] = useState<ProjectSummary[]>([])
+
+  useEffect(() => {
+    if (!listProjects) return
+    let active = true
+    listProjects()
+      .then((list) => {
+        if (active) setKnown(list.projects)
+      })
+      .catch(() => undefined)
+    return () => {
+      active = false
+    }
+  }, [listProjects])
 
   function openSession(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -104,6 +123,38 @@ export function SessionNavigation({
             Open
           </Button>
         </div>
+        {known.length > 0 && !project ? (
+          <div className="mt-3">
+            <p className="text-small text-muted-foreground">
+              Or pick a known project
+            </p>
+            <ul
+              className="mt-1 flex flex-col gap-0.5"
+              aria-label="Known projects"
+            >
+              {known.map((candidate) => (
+                <li key={candidate.id}>
+                  <button
+                    type="button"
+                    title={candidate.directory}
+                    onClick={() => {
+                      setDirectory(candidate.directory)
+                      setProject(candidate)
+                    }}
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-ui hover:bg-muted"
+                  >
+                    <span className="min-w-0 flex-1 truncate">
+                      {candidate.name}
+                    </span>
+                    <span className="truncate text-small text-muted-foreground">
+                      {candidate.directory}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
         {project ? (
           <div className="mt-3 flex flex-col gap-2 rounded-lg bg-muted/50 px-3 py-2">
             <div className="flex items-center justify-between gap-3">

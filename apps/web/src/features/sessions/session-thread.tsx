@@ -3,13 +3,18 @@ import { Button } from "@workspace/ui/components/button"
 import { EmptyState } from "@workspace/ui/components/empty-state"
 import { ScrollArea } from "@workspace/ui/components/scroll-area"
 import { RiQuestionAnswerLine } from "@remixicon/react"
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import { Composer } from "@/features/composer"
 import { useInstances } from "@/features/instances"
 import { useRequiredSession } from "@/features/sessions/session-provider"
 import { RequestCard } from "@/features/transcript/request-card"
 import { NoticeView, Transcript } from "@/features/transcript/transcript"
+import {
+  TranscriptActionsProvider,
+  type TranscriptActions,
+} from "@/features/transcript/actions"
+import { ArtifactModal, FilePreviewModal } from "./viewers"
 import { TypingIndicator } from "@/features/transcript/typing-indicator"
 import { newCommandId } from "@/lib/transport/command-client"
 import {
@@ -35,7 +40,12 @@ export function SessionThread() {
     sessionId,
     searchFiles,
     openSession,
+    readFile,
+    readArtifact,
+    sessionInventory,
   } = useRequiredSession()
+  const [previewPath, setPreviewPath] = useState<string>()
+  const [artifactId, setArtifactId] = useState<string>()
   const { state: instancesState } = useInstances()
   const viewportRef = useRef<HTMLDivElement>(null)
   const messageCount = state.messages.length
@@ -91,6 +101,27 @@ export function SessionThread() {
   const canSteer =
     runningTurn !== undefined &&
     runningInstance?.inventory?.capabilities.steer === true
+  const canStopSubagent =
+    runningTurn !== undefined &&
+    runningInstance?.inventory?.capabilities.subagentStop === true
+
+  const actions: TranscriptActions = {
+    ...(readFile ? { openFile: setPreviewPath } : {}),
+    ...(readArtifact ? { openArtifact: setArtifactId } : {}),
+    ...(canStopSubagent && runningTurn
+      ? {
+          stopSubagent: (taskId: string) => {
+            void send({
+              name: "subagent.stop",
+              commandId: newCommandId(),
+              sessionId,
+              turnId: runningTurn.id,
+              taskId,
+            })
+          },
+        }
+      : {}),
+  }
 
   // Notices that belong to no turn, or to a turn with no reply to hang them
   // on, run along the end of the transcript.
@@ -162,113 +193,130 @@ export function SessionThread() {
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col" aria-busy={pending}>
-      <ScrollArea className="flex-1" viewportRef={viewportRef}>
-        <div className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-6">
-          {state.messages.length > 0 ? (
-            <Transcript
-              messages={state.messages}
-              turns={state.turns}
-              notices={state.notices}
-              restorable={restorable}
-              onFork={(turnId) => void fork(turnId)}
-              onRestore={restore}
-              actionsDisabled={pending}
-            />
-          ) : (
-            <EmptyState
-              icon={<RiQuestionAnswerLine />}
-              title="No messages yet"
-              description="Send the first message to start this session."
-            />
-          )}
+    <TranscriptActionsProvider value={actions}>
+      <div className="flex min-h-0 flex-1 flex-col" aria-busy={pending}>
+        {previewPath && readFile ? (
+          <FilePreviewModal
+            path={previewPath}
+            load={readFile}
+            onClose={() => setPreviewPath(undefined)}
+          />
+        ) : null}
+        {artifactId && readArtifact ? (
+          <ArtifactModal
+            artifactId={artifactId}
+            load={readArtifact}
+            onClose={() => setArtifactId(undefined)}
+          />
+        ) : null}
+        <ScrollArea className="flex-1" viewportRef={viewportRef}>
+          <div className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-6">
+            {state.messages.length > 0 ? (
+              <Transcript
+                messages={state.messages}
+                turns={state.turns}
+                notices={state.notices}
+                restorable={restorable}
+                onFork={(turnId) => void fork(turnId)}
+                onRestore={restore}
+                actionsDisabled={pending}
+              />
+            ) : (
+              <EmptyState
+                icon={<RiQuestionAnswerLine />}
+                title="No messages yet"
+                description="Send the first message to start this session."
+              />
+            )}
 
-          {looseNotices.length > 0 ? (
-            <div className="flex flex-col gap-2">
-              {looseNotices.map((notice) => (
-                <NoticeView key={notice.id} notice={notice} />
-              ))}
-            </div>
-          ) : null}
+            {looseNotices.length > 0 ? (
+              <div className="flex flex-col gap-2">
+                {looseNotices.map((notice) => (
+                  <NoticeView key={notice.id} notice={notice} />
+                ))}
+              </div>
+            ) : null}
 
-          {openRequests.length > 0 ? (
-            <section
-              aria-labelledby="requests-heading"
-              className="flex flex-col gap-3"
-            >
-              <h2
-                id="requests-heading"
-                className="text-label text-warn uppercase"
+            {openRequests.length > 0 ? (
+              <section
+                aria-labelledby="requests-heading"
+                className="flex flex-col gap-3"
               >
-                Waiting on you
-              </h2>
-              {openRequests.map((request) => (
-                <RequestCard
-                  key={request.id}
-                  request={request}
-                  onResolve={(resolution) =>
-                    resolveRequest(request, resolution)
-                  }
-                />
-              ))}
-            </section>
-          ) : null}
+                <h2
+                  id="requests-heading"
+                  className="text-label text-warn uppercase"
+                >
+                  Waiting on you
+                </h2>
+                {openRequests.map((request) => (
+                  <RequestCard
+                    key={request.id}
+                    request={request}
+                    onResolve={(resolution) =>
+                      resolveRequest(request, resolution)
+                    }
+                  />
+                ))}
+              </section>
+            ) : null}
 
-          {typingNow ? (
-            <div className="flex flex-col gap-2">
-              <span className="text-label text-muted-foreground uppercase">
-                Assistant
-              </span>
-              <TypingIndicator />
-            </div>
+            {typingNow ? (
+              <div className="flex flex-col gap-2">
+                <span className="text-label text-muted-foreground uppercase">
+                  Assistant
+                </span>
+                <TypingIndicator />
+              </div>
+            ) : null}
+          </div>
+        </ScrollArea>
+
+        <div className="mx-auto w-full max-w-3xl px-4">
+          {streamError ? (
+            <p role="status" className="text-small text-warn">
+              Live updates interrupted. Reconnecting…
+            </p>
+          ) : null}
+          {commandError ? (
+            <p role="alert" className="text-small text-destructive">
+              Command failed: {commandError}
+            </p>
           ) : null}
         </div>
-      </ScrollArea>
 
-      <div className="mx-auto w-full max-w-3xl px-4">
-        {streamError ? (
-          <p role="status" className="text-small text-warn">
-            Live updates interrupted. Reconnecting…
-          </p>
-        ) : null}
-        {commandError ? (
-          <p role="alert" className="text-small text-destructive">
-            Command failed: {commandError}
-          </p>
-        ) : null}
+        <Composer
+          sources={{
+            instances: instancesState.instances,
+            ...(execution ? { lastSent: execution.selection } : {}),
+          }}
+          disabled={pending}
+          {...(searchFiles ? { searchFiles } : {})}
+          {...(sessionInventory ? { sessionInventory } : {})}
+          onSend={({ content, execution: selection, invocation }) => {
+            void send({
+              name: "turn.send",
+              commandId: newCommandId(),
+              sessionId,
+              content,
+              execution: selection,
+              ...(invocation ? { invocation } : {}),
+            })
+          }}
+          {...(canSteer && runningTurn
+            ? {
+                onSteer: (content: string) => {
+                  void send({
+                    name: "turn.steer",
+                    commandId: newCommandId(),
+                    sessionId,
+                    turnId: runningTurn.id,
+                    content,
+                  })
+                },
+              }
+            : {})}
+        />
       </div>
-
-      <Composer
-        sources={{
-          instances: instancesState.instances,
-          ...(execution ? { lastSent: execution.selection } : {}),
-        }}
-        disabled={pending}
-        {...(searchFiles ? { searchFiles } : {})}
-        onSend={({ content, execution: selection, invocation }) => {
-          void send({
-            name: "turn.send",
-            commandId: newCommandId(),
-            sessionId,
-            content,
-            execution: selection,
-            ...(invocation ? { invocation } : {}),
-          })
-        }}
-        {...(canSteer && runningTurn
-          ? {
-              onSteer: (content: string) => {
-                void send({
-                  name: "turn.steer",
-                  commandId: newCommandId(),
-                  sessionId,
-                  turnId: runningTurn.id,
-                  content,
-                })
-              },
-            }
-          : {})}
-      />
-    </div>
+    </TranscriptActionsProvider>
   )
 }

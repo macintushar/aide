@@ -136,6 +136,12 @@ export function createInstancesStore() {
               : {}),
           }))
           break
+        case "harness.mcp_status_changed":
+          patch(event.instanceId, (entry) => ({
+            ...entry,
+            mcpServers: event.data.servers,
+          }))
+          break
         case "config.updated":
           state = { ...state, configRevision: state.configRevision + 1 }
           break

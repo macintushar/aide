@@ -12,6 +12,7 @@ import {
   type ConfigDraft,
   type DraftValidation,
 } from "./config-draft"
+import { DriverConfigFields } from "@/features/settings/driver-config-fields"
 
 /**
  * The entire configuration surface of the product.
@@ -136,7 +137,11 @@ export function SettingsForm({
                     className={FIELD}
                     value={instance.driver}
                     onChange={(event) =>
-                      updateInstance(index, { driver: event.target.value })
+                      // Each driver's config is a different strict shape.
+                      updateInstance(index, {
+                        driver: event.target.value,
+                        config: {},
+                      })
                     }
                   >
                     {DRIVERS.map((driver) => (
@@ -184,6 +189,14 @@ export function SettingsForm({
                     Start at boot
                   </label>
                 </div>
+              </div>
+              <div className="mt-3">
+                <DriverConfigFields
+                  key={`${index}-${instance.driver}`}
+                  driver={instance.driver}
+                  config={instance.config}
+                  onChange={(config) => updateInstance(index, { config })}
+                />
               </div>
               <p className="mt-2 text-small text-muted-foreground">
                 Leave &ldquo;Start at boot&rdquo; off for an expensive instance:

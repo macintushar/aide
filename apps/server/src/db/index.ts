@@ -53,10 +53,21 @@ export function initializeDb(fileName = env.DB_FILE_NAME): AideDb {
 
   const client = new Database(fileName, { create: true })
   client.exec("PRAGMA journal_mode = WAL")
-  client.exec("PRAGMA foreign_keys = ON")
+  // Migrations that rebuild a referenced table (SQLite's only way to change a
+  // CHECK constraint) drop it mid-transaction. The migrator wraps everything
+  // in one transaction, where `PRAGMA foreign_keys` is a no-op, so the switch
+  // has to happen out here; the check afterwards keeps the guarantee.
+  client.exec("PRAGMA foreign_keys = OFF")
   const initialized = createDb(client)
   try {
     migrate(initialized, { migrationsFolder })
+    const violations = client.prepare("PRAGMA foreign_key_check").all()
+    if (violations.length > 0) {
+      throw new Error(
+        `Migrations left ${violations.length} foreign key violation(s)`
+      )
+    }
+    client.exec("PRAGMA foreign_keys = ON")
     return initialized
   } catch (error) {
     client.close()

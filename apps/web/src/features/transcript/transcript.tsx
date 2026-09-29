@@ -9,7 +9,9 @@ import type {
 } from "@workspace/contracts"
 import { Button } from "@workspace/ui/components/button"
 
+import { useTranscriptActions } from "./actions"
 import { ExecutionDisplay } from "./execution-display"
+import { Markdown } from "./markdown"
 import { formatUsage } from "./usage"
 
 const toolStatusStyles: Record<ToolPart["status"], string> = {
@@ -42,6 +44,7 @@ function toolInputText(input: unknown): string | undefined {
  */
 export function ToolPartView({ part }: { part: ToolPart }) {
   const input = toolInputText(part.input)
+  const { openArtifact } = useTranscriptActions()
 
   return (
     <div
@@ -84,6 +87,18 @@ export function ToolPartView({ part }: { part: ToolPart }) {
         >
           Output was truncated; the full text is stored as artifact{" "}
           <span className="font-mono">{part.artifactId}</span>.
+          {openArtifact ? (
+            <>
+              {" "}
+              <button
+                type="button"
+                className="text-accent-ink underline underline-offset-2"
+                onClick={() => openArtifact(part.artifactId!)}
+              >
+                View full output
+              </button>
+            </>
+          ) : null}
         </p>
       ) : null}
     </div>
@@ -91,9 +106,15 @@ export function ToolPartView({ part }: { part: ToolPart }) {
 }
 
 function PartView({ part }: { part: Part }) {
+  const { openFile } = useTranscriptActions()
   switch (part.type) {
     case "text":
-      return <p className="text-sm whitespace-pre-wrap">{part.text}</p>
+      return (
+        <Markdown
+          text={part.text}
+          {...(openFile ? { onOpenFile: openFile } : {})}
+        />
+      )
     case "reasoning":
       // Reasoning is suppressed from *transfer* between harnesses, never from
       // display: every native client shows it, and hiding it here would be a
@@ -134,6 +155,7 @@ const agentStatusStyles: Record<string, string> = {
 /** A subagent the turn delegated to, updated in place as it runs. */
 export function AgentPartView({ part }: { part: AgentPart }) {
   const progress = part.progress
+  const { stopSubagent } = useTranscriptActions()
   const facts = [
     progress?.toolUses !== undefined
       ? `${progress.toolUses} tool call${progress.toolUses === 1 ? "" : "s"}`
@@ -168,6 +190,16 @@ export function AgentPartView({ part }: { part: AgentPart }) {
           >
             {part.status}
           </span>
+        ) : null}
+        {part.status === "running" && part.taskId && stopSubagent ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => stopSubagent(part.taskId!)}
+          >
+            Stop subagent
+          </Button>
         ) : null}
       </div>
       {part.description ? (

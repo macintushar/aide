@@ -41,6 +41,13 @@ export function InstancesView() {
         commandId: newCommandId(),
         instanceId,
       }),
+    onReconnectMcp: (instanceId, serverName) =>
+      void send({
+        name: "mcp.reconnect",
+        commandId: newCommandId(),
+        instanceId,
+        serverName,
+      }),
   }
 
   if (!state.snapshotApplied && !loadError) {

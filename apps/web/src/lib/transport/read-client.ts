@@ -1,10 +1,18 @@
 import {
+  filePreviewSchema,
   fileSearchResultSchema,
   globalConfigRecordSchema,
+  harnessInventorySchema,
+  projectListSchema,
+  sessionListSchema,
   instancesSnapshotSchema,
   projectConfigRecordSchema,
   sessionSnapshotSchema,
+  type FilePreview,
   type FileSearchResult,
+  type HarnessInventory,
+  type ProjectList,
+  type SessionList,
   type GlobalConfigRecord,
   type InstancesSnapshot,
   type ProjectConfigRecord,
@@ -38,7 +46,7 @@ export function createReadClient(options: ReadClientOptions = {}) {
   const baseUrl = options.baseUrl?.replace(/\/$/, "") ?? ""
   const fetchImpl = options.fetchImpl ?? fetch
 
-  async function get(path: string): Promise<unknown> {
+  async function fetchWithAuth(path: string): Promise<Response> {
     let response = await fetchImpl(`${baseUrl}${path}`, {
       headers: await readHeaders(options),
     })
@@ -49,6 +57,11 @@ export function createReadClient(options: ReadClientOptions = {}) {
         headers: await readHeaders(options),
       })
     }
+    return response
+  }
+
+  async function get(path: string): Promise<unknown> {
+    const response = await fetchWithAuth(path)
     const body = await readResponseBody(response)
     if (!response.ok) throw new ReadError(response.status, body)
     return body
@@ -75,6 +88,47 @@ export function createReadClient(options: ReadClientOptions = {}) {
       return fileSearchResultSchema.parse(
         await get(
           `/sessions/${encodeURIComponent(sessionId)}/files?${params.toString()}`
+        )
+      )
+    },
+
+    async listProjects(): Promise<ProjectList> {
+      return projectListSchema.parse(await get("/projects"))
+    },
+
+    async listSessions(projectId: string): Promise<SessionList> {
+      return sessionListSchema.parse(
+        await get(`/projects/${encodeURIComponent(projectId)}/sessions`)
+      )
+    },
+
+    /** One file from the session's working directory. */
+    async getFile(sessionId: string, path: string): Promise<FilePreview> {
+      return filePreviewSchema.parse(
+        await get(
+          `/sessions/${encodeURIComponent(sessionId)}/file?path=${encodeURIComponent(path)}`
+        )
+      )
+    },
+
+    /** Full tool output that was too long to keep inline. */
+    async getArtifact(artifactId: string): Promise<string> {
+      const response = await fetchWithAuth(
+        `/artifacts/${encodeURIComponent(artifactId)}`
+      )
+      const text = await response.text()
+      if (!response.ok) throw new ReadError(response.status, text)
+      return text
+    },
+
+    /** Inventory for the session's project directory. */
+    async getSessionInventory(
+      sessionId: string,
+      instanceId: string
+    ): Promise<HarnessInventory> {
+      return harnessInventorySchema.parse(
+        await get(
+          `/sessions/${encodeURIComponent(sessionId)}/inventory?instanceId=${encodeURIComponent(instanceId)}`
         )
       )
     },

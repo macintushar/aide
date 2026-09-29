@@ -103,6 +103,7 @@ export type InstanceActions = {
   onStop?: (instanceId: string) => void
   onRestart?: (instanceId: string) => void
   onRefreshInventory?: (instanceId: string) => void
+  onReconnectMcp?: (instanceId: string, serverName: string) => void
 }
 
 export function InstanceCard({
@@ -159,6 +160,48 @@ export function InstanceCard({
           No inventory discovered yet
         </p>
       )}
+
+      {instance.mcpServers && instance.mcpServers.length > 0 ? (
+        <ul
+          className="mt-2 flex flex-col gap-1"
+          aria-label={`${instance.displayName ?? instance.instanceId} MCP servers`}
+        >
+          {instance.mcpServers.map((server) => (
+            <li
+              key={server.name}
+              className="flex items-center gap-2 text-small"
+              title={server.error?.message}
+            >
+              <span
+                className={`size-1.5 shrink-0 rounded-full ${
+                  server.connected ? "bg-ok" : "bg-destructive"
+                }`}
+                aria-hidden="true"
+              />
+              <span className="min-w-0 flex-1 truncate font-mono">
+                {server.name}
+              </span>
+              <span className="text-muted-foreground">
+                {server.connected ? "connected" : "disconnected"}
+              </span>
+              {!server.connected &&
+              running &&
+              instance.inventory?.capabilities.mcpReconnect === true ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="xs"
+                  onClick={() =>
+                    actions.onReconnectMcp?.(instance.instanceId, server.name)
+                  }
+                >
+                  Reconnect
+                </Button>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
 
       {instance.error ? (
         <p

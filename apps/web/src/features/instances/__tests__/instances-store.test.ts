@@ -309,3 +309,15 @@ function entry(
   if (!found) throw new Error(`instance ${instanceId} missing from store`)
   return found
 }
+
+describe("instances store: MCP status", () => {
+  it("replaces an instance's MCP servers from harness.mcp_status_changed", () => {
+    const store = createInstancesStore()
+    store.applySnapshot(snapshot())
+    const servers = [{ name: "github", connected: false }]
+    store.applyEvent(
+      event("harness.mcp_status_changed", firstId(), { servers })
+    )
+    expect(store.getState().instances[0]!.mcpServers).toEqual(servers)
+  })
+})

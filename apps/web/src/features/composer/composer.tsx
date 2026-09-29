@@ -2,6 +2,7 @@ import type {
   ExecutionSelection,
   FileMatch,
   FileSearchResult,
+  HarnessInventory,
   Invocation,
 } from "@workspace/contracts"
 import { Button } from "@workspace/ui/components/button"
@@ -59,6 +60,11 @@ export type ComposerProps = {
    * can then go into that turn instead of queueing behind it.
    */
   onSteer?: (content: string) => void
+  /**
+   * Inventory for the session's own project directory. Commands and skills a
+   * project defines itself only appear there, so the `/` picker prefers it.
+   */
+  sessionInventory?: (instanceId: string) => Promise<HarnessInventory>
 }
 
 const SEARCH_DEBOUNCE_MS = 120
@@ -172,6 +178,7 @@ export function Composer({
   onSend,
   searchFiles,
   onSteer,
+  sessionInventory,
 }: ComposerProps) {
   const [draft, setDraft] = useState<ComposerDraft>({})
   const [content, setContent] = useState("")
@@ -184,7 +191,27 @@ export function Composer({
   const pickerId = useId()
 
   const view = resolveComposer(sources, draft)
-  const inventory = view.instance?.inventory
+  const instanceId = view.instance?.instanceId
+  const [projectInventory, setProjectInventory] = useState<{
+    instanceId: string
+    inventory: HarnessInventory
+  }>()
+  useEffect(() => {
+    if (!instanceId || !sessionInventory) return
+    let current = true
+    sessionInventory(instanceId)
+      .then((inventory) => {
+        if (current) setProjectInventory({ instanceId, inventory })
+      })
+      .catch(() => undefined)
+    return () => {
+      current = false
+    }
+  }, [instanceId, sessionInventory])
+  const inventory =
+    projectInventory && projectInventory.instanceId === instanceId
+      ? projectInventory.inventory
+      : view.instance?.inventory
   const entries = useMemo(
     () => slashEntries(inventory?.commands, inventory?.skills),
     [inventory?.commands, inventory?.skills]

@@ -20,6 +20,10 @@ import { HarnessMark } from "@workspace/ui/components/harness-mark"
 import { cn } from "@workspace/ui/lib/utils"
 import { useState } from "react"
 
+import {
+  ProjectBrowser,
+  type ProjectBrowserClient,
+} from "@/components/shell/project-browser"
 import { useTheme } from "@/components/theme-provider"
 import { harnessMarkFor } from "@/features/instances/harness-marks"
 import type { RecentSession } from "@/lib/recent-sessions"
@@ -33,6 +37,8 @@ export function Sidebar({
   onNewSession,
   onOpenSettings,
   onSelectSession,
+  projects,
+  projectsRefreshKey,
 }: {
   view: SidebarView
   activeSessionId?: string
@@ -40,6 +46,9 @@ export function Sidebar({
   onNewSession: () => void
   onOpenSettings: () => void
   onSelectSession: (sessionId: string) => void
+  /** Server-backed project browser; omitted where no server is reachable. */
+  projects?: ProjectBrowserClient
+  projectsRefreshKey?: unknown
 }) {
   const [query, setQuery] = useState("")
   const needle = query.trim().toLowerCase()
@@ -134,6 +143,19 @@ export function Sidebar({
               ))}
             </div>
           )}
+          {projects ? (
+            <section className="mt-4" aria-label="All projects">
+              <p className="px-2 pb-1 text-label text-muted-foreground uppercase">
+                Projects
+              </p>
+              <ProjectBrowser
+                client={projects}
+                activeSessionId={activeSessionId}
+                refreshKey={projectsRefreshKey}
+                onSelectSession={onSelectSession}
+              />
+            </section>
+          ) : null}
         </div>
       </ScrollArea>
 
