@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto"
 import { existsSync } from "node:fs"
-import { dirname, join } from "node:path"
+import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import {
@@ -69,6 +69,14 @@ export function createProductionIntegration(
     ...(webDistRoot() ? { staticRoot: webDistRoot() } : {}),
     configSecrets: secrets,
     trackWorkspaceChanges: true,
+    checkpoints: true,
+    worktreeRoot: worktreeRoot(),
+    logUsage: (entry) => {
+      const { usage } = entry
+      console.info(
+        `[aide] usage turn=${entry.turnId} session=${entry.sessionId} instance=${entry.instanceId} model=${entry.model} status=${entry.status} input=${usage.inputTokens ?? 0} output=${usage.outputTokens ?? 0} cacheRead=${usage.cacheReadTokens ?? 0} cacheWrite=${usage.cacheWriteTokens ?? 0}${usage.reasoningTokens === undefined ? "" : ` reasoning=${usage.reasoningTokens}`}${usage.costUsd === undefined ? "" : ` costUsd=${usage.costUsd.toFixed(6)}`}`
+      )
+    },
   })
   return { integration, bootstrapToken, ownsDb: options.db === undefined }
 }
@@ -89,6 +97,13 @@ function generateBootstrapToken(): string {
 
 export function bootstrapUrl(hostname: string, port: number, token: string) {
   return `http://${hostname === "0.0.0.0" ? "127.0.0.1" : hostname}:${port}/?authToken=${token}`
+}
+
+/** Session worktrees live next to Aide's database, never inside a project. */
+function worktreeRoot(): string {
+  return env.DB_FILE_NAME === ":memory:"
+    ? join(process.cwd(), "data", "worktrees")
+    : join(dirname(resolve(env.DB_FILE_NAME)), "worktrees")
 }
 
 function secretsKeyPath(): string {

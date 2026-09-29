@@ -1,7 +1,9 @@
 import type {
   AideEvent,
+  Checkpoint,
   DurableCursor,
   Message,
+  Notice,
   Part,
   Project,
   Request,
@@ -30,6 +32,10 @@ export type SessionStoreState = {
   messages: Message[]
   turns: Turn[]
   requests: Request[]
+  /** Harness notices (compaction, retries, restores), oldest first. */
+  notices: Notice[]
+  /** Turns whose pre-turn working tree can be restored. */
+  checkpoints: Checkpoint[]
   cursor: DurableCursor
   snapshotApplied: boolean
   streamOrdinalsSeen: number
@@ -68,6 +74,8 @@ export function createSessionStore() {
         messages: sortMessages(snapshot.messages.map(withOrderedParts)),
         turns: sortTurns(snapshot.turns),
         requests: [...snapshot.requests],
+        notices: [...(snapshot.notices ?? [])],
+        checkpoints: [...(snapshot.checkpoints ?? [])],
         cursor: snapshot.cursor,
         snapshotApplied: true,
         streamOrdinalsSeen: 0,
@@ -141,6 +149,36 @@ export function createSessionStore() {
             requests: upsert(state.requests, event.data.request),
           }
           break
+        case "notice.created": {
+          if (state.notices.some((notice) => notice.id === event.eventId)) {
+            break
+          }
+          const notice: Notice = {
+            id: event.eventId,
+            ...(event.scope.kind === "session" && event.scope.turnId
+              ? { turnId: event.scope.turnId }
+              : {}),
+            title: event.data.title,
+            message: event.data.message,
+            ...(event.data.level ? { level: event.data.level } : {}),
+            createdAt: event.timestamp,
+          }
+          state = { ...state, notices: [...state.notices, notice] }
+          break
+        }
+        case "checkpoint.created": {
+          const { checkpoint } = event.data
+          state = {
+            ...state,
+            checkpoints: [
+              ...state.checkpoints.filter(
+                (entry) => entry.turnId !== checkpoint.turnId
+              ),
+              checkpoint,
+            ],
+          }
+          break
+        }
         case "part.delta": {
           const { partId, messageId, field, text } = event.data
           const live =
@@ -159,6 +197,12 @@ export function createSessionStore() {
           break
       }
 
+      publish()
+    },
+
+    /** A session record changed outside the event stream (a command result). */
+    applySession(session: Session) {
+      state = { ...state, session }
       publish()
     },
 
@@ -243,6 +287,8 @@ function initialState(): SessionStoreState {
     messages: [],
     turns: [],
     requests: [],
+    notices: [],
+    checkpoints: [],
     cursor: { sequence: 0 },
     snapshotApplied: false,
     streamOrdinalsSeen: 0,

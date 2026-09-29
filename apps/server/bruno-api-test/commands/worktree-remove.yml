@@ -1,0 +1,51 @@
+info:
+  name: worktree-remove
+  type: http
+  seq: 7
+
+http:
+  method: POST
+  url: "{{baseUrl}}/commands/worktree.remove"
+  headers:
+    - name: Content-Type
+      value: application/json
+    - name: Authorization
+      value: Bearer {{sessionToken}}
+    - name: Origin
+      value: "{{origin}}"
+  body:
+    type: json
+    data: |-
+      {
+        "name": "worktree.remove",
+        "commandId": "command_worktree_remove",
+        "sessionId": "{{sessionId}}"
+      }
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("returns a command receipt", function () {
+          expect([200, 202, 500]).to.include(res.status);
+          expect(res.body).to.have.property("commandName", "worktree.remove");
+        });
+        test("reports that a session without a worktree has none to remove", function () {
+          expect(res.body.state).to.equal("failed");
+          expect(res.body.error.code).to.equal("worktree_not_found");
+        });
+  assertions:
+    - expression: res.body.commandName
+      operator: eq
+      value: worktree.remove
+
+settings:
+  encodeUrl: true
+  timeout: 30000
+  followRedirects: true
+  maxRedirects: 5
+
+docs: |-
+  Removes the session's Aide worktree. The Bruno session was created without
+  one, so this exercises the refusal; create a session with
+  `"worktree": {}` to remove a real one.

@@ -1,9 +1,9 @@
 import type { DriverId } from "@workspace/contracts"
 
 /**
- * The server has no session-list read model yet, so the sidebar's recents are
- * browser-local: PLAN.md already scopes the browser to ephemeral presentation
- * state. Replace this with a `GET /projects/:id/sessions` read once it exists.
+ * Recents are browser-local "what did I open lately" state. The full list of
+ * projects and sessions comes from the server (`GET /projects`, `GET
+ * /projects/:id/sessions`) in the sidebar's project browser.
  */
 export type RecentSession = {
   sessionId: string

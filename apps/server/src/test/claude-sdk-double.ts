@@ -5,9 +5,11 @@ import type {
   ClaudeMcpServerStatus,
   ClaudeModelInfo,
   ClaudePermissionDecision,
+  ClaudePromptOptions,
   ClaudeSession,
   ClaudeSessionFactory,
   ClaudeSessionOpenInput,
+  ClaudeSlashCommand,
   ClaudeStreamMessage,
 } from "../harness/claude"
 
@@ -64,6 +66,10 @@ export type ClaudeSessionDoubleOptions = {
   agents?: ClaudeAgentInfo[]
   mcpStatuses?: ClaudeMcpServerStatus[]
   account?: ClaudeAccountInfo
+  /** What `supportedCommands()` lists (commands and skills together). */
+  commands?: ClaudeSlashCommand[]
+  /** What `reloadSkills()` names as skills. */
+  skills?: ClaudeSlashCommand[]
   onDiscover?: () => void
   onOpen?: (input: ClaudeSessionOpenInput) => void
   /** Defaults to {@link conformanceTurnScript}. */
@@ -78,6 +84,10 @@ export type ClaudeSessionDouble = ClaudeSession & {
   readonly interruptCount: number
   readonly closed: boolean
   readonly prompts: string[]
+  /** Prompts sent with options (steering, context-only handoffs). */
+  readonly promptOptions: Array<{ text: string } & ClaudePromptOptions>
+  readonly stoppedTasks: string[]
+  readonly reconnectedMcpServers: string[]
 }
 
 type Emitter = {
@@ -340,6 +350,9 @@ export function createClaudeSessionDoubleFactory(
       interruptCount: 0,
       closed: false,
       prompts: [] as string[],
+      promptOptions: [] as Array<{ text: string } & ClaudePromptOptions>,
+      stoppedTasks: [] as string[],
+      reconnectedMcpServers: [] as string[],
     }
 
     const session: ClaudeSessionDouble = {
@@ -362,6 +375,15 @@ export function createClaudeSessionDoubleFactory(
       get prompts() {
         return state.prompts
       },
+      get promptOptions() {
+        return state.promptOptions
+      },
+      get stoppedTasks() {
+        return state.stoppedTasks
+      },
+      get reconnectedMcpServers() {
+        return state.reconnectedMcpServers
+      },
       init: {
         // Mirrors `initializationResult()`: models, agents, and account, and
         // deliberately no version — the real handshake has none.
@@ -375,6 +397,7 @@ export function createClaudeSessionDoubleFactory(
         },
         models: options.models ?? DEFAULT_CLAUDE_MODELS,
         agents: options.agents ?? [{ name: "Explore" }],
+        commands: options.commands ?? [],
       },
       query: {
         async supportedModels() {
@@ -383,6 +406,21 @@ export function createClaudeSessionDoubleFactory(
         },
         async supportedAgents() {
           return options.agents ?? [{ name: "Explore" }]
+        },
+        async supportedCommands() {
+          return options.commands ?? []
+        },
+        async reloadSkills() {
+          return { skills: options.skills ?? [] }
+        },
+        async accountInfo() {
+          return (
+            options.account ?? {
+              email: "double@example.test",
+              apiProvider: "firstParty",
+              subscriptionType: "Claude Pro",
+            }
+          )
         },
         async mcpServerStatus() {
           return options.mcpStatuses ?? []
@@ -402,10 +440,32 @@ export function createClaudeSessionDoubleFactory(
           state.setMcpServerCalls.push(servers)
           return { added: [], removed: [] }
         },
+        async reconnectMcpServer(name) {
+          state.reconnectedMcpServers.push(name)
+        },
+        async stopTask(taskId) {
+          state.stoppedTasks.push(taskId)
+        },
       },
       messages: emitter.messages,
-      prompt(text) {
+      prompt(text, promptOptions) {
+        if (promptOptions) state.promptOptions.push({ text, ...promptOptions })
+        // Context-only and steering prompts join the running conversation;
+        // they do not start a scripted turn of their own.
+        if (promptOptions?.shouldQuery === false || promptOptions?.priority) {
+          return
+        }
         state.prompts.push(text)
+        if (text === "/compact") {
+          // A local command: compaction, then a result with no reply.
+          emitter.emit({
+            type: "system",
+            subtype: "compact_boundary",
+            compact_metadata: { trigger: "manual" },
+          } as ClaudeStreamMessage)
+          emitter.emit({ type: "result", subtype: "success", is_error: false })
+          return
+        }
         // The runtime emits system/init at the start of a turn, never before.
         emitter.emit({
           type: "system",

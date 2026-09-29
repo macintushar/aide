@@ -1,199 +1,241 @@
-import { createOpencode, createOpencodeClient } from "@opencode-ai/sdk/v2"
-import type {
-  McpLocalConfig,
-  McpRemoteConfig,
-  McpStatus,
-  ModelRef,
-  QuestionV2Reply,
-  SessionInputAdmitted,
-  SessionV2Info,
-  V2Event,
-} from "@opencode-ai/sdk/v2"
+import { mkdirSync } from "node:fs"
+import { dirname, join } from "node:path"
 
-import type { OpencodeInstanceConfig } from "./config"
+import { OpenCode as OpenCodeClient } from "@opencode/client"
+import type {
+  AgentInfo,
+  FormInfo,
+  McpServer,
+  ModelInfo,
+  ModelRef,
+  PermissionRequest,
+  SessionActive,
+  SessionInboxUser,
+  SessionInfo,
+  SessionLogOutput,
+  V2Event,
+} from "@opencode/client"
+
+import { env } from "../../env"
+import {
+  PINNED_OPENCODE_SDK_VERSION,
+  type OpencodeInstanceConfig,
+} from "./config"
 
 /**
- * The SDK boundary. Everything the adapter needs from `@opencode-ai/sdk` is
- * described structurally here, so the adapter itself is testable against a
- * double and the real client only has to satisfy the shape.
+ * The SDK boundary. Everything the adapter needs from `@opencode/sdk` (an
+ * in-process host) and `@opencode/client` (a remote server) is described
+ * structurally here, so the adapter itself is testable against a double and
+ * either real client only has to satisfy the shape.
+ *
+ * Both packages throw a `ClientError` on failure rather than returning an
+ * error value, so every call here either resolves with data or rejects.
  *
  * This file and its siblings are the only place the OpenCode SDK may be
  * imported; the S0.10 lint rule makes a leak a build failure.
  */
 
-export type OpencodeResult<T> = { data?: T; error?: unknown }
-
-export type OpencodeModel = {
-  id: string
-  providerID: string
-  name: string
-  status?: string
-  variants?: Record<string, Record<string, unknown>>
-}
-
-export type OpencodeProvider = {
-  id: string
-  name: string
-  source?: string
-  env?: string[]
-  key?: string
-  models: Record<string, OpencodeModel>
-}
-
-export type OpencodeAgent = {
-  name: string
+export type OpencodeModel = Pick<
+  ModelInfo,
+  "id" | "providerID" | "name" | "enabled"
+> & { variants: Array<{ id: string }> }
+export type OpencodeAgent = Pick<
+  AgentInfo,
+  "id" | "name" | "mode" | "hidden"
+> & {
   description?: string
-  mode?: "subagent" | "primary" | "all"
-  hidden?: boolean
 }
-
-export type OpencodeSessionInfo = SessionV2Info
-export type OpencodeSessionEvent = V2Event
-export type OpencodeModelRef = ModelRef
-export type OpencodeMcpStatus = McpStatus
-export type OpencodeMcpConfig = McpLocalConfig | McpRemoteConfig
-
-export type OpencodeSessionEventEnvelope = {
+export type OpencodeMcpServer = McpServer
+export type OpencodeProviderInfo = {
   id: string
-  event: string
-  data: string
+  name: string
+  integrationID?: string
+  activation?: "auto" | "enabled" | "disabled"
 }
+export type OpencodeIntegration = {
+  id: string
+  name: string
+  connections: Array<
+    | { type: "credential"; id: string; label: string; method: "key" | "oauth" }
+    | { type: "env"; name: string }
+  >
+}
+export type OpencodeSessionInfo = SessionInfo
+export type OpencodeLiveEvent = V2Event
+export type OpencodeLogEvent = SessionLogOutput
+export type OpencodeModelRef = ModelRef
+export type OpencodeForm = FormInfo
+export type OpencodeFormField = FormInfo["fields"][number]
+export type OpencodePermissionRequest = PermissionRequest
 
-type SessionResponse<T> = { data: T }
+export type OpencodeMcpConfig =
+  | {
+      type: "local"
+      command: string[]
+      environment?: Record<string, string>
+    }
+  | {
+      type: "remote"
+      url: string
+      headers?: Record<string, string>
+      oauth: false
+    }
 
-/** The subset of the pinned SDK used by the adapter. */
+type Location = { location?: { directory?: string } }
+type Listed<T> = Promise<{ data: T[] }>
+type RequestOptions = { signal?: AbortSignal }
+
+/** The subset of the OpenCode 2.x client used by the adapter. */
 export type OpencodeApi = {
-  global: {
-    health(): Promise<OpencodeResult<{ healthy: boolean; version: string }>>
+  server: {
+    info(): Promise<{ version: string }>
   }
-  config: {
-    providers(parameters?: { directory?: string }): Promise<
-      OpencodeResult<{
-        providers: OpencodeProvider[]
-        default: Record<string, string>
-      }>
-    >
+  model: {
+    list(input?: Location): Listed<OpencodeModel>
+    default(input?: Location): Promise<{ data: OpencodeModel | null }>
   }
-  app: {
-    agents(parameters?: {
-      directory?: string
-    }): Promise<OpencodeResult<OpencodeAgent[]>>
+  agent: {
+    list(input?: Location): Listed<OpencodeAgent>
   }
-  v2?: {
-    session: {
-      create(parameters?: {
-        id?: string
-        agent?: string
-        model?: OpencodeModelRef
-        location?: { directory: string; workspaceID?: string }
-      }): Promise<OpencodeResult<SessionResponse<OpencodeSessionInfo>>>
-      get(parameters: {
+  command: {
+    list(input?: Location): Listed<{ name: string; description?: string }>
+  }
+  skill: {
+    list(
+      input?: Location
+    ): Listed<{ id: string; name: string; description?: string }>
+  }
+  provider: {
+    list(input?: Location): Listed<OpencodeProviderInfo>
+  }
+  integration: {
+    list(input?: Location): Listed<OpencodeIntegration>
+  }
+  session: {
+    create(input: {
+      agent?: string
+      model?: OpencodeModelRef
+      location?: { directory: string }
+    }): Promise<OpencodeSessionInfo>
+    get(input: { sessionID: string }): Promise<OpencodeSessionInfo>
+    active(): Promise<Record<string, SessionActive>>
+    switchAgent(input: { sessionID: string; agent: string }): Promise<void>
+    switchModel(input: {
+      sessionID: string
+      model: OpencodeModelRef
+    }): Promise<void>
+    prompt(input: {
+      sessionID: string
+      id?: string
+      text: string
+      files?: Array<{ uri: string; name?: string }>
+      skills?: Array<{ id: string }>
+      delivery?: "steer" | "queue"
+    }): Promise<Pick<SessionInboxUser, "id">>
+    /** Runs a command; its text is the command's arguments. */
+    command(input: {
+      sessionID: string
+      name: string
+      text: string
+      files?: Array<{ uri: string; name?: string }>
+      delivery?: "steer" | "queue"
+    }): Promise<void>
+    /** Adds context to the session; `resume: false` starts no execution. */
+    synthetic(input: {
+      sessionID: string
+      text: string
+      description?: string
+      resume?: boolean
+    }): Promise<unknown>
+    wait(input: { sessionID: string }): Promise<void>
+    /** Queues a compaction of the session's context. */
+    compact(input: { sessionID: string }): Promise<unknown>
+    interrupt(input: { sessionID: string }): Promise<unknown>
+    /** Durable per-session history; `follow` keeps it open for new events. */
+    log(
+      input: { sessionID: string; after?: number; follow?: boolean },
+      options?: RequestOptions
+    ): AsyncIterable<OpencodeLogEvent>
+    form: {
+      list(input: { sessionID: string }): Promise<OpencodeForm[]>
+      reply(input: {
         sessionID: string
-      }): Promise<OpencodeResult<SessionResponse<OpencodeSessionInfo>>>
-      active(): Promise<
-        OpencodeResult<SessionResponse<Record<string, unknown>>>
-      >
-      switchAgent(parameters: {
-        sessionID: string
-        agent?: string
-      }): Promise<OpencodeResult<void>>
-      switchModel(parameters: {
-        sessionID: string
-        model?: OpencodeModelRef
-      }): Promise<OpencodeResult<void>>
-      prompt(parameters: {
-        sessionID: string
-        id?: string
-        prompt?: {
-          text: string
-          files?: Array<{ uri: string; name?: string; description?: string }>
-        }
-        delivery?: "steer" | "queue"
-        resume?: boolean
-      }): Promise<OpencodeResult<SessionResponse<SessionInputAdmitted>>>
-      wait(parameters: { sessionID: string }): Promise<OpencodeResult<void>>
-      events(
-        parameters: { sessionID: string; after?: string },
-        options?: { signal?: AbortSignal }
-      ): Promise<{ stream: AsyncGenerator<OpencodeSessionEventEnvelope> }>
-      interrupt(parameters: {
-        sessionID: string
-      }): Promise<OpencodeResult<void>>
-      permission: {
-        reply(parameters: {
-          sessionID: string
-          requestID: string
-          reply?: "once" | "always" | "reject"
-          message?: string
-        }): Promise<OpencodeResult<void>>
-      }
-      question: {
-        reply(parameters: {
-          sessionID: string
-          requestID: string
-          questionV2Reply: QuestionV2Reply
-        }): Promise<OpencodeResult<void>>
-        reject(parameters: {
-          sessionID: string
-          requestID: string
-        }): Promise<OpencodeResult<void>>
-      }
+        formID: string
+        answer: Record<string, string | number | boolean | string[]>
+      }): Promise<void>
+      cancel(input: { sessionID: string; formID: string }): Promise<void>
     }
   }
-  mcp?: {
-    status(parameters?: {
-      directory?: string
-    }): Promise<OpencodeResult<Record<string, OpencodeMcpStatus>>>
-    add(parameters?: {
-      directory?: string
-      name?: string
-      config?: OpencodeMcpConfig
-    }): Promise<OpencodeResult<Record<string, OpencodeMcpStatus>>>
-    connect(parameters: {
-      name: string
-      directory?: string
-    }): Promise<OpencodeResult<boolean>>
-    disconnect(parameters: {
-      name: string
-      directory?: string
-    }): Promise<OpencodeResult<boolean>>
+  permission: {
+    list(input: { sessionID: string }): Promise<OpencodePermissionRequest[]>
+    reply(input: {
+      sessionID: string
+      requestID: string
+      decision: "once" | "always" | "reject"
+      message?: string
+    }): Promise<void>
+  }
+  /** Live host events, including the ephemeral deltas the log never holds. */
+  event: {
+    subscribe(options?: RequestOptions): AsyncIterable<OpencodeLiveEvent>
+  }
+  mcp: {
+    list(input?: Location): Listed<OpencodeMcpServer>
+    add(
+      input: Location & { server: string; config: OpencodeMcpConfig }
+    ): Promise<void>
+    remove(input: Location & { server: string }): Promise<void>
+    connect(input: Location & { server: string }): Promise<void>
   }
 }
 
 /** One connected runtime: the client plus whatever owns its lifetime. */
 export type OpencodeRuntime = {
   readonly api: OpencodeApi
-  /** Present only when Aide spawned the server and must therefore stop it. */
+  /**
+   * The runtime version when the runtime cannot report it itself. An
+   * in-process host is the bundled SDK, so its version is the pinned one.
+   */
+  readonly version?: string
+  /** Present only when Aide hosts OpenCode and must therefore release it. */
   close?: () => void | Promise<void>
 }
 
 export type OpencodeRuntimeFactory = (input: {
+  instanceId: string
   config: OpencodeInstanceConfig
-  directory?: string
 }) => Promise<OpencodeRuntime>
 
 /**
  * Default factory. Connects to a user-run server when `baseUrl` is configured,
- * otherwise asks the SDK to manage a local runtime for this instance.
+ * otherwise hosts OpenCode in process. The in-process host keeps sessions in
+ * its own database file; without one it would default to memory and every
+ * native session would vanish on restart.
  */
 export const createOpencodeRuntime: OpencodeRuntimeFactory = async ({
+  instanceId,
   config,
-  directory,
 }) => {
   if (config.baseUrl) {
-    const client = createOpencodeClient({
-      baseUrl: config.baseUrl,
-      ...(directory ? { directory } : {}),
-    })
-    return { api: client }
+    return { api: OpenCodeClient.make({ baseUrl: config.baseUrl }) }
   }
 
-  const { client, server } = await createOpencode({
-    ...(config.hostname ? { hostname: config.hostname } : {}),
-    ...(config.port === undefined ? {} : { port: config.port }),
+  const databasePath =
+    config.databasePath ??
+    join(dirname(env.DB_FILE_NAME), `opencode-${instanceId}.sqlite`)
+  mkdirSync(dirname(databasePath), { recursive: true })
+  // Loaded on demand: the in-process host needs Bun, and a remote-only or
+  // test process should not have to load it.
+  const { OpenCode } = await import("@opencode/sdk")
+  const host = await OpenCode.create({
+    database: { path: databasePath },
+    // Session logs are empty unless the host persists events, and the log is
+    // what lets a restarted Aide replay a turn it was watching.
+    events: { persist: true },
   })
   return {
-    api: client,
-    close: () => server.close(),
+    api: host,
+    version: PINNED_OPENCODE_SDK_VERSION,
+    close: () => host.close(),
   }
 }

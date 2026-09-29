@@ -7,11 +7,13 @@ import type {
   ResolvedExecution,
   SelectOption,
   Turn,
+  Usage,
   UserMessage,
 } from "@workspace/contracts"
 
 import { pathsOutsideBoundary } from "../../workspace/paths"
 import { createEventBus, type EventBus } from "../event-bus"
+import { messageText } from "../types"
 import type { NativeDispatchInput } from "@workspace/contracts"
 import {
   INTERACTION_MODE_TO_PERMISSION_MODE,
@@ -21,6 +23,7 @@ import { createPartSynthesizer, type PartSynthesizer } from "./parts"
 import type {
   ClaudeDialogAsk,
   ClaudeDialogResult,
+  ClaudeModelUsage,
   ClaudePermissionAsk,
   ClaudePermissionDecision,
   ClaudePermissionMode,
@@ -81,10 +84,71 @@ type PendingDialog = {
 type ActiveTurn = {
   turnId: string
   assistantMessageId: string
+  /** The assistant message metadata, re-emitted with usage at the end. */
+  assistantMessage: {
+    id: string
+    sessionId: string
+    seq: number
+    role: "assistant"
+    parentMessageId: string
+    createdAt: string
+  }
   turnRow: Turn
   synth: PartSynthesizer
   settled: boolean
   interrupted: boolean
+}
+
+/** Cumulative query totals, for turning cumulative results into per-turn usage. */
+type UsageTotals = {
+  inputTokens: number
+  outputTokens: number
+  reasoningTokens: number
+  cacheReadTokens: number
+  cacheWriteTokens: number
+  costUsd: number
+}
+
+function sumModelUsage(
+  modelUsage: Record<string, ClaudeModelUsage> | undefined,
+  costUsd: number | undefined
+): UsageTotals | undefined {
+  if (!modelUsage) return undefined
+  const totals: UsageTotals = {
+    inputTokens: 0,
+    outputTokens: 0,
+    reasoningTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    costUsd: costUsd ?? 0,
+  }
+  for (const entry of Object.values(modelUsage)) {
+    totals.inputTokens += entry.inputTokens
+    totals.outputTokens += entry.outputTokens
+    totals.reasoningTokens += entry.thinkingTokens ?? 0
+    totals.cacheReadTokens += entry.cacheReadInputTokens
+    totals.cacheWriteTokens += entry.cacheCreationInputTokens
+  }
+  return totals
+}
+
+/** Task statuses as Aide's subagent statuses. */
+function subagentStatus(status: string | undefined): string | undefined {
+  switch (status) {
+    case "completed":
+      return "completed"
+    case "failed":
+      return "failed"
+    case "killed":
+    case "stopped":
+      return "stopped"
+    case "pending":
+    case "running":
+    case "paused":
+      return "running"
+    default:
+      return undefined
+  }
 }
 
 type TurnOutcome = "none" | "completed" | "interrupted" | "failed"
@@ -134,6 +198,11 @@ export type ClaudeRuntime = {
     handoff?: NativeDispatchInput
   }): Promise<void>
   interrupt(turnId: string): Promise<void>
+  steer(turnId: string, message: UserMessage): void
+  /** Runs `/compact` between turns and resolves when it has finished. */
+  compact(): Promise<void>
+  stopTask(turnId: string, taskId: string): Promise<void>
+  reconnectMcpServer(name: string): Promise<void>
   respondToPermission(request: Request): void
   respondToInput(request: Request): void
   setMcpServers(servers: Record<string, unknown>): Promise<void>
@@ -343,6 +412,25 @@ export async function createClaudeRuntime(
   let lastOutcome: TurnOutcome = "none"
   let lastAssistantUuid: string | undefined
   let closed = false
+  /** A `/compact` in flight: settled by the result it produces. */
+  let compaction:
+    | { resolve: () => void; reject: (error: Error) => void }
+    | undefined
+  /**
+   * The query's cumulative usage as of the last result. A resumed query
+   * starts from totals its transcript saved, which Aide cannot see, so the
+   * baseline is only known for a query that began a fresh session.
+   */
+  let usageBaseline: UsageTotals | undefined = options.resume
+    ? undefined
+    : {
+        inputTokens: 0,
+        outputTokens: 0,
+        reasoningTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        costUsd: 0,
+      }
 
   let model = options.execution.selection.model.modelId
   let permissionMode = permissionModeFor(options.execution)
@@ -458,6 +546,48 @@ export async function createClaudeRuntime(
       turnId: turn.turnId,
     })
     active = undefined
+  }
+
+  /**
+   * Turns a result into this turn's usage. With a known baseline the
+   * cumulative per-model totals (which include subagents) are differenced;
+   * otherwise only the result's own main-loop usage is honest, and cost, which
+   * the SDK only reports cumulatively, is left out.
+   */
+  const reportUsage = (
+    turn: ActiveTurn,
+    result: Extract<ClaudeStreamMessage, { type: "result" }>
+  ): void => {
+    const totals = sumModelUsage(result.modelUsage, result.total_cost_usd)
+    let usage: Usage | undefined
+    if (totals && usageBaseline) {
+      const base = usageBaseline
+      usage = {
+        inputTokens: totals.inputTokens - base.inputTokens,
+        outputTokens: totals.outputTokens - base.outputTokens,
+        cacheReadTokens: totals.cacheReadTokens - base.cacheReadTokens,
+        cacheWriteTokens: totals.cacheWriteTokens - base.cacheWriteTokens,
+        ...(totals.reasoningTokens > 0
+          ? { reasoningTokens: totals.reasoningTokens - base.reasoningTokens }
+          : {}),
+        costUsd: Math.max(0, totals.costUsd - base.costUsd),
+      }
+    } else if (result.usage) {
+      usage = {
+        inputTokens: result.usage.input_tokens ?? 0,
+        outputTokens: result.usage.output_tokens ?? 0,
+        cacheReadTokens: result.usage.cache_read_input_tokens ?? 0,
+        cacheWriteTokens: result.usage.cache_creation_input_tokens ?? 0,
+      }
+    }
+    if (totals) usageBaseline = totals
+    if (!usage) return
+    emit({
+      type: "message.upserted",
+      data: { message: { ...turn.assistantMessage, usage } },
+      turnId: turn.turnId,
+      messageId: turn.assistantMessageId,
+    })
   }
 
   const canUseTool = async (
@@ -604,6 +734,8 @@ export async function createClaudeRuntime(
     switch (message.type) {
       case "stream_event": {
         if (!turn || turn.settled) return
+        // A subagent's own stream belongs to its agent part, not the reply.
+        if (message.parent_tool_use_id) return
         const applied = turn.synth.applyStreamEvent(message.event)
         publishParts(applied.parts)
         if (applied.delta) {
@@ -625,6 +757,7 @@ export async function createClaudeRuntime(
       }
       case "assistant": {
         if (!turn || turn.settled) return
+        if (message.parent_tool_use_id) return
         lastAssistantUuid = message.uuid
         const apiMessageId = message.message.id ?? message.uuid
         publishParts(
@@ -637,14 +770,35 @@ export async function createClaudeRuntime(
       }
       case "user": {
         if (!turn || turn.settled) return
+        if (message.parent_tool_use_id) return
         const content = message.message.content
         if (!Array.isArray(content)) return
         publishParts(turn.synth.applyToolResults(content))
         return
       }
       case "result": {
+        if (!turn && compaction) {
+          const pending = compaction
+          compaction = undefined
+          if (message.is_error || message.subtype !== "success") {
+            pending.reject(
+              runtimeError(
+                "compaction_failed",
+                message.errors?.join("; ") ??
+                  message.result ??
+                  "Claude could not compact its context",
+                instanceId,
+                true
+              )
+            )
+          } else {
+            pending.resolve()
+          }
+          return
+        }
         if (!turn || turn.settled) return
         if (message.is_error || message.subtype !== "success") {
+          reportUsage(turn, message)
           settle("turn.failed", {
             code: `claude_${message.subtype}`,
             message:
@@ -656,6 +810,7 @@ export async function createClaudeRuntime(
           })
           return
         }
+        reportUsage(turn, message)
         settle("turn.completed")
         return
       }
@@ -699,6 +854,49 @@ export async function createClaudeRuntime(
               "warning"
             )
             return
+          case "task_started":
+          case "task_progress":
+          case "task_updated":
+          case "task_notification": {
+            if (!turn || turn.settled || !message.task_id) return
+            // Housekeeping tasks are not activity the transcript should show.
+            if (message.skip_transcript || message.ambient) return
+            const status =
+              message.subtype === "task_started" ||
+              message.subtype === "task_progress"
+                ? "running"
+                : subagentStatus(
+                    message.subtype === "task_updated"
+                      ? message.patch?.status
+                      : (message.status ?? undefined)
+                  )
+            const progress = message.usage
+              ? {
+                  ...(message.usage.total_tokens === undefined
+                    ? {}
+                    : { totalTokens: message.usage.total_tokens }),
+                  ...(message.usage.tool_uses === undefined
+                    ? {}
+                    : { toolUses: message.usage.tool_uses }),
+                  ...(message.usage.duration_ms === undefined
+                    ? {}
+                    : { durationMs: message.usage.duration_ms }),
+                  ...(message.last_tool_name
+                    ? { lastToolName: message.last_tool_name }
+                    : {}),
+                }
+              : undefined
+            publishParts([
+              turn.synth.applyTask(message.task_id, {
+                name: message.subagent_type,
+                status,
+                description: message.description ?? message.patch?.description,
+                summary: message.summary ?? message.patch?.error,
+                progress,
+              }),
+            ])
+            return
+          }
           case "compact_boundary":
             notice(
               "Context compacted",
@@ -800,6 +998,17 @@ export async function createClaudeRuntime(
     }
     const previous = session
     session = replacement
+    // A resumed query reports totals Aide never saw the start of.
+    usageBaseline = resumable
+      ? undefined
+      : {
+          inputTokens: 0,
+          outputTokens: 0,
+          reasoningTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          costUsd: 0,
+        }
     await previous.close().catch(() => undefined)
     pump(session)
   }
@@ -861,9 +1070,18 @@ export async function createClaudeRuntime(
         assistantMessageId,
         startedAt: now(),
       }
+      const assistantMessage = {
+        id: assistantMessageId,
+        sessionId: aideSessionId,
+        seq: input.userMessage.seq + 1,
+        role: "assistant" as const,
+        parentMessageId: input.userMessage.id,
+        createdAt: now(),
+      }
       active = {
         turnId: input.turnId,
         assistantMessageId,
+        assistantMessage,
         turnRow,
         synth: createPartSynthesizer(assistantMessageId),
         settled: false,
@@ -877,24 +1095,12 @@ export async function createClaudeRuntime(
       })
       emit({
         type: "message.upserted",
-        data: {
-          message: {
-            id: assistantMessageId,
-            sessionId: aideSessionId,
-            seq: input.userMessage.seq + 1,
-            role: "assistant",
-            parentMessageId: input.userMessage.id,
-            createdAt: now(),
-          },
-        },
+        data: { message: assistantMessage },
         turnId: input.turnId,
         messageId: assistantMessageId,
       })
 
-      const text = input.userMessage.parts
-        .filter((part) => part.type === "text")
-        .map((part) => part.text)
-        .join("\n")
+      const { text } = messageText(input.userMessage)
       // The core builds a handoff only for the messages this native session has
       // not ingested — it starts one past the mapping's sync cursor, which only
       // advances when a turn on this instance completes cleanly. So it is the
@@ -902,7 +1108,64 @@ export async function createClaudeRuntime(
       // that boundary the packet leaves out. Prepending it is therefore correct
       // whether or not the effort reopen resumed.
       const prefix = input.handoff?.content
+      if (prefix && input.userMessage.invocation) {
+        // A command or skill only runs when the message starts with it, so
+        // the handoff goes ahead as context that starts no turn of its own.
+        session.prompt(prefix, { shouldQuery: false })
+        session.prompt(text)
+        return
+      }
       session.prompt(prefix ? `${prefix}\n\n${text}` : text)
+    },
+
+    async compact() {
+      if (closed) {
+        throw runtimeError(
+          "native_session_closed",
+          `Claude session "${nativeSessionId}" is closed`,
+          instanceId
+        )
+      }
+      if ((active && !active.settled) || compaction) {
+        throw runtimeError(
+          "session_busy",
+          `Claude session "${nativeSessionId}" is busy; compact between turns`,
+          instanceId
+        )
+      }
+      const done = new Promise<void>((resolve, reject) => {
+        compaction = { resolve, reject }
+      })
+      session.prompt("/compact")
+      await done
+    },
+
+    async stopTask(turnId, taskId) {
+      if (!active || active.turnId !== turnId || active.settled) {
+        throw runtimeError(
+          "turn_not_active",
+          `Claude turn "${turnId}" is not running`,
+          instanceId
+        )
+      }
+      await session.query.stopTask(taskId)
+    },
+
+    async reconnectMcpServer(name) {
+      await session.query.reconnectMcpServer(name)
+    },
+
+    steer(turnId, message) {
+      const turn = active
+      if (!turn || turn.turnId !== turnId || turn.settled) {
+        throw runtimeError(
+          "turn_not_active",
+          `Claude turn "${turnId}" is not running, so it cannot be steered`,
+          instanceId
+        )
+      }
+      // "next" folds the message into the running turn at its next step.
+      session.prompt(messageText(message).text, { priority: "next" })
     },
 
     async interrupt(turnId) {

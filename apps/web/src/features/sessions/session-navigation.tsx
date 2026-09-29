@@ -2,9 +2,11 @@ import {
   projectSchema,
   sessionSchema,
   type Project,
+  type ProjectList,
+  type ProjectSummary,
 } from "@workspace/contracts"
 import { Button } from "@workspace/ui/components/button"
-import { useState, type FormEvent } from "react"
+import { useEffect, useState, type FormEvent } from "react"
 
 import {
   createCommandClient,
@@ -16,10 +18,13 @@ type CommandClient = Pick<ReturnType<typeof createCommandClient>, "send">
 export function SessionNavigation({
   commandClient,
   activeSessionId,
+  listProjects,
   onSelectSession,
 }: {
   commandClient: CommandClient
   activeSessionId?: string
+  /** Lists projects the server already knows, so they need no retyping. */
+  listProjects?: () => Promise<ProjectList>
   onSelectSession: (sessionId: string) => void
 }) {
   const [sessionId, setSessionId] = useState(activeSessionId ?? "")
@@ -27,6 +32,22 @@ export function SessionNavigation({
   const [project, setProject] = useState<Project>()
   const [error, setError] = useState<string>()
   const [pending, setPending] = useState(false)
+  const [useWorktree, setUseWorktree] = useState(false)
+  const [branch, setBranch] = useState("")
+  const [known, setKnown] = useState<ProjectSummary[]>([])
+
+  useEffect(() => {
+    if (!listProjects) return
+    let active = true
+    listProjects()
+      .then((list) => {
+        if (active) setKnown(list.projects)
+      })
+      .catch(() => undefined)
+    return () => {
+      active = false
+    }
+  }, [listProjects])
 
   function openSession(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -63,6 +84,9 @@ export function SessionNavigation({
         name: "session.create",
         commandId: newCommandId(),
         projectId: project.id,
+        ...(useWorktree
+          ? { worktree: branch.trim() ? { branch: branch.trim() } : {} }
+          : {}),
       })
       const session = sessionSchema.parse(receipt.result)
       setSessionId(session.id)
@@ -99,17 +123,77 @@ export function SessionNavigation({
             Open
           </Button>
         </div>
-        {project ? (
-          <div className="mt-3 flex items-center justify-between gap-3 rounded-lg bg-muted/50 px-3 py-2">
-            <span className="truncate text-ui">{project.name}</span>
-            <Button
-              type="button"
-              size="sm"
-              disabled={pending}
-              onClick={() => void createSession()}
+        {known.length > 0 && !project ? (
+          <div className="mt-3">
+            <p className="text-small text-muted-foreground">
+              Or pick a known project
+            </p>
+            <ul
+              className="mt-1 flex flex-col gap-0.5"
+              aria-label="Known projects"
             >
-              New session
-            </Button>
+              {known.map((candidate) => (
+                <li key={candidate.id}>
+                  <button
+                    type="button"
+                    title={candidate.directory}
+                    onClick={() => {
+                      setDirectory(candidate.directory)
+                      setProject(candidate)
+                    }}
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-ui hover:bg-muted"
+                  >
+                    <span className="min-w-0 flex-1 truncate">
+                      {candidate.name}
+                    </span>
+                    <span className="truncate text-small text-muted-foreground">
+                      {candidate.directory}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        {project ? (
+          <div className="mt-3 flex flex-col gap-2 rounded-lg bg-muted/50 px-3 py-2">
+            <div className="flex items-center justify-between gap-3">
+              <span className="truncate text-ui">{project.name}</span>
+              <Button
+                type="button"
+                size="sm"
+                disabled={pending}
+                onClick={() => void createSession()}
+              >
+                New session
+              </Button>
+            </div>
+            <label className="flex items-center gap-2 text-small">
+              <input
+                type="checkbox"
+                checked={useWorktree}
+                onChange={(event) => setUseWorktree(event.target.checked)}
+              />
+              Run in a new worktree
+            </label>
+            {useWorktree ? (
+              <div className="flex flex-col gap-1">
+                <label htmlFor="worktree-branch" className="text-small">
+                  Branch (optional)
+                </label>
+                <input
+                  id="worktree-branch"
+                  value={branch}
+                  placeholder="aide/…"
+                  onChange={(event) => setBranch(event.target.value)}
+                  className="h-8 rounded-md border border-input bg-background px-2 text-ui"
+                />
+                <p className="text-small text-muted-foreground">
+                  Aide checks the project out into its own directory on a new
+                  branch, so this session's edits stay out of your working tree.
+                </p>
+              </div>
+            ) : null}
           </div>
         ) : null}
       </form>

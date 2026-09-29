@@ -1,7 +1,9 @@
 import { z } from "zod"
 
 import {
+  checkpointSchema,
   messageSchema,
+  noticeSchema,
   projectSchema,
   requestSchema,
   sessionSchema,
@@ -12,6 +14,7 @@ import {
   harnessInventorySchema,
   instanceAuthSchema,
   instanceRuntimeStatusSchema,
+  mcpServerStatusSchema,
 } from "./inventory"
 import {
   aideErrorSchema,
@@ -38,6 +41,9 @@ export const sessionSnapshotSchema = z.object({
   messages: z.array(messageSchema),
   turns: z.array(turnSchema),
   requests: z.array(requestSchema),
+  notices: z.array(noticeSchema).optional(),
+  /** Turns whose pre-turn working tree can be restored. */
+  checkpoints: z.array(checkpointSchema).optional(),
 })
 
 export type SessionSnapshot = z.infer<typeof sessionSnapshotSchema>
@@ -53,6 +59,8 @@ export const instanceSnapshotEntrySchema = z.object({
   installed: z.boolean().optional(),
   auth: instanceAuthSchema,
   inventory: harnessInventorySchema.optional(),
+  /** The latest MCP connection state, as `harness.mcp_status_changed` last reported. */
+  mcpServers: z.array(mcpServerStatusSchema).optional(),
   error: aideErrorSchema.optional(),
 })
 

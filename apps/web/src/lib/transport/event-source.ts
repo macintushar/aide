@@ -70,6 +70,7 @@ const EVENT_TYPES = [
   "request.opened",
   "request.resolved",
   "request.cancelled",
+  "checkpoint.created",
   "harness.instance_starting",
   "harness.connected",
   "harness.disconnected",
@@ -83,6 +84,18 @@ const EVENT_TYPES = [
   "notice.created",
   "error.occurred",
 ] as const satisfies readonly AideEvent["type"][]
+
+/**
+ * SSE delivers named events only to listeners for that name, so a type missing
+ * above is silently dropped. This fails to compile until every type is listed.
+ */
+type UnlistedEventType = Exclude<
+  AideEvent["type"],
+  (typeof EVENT_TYPES)[number]
+>
+const everyEventTypeListed: [UnlistedEventType] extends [never] ? true : never =
+  true
+void everyEventTypeListed
 
 type Parser<T> = { parse(value: unknown): T }
 

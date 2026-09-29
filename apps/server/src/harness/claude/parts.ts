@@ -1,4 +1,5 @@
 import type {
+  AgentPart,
   Part,
   ToolCategory,
   ToolPart,
@@ -32,7 +33,15 @@ import type { ClaudeContentBlock, ClaudeRawStreamEvent } from "./query"
  * they are matched by it directly.
  */
 
-type BlockKind = "text" | "reasoning" | "tool"
+type BlockKind = "text" | "reasoning" | "tool" | "agent"
+
+export type TaskUpdate = {
+  name?: string
+  status?: string
+  description?: string
+  summary?: string
+  progress?: AgentPart["progress"]
+}
 
 type BlockRecord = {
   partId: string
@@ -49,6 +58,7 @@ type BlockRecord = {
   input?: unknown
   status?: ToolStatus
   output?: string
+  agent?: TaskUpdate
 }
 
 export type SynthesizedDelta = {
@@ -70,6 +80,8 @@ export type PartSynthesizer = {
   ): Part[]
   /** Applies `tool_result` blocks from a user message onto their tool parts. */
   applyToolResults(blocks: ClaudeContentBlock[]): Part[]
+  /** Creates or updates the agent part for a subagent task. */
+  applyTask(taskId: string, update: TaskUpdate): Part
   /** Every part synthesized so far, in index order. */
   parts(): Part[]
 }
@@ -176,7 +188,24 @@ export function createPartSynthesizer(messageId: string): PartSynthesizer {
     return record
   }
 
+  const byTaskId = new Map<string, BlockRecord>()
+
   const toPart = (record: BlockRecord): Part => {
+    if (record.kind === "agent") {
+      const agent = record.agent ?? {}
+      return {
+        id: record.partId,
+        messageId,
+        index: record.index,
+        type: "agent",
+        name: agent.name ?? "subagent",
+        ...(agent.status ? { status: agent.status } : {}),
+        ...(record.toolUseId ? { taskId: record.toolUseId } : {}),
+        ...(agent.description ? { description: agent.description } : {}),
+        ...(agent.summary ? { summary: agent.summary } : {}),
+        ...(agent.progress ? { progress: agent.progress } : {}),
+      }
+    }
     if (record.kind === "tool") {
       const part: ToolPart = {
         id: record.partId,
@@ -366,6 +395,18 @@ export function createPartSynthesizer(messageId: string): PartSynthesizer {
         changed.push(toPart(record))
       }
       return changed
+    },
+
+    applyTask(taskId, update) {
+      const record = byTaskId.get(taskId) ?? create(`task-${taskId}`, "agent")
+      record.toolUseId = taskId
+      byTaskId.set(taskId, record)
+      const defined = Object.fromEntries(
+        Object.entries(update).filter(([, value]) => value !== undefined)
+      ) as TaskUpdate
+      record.agent = { ...record.agent, ...defined }
+      record.published = true
+      return toPart(record)
     },
 
     parts() {

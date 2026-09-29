@@ -1,0 +1,55 @@
+info:
+  name: turn-steer
+  type: http
+  seq: 4
+
+http:
+  method: POST
+  url: "{{baseUrl}}/commands/turn.steer"
+  headers:
+    - name: Content-Type
+      value: application/json
+    - name: Authorization
+      value: Bearer {{sessionToken}}
+    - name: Origin
+      value: "{{origin}}"
+  body:
+    type: json
+    data: |-
+      {
+        "name": "turn.steer",
+        "commandId": "command_turn_steer",
+        "sessionId": "{{sessionId}}",
+        "turnId": "{{turnId}}",
+        "content": "prefer the smaller change"
+      }
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("returns a command receipt", function () {
+          expect([200, 202, 500]).to.include(res.status);
+          expect(res.body).to.have.property("commandName", "turn.steer");
+        });
+        test("steers a running turn, or explains why it cannot", function () {
+          if (res.body.state === "failed") {
+            expect(res.body.error.code).to.be.oneOf(["turn_not_active", "steer_unsupported"]);
+          } else {
+            expect(res.body.result).to.have.property("turnId", bru.getVar("turnId"));
+          }
+        });
+  assertions:
+    - expression: res.body.commandName
+      operator: eq
+      value: turn.steer
+
+settings:
+  encodeUrl: true
+  timeout: 30000
+  followRedirects: true
+  maxRedirects: 5
+
+docs: |-
+  Delivers a message into the running turn from `turn-send` instead of
+  queueing a new turn. Fails with `turn_not_active` once that turn has ended.

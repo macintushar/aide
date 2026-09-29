@@ -48,6 +48,12 @@ function createHarness(
     }
     startError?: Error
     discoverError?: Error
+    commands?: Array<{
+      name: string
+      description: string
+      argumentHint: string
+    }>
+    skills?: Array<{ name: string; description: string; argumentHint: string }>
   } = {}
 ) {
   const opened: Array<{ cwd?: string; timeoutMs: number }> = []
@@ -69,8 +75,24 @@ function createHarness(
         },
         models: overrides.models ?? MODELS,
         agents: overrides.agents ?? [{ name: "Explore" }],
+        commands: overrides.commands ?? [],
       },
       query: {
+        async supportedCommands() {
+          return overrides.commands ?? []
+        },
+        async reloadSkills() {
+          return { skills: overrides.skills ?? [] }
+        },
+        async accountInfo() {
+          return (
+            overrides.account ?? {
+              email: "harness@example.test",
+              apiProvider: "firstParty",
+              subscriptionType: "Claude Pro",
+            }
+          )
+        },
         async supportedModels() {
           if (overrides.discoverError) throw overrides.discoverError
           return overrides.models ?? MODELS
@@ -89,6 +111,8 @@ function createHarness(
         async setMcpServers() {
           return undefined
         },
+        async reconnectMcpServer() {},
+        async stopTask() {},
       },
       messages() {
         return { [Symbol.asyncIterator]: () => ({ next: () => never }) }
@@ -325,6 +349,7 @@ describe("claude discovery", () => {
       type: "firstParty",
       label: "Claude Pro",
       account: "user@example.test",
+      providers: [{ id: "firstParty", label: "Anthropic", connected: true }],
     })
     expect(JSON.stringify(inventory)).not.toContain("sk-")
   })
@@ -342,6 +367,56 @@ describe("claude discovery", () => {
       status: "authenticated",
       type: "ANTHROPIC_API_KEY",
     })
+  })
+
+  it("separates skills from commands and reports both", async () => {
+    const harness = createHarness({
+      commands: [
+        { name: "compact", description: "Compact context", argumentHint: "" },
+        {
+          name: "review",
+          description: "Review a PR",
+          argumentHint: "<pr>",
+        },
+        { name: "pdf", description: "Work with PDFs", argumentHint: "" },
+      ],
+      skills: [
+        { name: "pdf", description: "Work with PDFs", argumentHint: "" },
+      ],
+    })
+    const adapter = createClaudeAdapter({
+      createSession: harness.createSession,
+    })
+    const handle = await adapter.start({ instance: instanceConfig() })
+
+    const inventory = await adapter.discover({ handle })
+    expect(inventory.commands).toEqual([
+      { name: "compact", description: "Compact context" },
+      { name: "review", description: "Review a PR", argumentHint: "<pr>" },
+    ])
+    expect(inventory.skills).toEqual([
+      { id: "pdf", name: "pdf", description: "Work with PDFs" },
+    ])
+    expect(inventory.capabilities).toMatchObject({
+      commands: true,
+      skills: true,
+      subagents: true,
+      usage: true,
+    })
+  })
+
+  it("names a third-party provider and its credential source", async () => {
+    const harness = createHarness({
+      account: { apiKeySource: "none", apiProvider: "bedrock" },
+    })
+    const adapter = createClaudeAdapter({
+      createSession: harness.createSession,
+    })
+    const handle = await adapter.start({ instance: instanceConfig() })
+
+    expect((await adapter.discover({ handle })).auth.providers).toEqual([
+      { id: "bedrock", label: "Amazon Bedrock", connected: true },
+    ])
   })
 
   it("reports unknown auth when the account says nothing", async () => {

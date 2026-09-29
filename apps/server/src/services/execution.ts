@@ -39,6 +39,14 @@ export class ExecutionResolver {
     return inventoryCacheRepo.put(this.#db, directory, inventory)
   }
 
+  /** The inventory last discovered for this instance and directory. */
+  inventory(
+    instanceId: string,
+    directory: string
+  ): HarnessInventory | undefined {
+    return inventoryCacheRepo.get(this.#db, instanceId, directory)
+  }
+
   async resolve(
     selection: ExecutionSelection,
     directory: string

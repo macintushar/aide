@@ -18,6 +18,10 @@ import type {
   InstanceHandle,
   ActiveTurnInput,
   InterruptTurnInput,
+  SteerTurnInput,
+  CompactInput,
+  StopSubagentInput,
+  ReconnectMcpServerInput,
   InputResponseInput,
   McpStatusInput,
   OpenSessionInput,
@@ -122,6 +126,13 @@ export type FakeHarnessControl = {
   invocationCount(userMessageId: string): number
   effectCount(userMessageId: string): number
   instanceStatus(instanceId: string): InstanceRuntimeStatus | undefined
+  /** Messages delivered into running turns, in order. */
+  steers(): Array<{ turnId: string; text: string }>
+  /** The directory each native session was opened in. */
+  openedDirectories(): string[]
+  compactions(): string[]
+  stoppedSubagents(): Array<{ turnId: string; taskId: string }>
+  reconnectedMcpServers(): string[]
 }
 
 export function createFakeHarnessAdapter(
@@ -143,6 +154,11 @@ export function createFakeHarnessAdapter(
   const dispatchOutcomes: FakeDispatchMode[] = []
   const invocations = new Map<string, number>()
   const effects = new Map<string, number>()
+  const steers: Array<{ turnId: string; text: string }> = []
+  const compactions: string[] = []
+  const stoppedSubagents: Array<{ turnId: string; taskId: string }> = []
+  const reconnectedMcpServers: string[] = []
+  const openedDirectories: string[] = []
   const dispatchModes = new Map<string, FakeDispatchMode>()
 
   const requireInstance = (handle: InstanceHandle): FakeInstance => {
@@ -533,6 +549,29 @@ export function createFakeHarnessAdapter(
 
       session.resumeCursor = turnId
       turn.status = "completed"
+      // Deterministic accounting, reported on the assistant message.
+      emit({
+        type: "message.upserted",
+        data: {
+          message: {
+            id: assistantMessageId,
+            sessionId: session.aideSessionId,
+            seq: userMessage.seq + 1,
+            role: "assistant",
+            parentMessageId: userMessage.id,
+            createdAt: now(),
+            usage: {
+              inputTokens: 120,
+              outputTokens: 40,
+              cacheReadTokens: 8,
+              cacheWriteTokens: 2,
+              costUsd: 0.0042,
+            },
+          },
+        },
+        turnId,
+        messageId: assistantMessageId,
+      })
       emit({
         type: "turn.completed",
         data: {
@@ -675,11 +714,14 @@ export function createFakeHarnessAdapter(
           { id: "build", label: "Build" },
           { id: "plan", label: "Plan" },
         ],
+        commands: [{ name: "review", description: "Review the changes" }],
+        skills: [{ id: "pdf", name: "pdf", description: "Work with PDFs" }],
       }
     },
 
     async openSession(input: OpenSessionInput) {
       const instance = requireInstance(input.handle)
+      openedDirectories.push(input.projectDirectory)
       const nativeSessionId = nextId("fake-native")
       const session: FakeNativeSession = {
         nativeSessionId,
@@ -758,6 +800,42 @@ export function createFakeHarnessAdapter(
       return turn && turn.status === "running" && !turn.cancelled
         ? { turnId: turn.turnId }
         : undefined
+    },
+
+    async compact(input: CompactInput) {
+      requireSession(input.handle, input.nativeSession.nativeSessionId)
+      compactions.push(input.nativeSession.nativeSessionId)
+    },
+
+    async stopSubagent(input: StopSubagentInput) {
+      stoppedSubagents.push({ turnId: input.turnId, taskId: input.taskId })
+    },
+
+    async reconnectMcpServer(input: ReconnectMcpServerInput) {
+      requireInstance(input.handle)
+      reconnectedMcpServers.push(input.name)
+    },
+
+    async steer(input: SteerTurnInput) {
+      const { session } = requireSession(
+        input.handle,
+        input.nativeSession.nativeSessionId
+      )
+      const turn = session.activeTurn
+      if (!turn || turn.turnId !== input.turnId || turn.status !== "running") {
+        throw fakeError(
+          "turn_not_active",
+          `fake turn ${input.turnId} is not running`,
+          false,
+          input.handle.instanceId
+        )
+      }
+      steers.push({
+        turnId: input.turnId,
+        text: input.message.parts
+          .flatMap((part) => (part.type === "text" ? [part.text] : []))
+          .join("\n"),
+      })
     },
 
     async interrupt(input: InterruptTurnInput) {
@@ -977,6 +1055,21 @@ export function createFakeHarnessAdapter(
     },
     effectCount(userMessageId) {
       return effects.get(userMessageId) ?? 0
+    },
+    steers() {
+      return [...steers]
+    },
+    openedDirectories() {
+      return [...openedDirectories]
+    },
+    compactions() {
+      return [...compactions]
+    },
+    stoppedSubagents() {
+      return [...stoppedSubagents]
+    },
+    reconnectedMcpServers() {
+      return [...reconnectedMcpServers]
     },
     instanceStatus(instanceId) {
       return instances.get(instanceId)?.status

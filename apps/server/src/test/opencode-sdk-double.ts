@@ -1,10 +1,12 @@
 import type {
   OpencodeAgent,
   OpencodeApi,
+  OpencodeForm,
+  OpencodeLiveEvent,
+  OpencodeLogEvent,
+  OpencodeModel,
   OpencodeModelRef,
-  OpencodeProvider,
-  OpencodeSessionEvent,
-  OpencodeSessionEventEnvelope,
+  OpencodePermissionRequest,
   OpencodeSessionInfo,
 } from "../harness/opencode/client"
 
@@ -70,10 +72,11 @@ class EventFanout<T> {
     for (const subscriber of this.#subscribers) subscriber.push(value)
   }
 
-  subscribe(): AsyncGenerator<T> {
+  subscribe(signal?: AbortSignal): AsyncGenerator<T> {
     const queue = new AsyncQueue<T>()
     this.#subscribers.add(queue)
     const subscribers = this.#subscribers
+    signal?.addEventListener("abort", () => queue.close(), { once: true })
     return (async function* () {
       try {
         yield* queue.stream()
@@ -85,25 +88,55 @@ class EventFanout<T> {
   }
 }
 
+/** One session's durable history, replayable from any sequence. */
 class ReplayEventLog {
-  readonly #events: OpencodeSessionEventEnvelope[] = []
-  readonly #live = new EventFanout<OpencodeSessionEventEnvelope>()
+  readonly #events: OpencodeLogEvent[] = []
+  readonly #live = new EventFanout<OpencodeLogEvent>()
 
-  push(event: OpencodeSessionEventEnvelope): void {
+  push(event: OpencodeLogEvent): void {
     this.#events.push(event)
     this.#live.publish(event)
   }
 
-  stream(after?: string): AsyncGenerator<OpencodeSessionEventEnvelope> {
-    const sequence = after === undefined ? -1 : Number(after)
-    const replay = this.#events.filter((event) => Number(event.id) > sequence)
-    const live = this.#live.subscribe()
+  stream(after: number | undefined, signal?: AbortSignal) {
+    const replay = this.#events.filter(
+      (event) =>
+        event.type !== "log.synced" &&
+        (after === undefined || event.durable.seq > after)
+    )
+    const live = this.#live.subscribe(signal)
+    const synced = { type: "log.synced" } as OpencodeLogEvent
     return (async function* () {
       yield* replay
+      yield synced
       yield* live
     })()
   }
 }
+
+/** Event types OpenCode keeps in a session's durable log. */
+const DURABLE_TYPES = new Set<string>([
+  "session.created",
+  "session.execution.started",
+  "session.execution.succeeded",
+  "session.execution.failed",
+  "session.execution.interrupted",
+  "session.step.started",
+  "session.step.ended",
+  "session.step.failed",
+  "session.text.started",
+  "session.text.ended",
+  "session.reasoning.started",
+  "session.reasoning.ended",
+  "session.tool.input.started",
+  "session.tool.input.ended",
+  "session.tool.called",
+  "session.tool.success",
+  "session.tool.failed",
+  "session.retry.scheduled",
+  "session.compaction.started",
+  "session.compaction.ended",
+])
 
 type SessionState = {
   info: OpencodeSessionInfo
@@ -111,42 +144,71 @@ type SessionState = {
   durableSequence: number
   wait: Deferred<void> | undefined
   permission: Deferred<void> | undefined
-  question: Deferred<void> | undefined
+  form: Deferred<void> | undefined
+  permissions: Map<string, OpencodePermissionRequest>
+  forms: Map<string, OpencodeForm>
   interrupted: boolean
   running: boolean
 }
+
+type FormAnswer = Record<string, string | number | boolean | string[]>
 
 export type OpencodeDoubleCalls = {
   directories: Array<string | undefined>
   selections: Array<
     | { type: "model"; sessionID: string; model: OpencodeModelRef }
-    | { type: "agent"; sessionID: string; agent: string | undefined }
+    | { type: "agent"; sessionID: string; agent: string }
     | { type: "prompt"; sessionID: string; id: string; text: string }
+    | { type: "command"; sessionID: string; name: string; text: string }
   >
+  steers: Array<{ sessionID: string; id?: string; text: string }>
+  compactions: string[]
+  mcpConnects: Array<{ directory?: string; name: string }>
+  synthetic: Array<{ sessionID: string; text: string; resume?: boolean }>
+  skillPrompts: Array<{ sessionID: string; skills: string[]; text: string }>
   permissionReplies: Array<{ requestID: string; reply: string }>
-  questionReplies: Array<{ requestID: string; answers: string[][] }>
+  formReplies: Array<{ formID: string; answer: FormAnswer }>
   interrupts: string[]
   mcpAdds: Array<{ directory?: string; name: string }>
-  mcpDisconnects: Array<{ directory?: string; name: string }>
+  mcpRemoves: Array<{ directory?: string; name: string }>
 }
 
 export type OpencodeDoubleControls = {
-  publish(
-    sessionID: string,
-    type: OpencodeSessionEvent["type"],
-    data: Record<string, unknown>
-  ): void
+  /** Publishes a native event; durable types also land in the session log. */
+  publish(sessionID: string, type: string, data: Record<string, unknown>): void
   failMcpAdd(directory: string | undefined, name: string): void
   mcpServers(directory?: string): string[]
 }
 
+export const DOUBLE_MODELS: OpencodeModel[] = [
+  {
+    id: "claude-opus-5",
+    providerID: "anthropic",
+    name: "Claude Opus 5",
+    enabled: true,
+    variants: [{ id: "standard" }, { id: "thinking" }],
+  },
+  {
+    id: "claude-sonnet-5",
+    providerID: "anthropic",
+    name: "Claude Sonnet 5",
+    enabled: true,
+    variants: [],
+  },
+]
+
+export const DOUBLE_AGENTS: OpencodeAgent[] = [
+  { id: "build", name: "Build", mode: "primary", hidden: false },
+  { id: "plan", name: "Plan", mode: "primary", hidden: false },
+  { id: "explore", name: "Explore", mode: "subagent", hidden: false },
+  { id: "internal", name: "Internal", mode: "primary", hidden: true },
+]
+
 export function createOpencodeSdkDouble(
   options: {
     version?: string
-    providers?: {
-      providers: OpencodeProvider[]
-      default: Record<string, string>
-    }
+    models?: OpencodeModel[]
+    defaultModel?: OpencodeModelRef | null
     agents?: OpencodeAgent[]
   } = {}
 ): {
@@ -158,12 +220,18 @@ export function createOpencodeSdkDouble(
     directories: [],
     selections: [],
     permissionReplies: [],
-    questionReplies: [],
+    formReplies: [],
     interrupts: [],
     mcpAdds: [],
-    mcpDisconnects: [],
+    mcpRemoves: [],
+    steers: [],
+    compactions: [],
+    mcpConnects: [],
+    synthetic: [],
+    skillPrompts: [],
   }
   const sessions = new Map<string, SessionState>()
+  const live = new EventFanout<OpencodeLiveEvent>()
   const mcpServers = new Map<string, Set<string>>()
   const mcpAddFailures = new Set<string>()
   let nextSession = 0
@@ -174,37 +242,12 @@ export function createOpencodeSdkDouble(
   const mcpNames = (directory: string | undefined) =>
     mcpServers.get(directory ?? "") ?? new Set<string>()
 
-  const providers = options.providers ?? {
-    providers: [
-      {
-        id: "anthropic",
-        name: "Anthropic",
-        source: "env",
-        env: ["ANTHROPIC_API_KEY"],
-        key: "set",
-        models: {
-          "claude-opus-5": {
-            id: "claude-opus-5",
-            providerID: "anthropic",
-            name: "Claude Opus 5",
-            variants: { standard: {}, thinking: {} },
-          },
-          "claude-sonnet-5": {
-            id: "claude-sonnet-5",
-            providerID: "anthropic",
-            name: "Claude Sonnet 5",
-          },
-        },
-      },
-    ],
-    default: { anthropic: "claude-opus-5" },
-  }
-  const agents = options.agents ?? [
-    { name: "build", mode: "primary" as const },
-    { name: "plan", mode: "primary" as const },
-    { name: "explore", mode: "subagent" as const },
-    { name: "internal", mode: "primary" as const, hidden: true },
-  ]
+  const models = options.models ?? DOUBLE_MODELS
+  const defaultRef =
+    options.defaultModel === undefined
+      ? { id: "claude-opus-5", providerID: "anthropic" }
+      : options.defaultModel
+  const agents = options.agents ?? DOUBLE_AGENTS
 
   const requireSession = (sessionID: string): SessionState => {
     const session = sessions.get(sessionID)
@@ -214,26 +257,32 @@ export function createOpencodeSdkDouble(
 
   const publishSession = (
     state: SessionState,
-    type: OpencodeSessionEvent["type"],
+    type: string,
     data: Record<string, unknown>
   ): void => {
-    const sequence = ++state.durableSequence
-    const event = {
-      id: `native-event-${++nextEvent}`,
+    const id = `native-event-${++nextEvent}`
+    if (DURABLE_TYPES.has(type)) {
+      const event = {
+        id,
+        created: Date.now(),
+        type,
+        durable: {
+          aggregateID: state.info.id,
+          seq: ++state.durableSequence,
+          version: 1,
+        },
+        data,
+      } as unknown as OpencodeLogEvent
+      state.events.push(event)
+      live.publish(event as unknown as OpencodeLiveEvent)
+      return
+    }
+    live.publish({
+      id,
+      created: Date.now(),
       type,
-      durable: {
-        aggregateID: state.info.id,
-        seq: sequence,
-        version: 1,
-      },
-      location: state.info.location,
       data,
-    } as OpencodeSessionEvent
-    state.events.push({
-      id: String(sequence),
-      event: type,
-      data: JSON.stringify(event),
-    })
+    } as unknown as OpencodeLiveEvent)
   }
 
   const runTurn = async (
@@ -243,395 +292,408 @@ export function createOpencodeSdkDouble(
   ): Promise<void> => {
     const sessionID = state.info.id
     const assistantMessageID = `${messageID}-assistant`
-    publishSession(state, "session.next.step.started", {
-      timestamp: Date.now(),
-      sessionID,
-      assistantMessageID,
+    const onMessage = { sessionID, assistantMessageID }
+    publishSession(state, "session.execution.started", { sessionID })
+    publishSession(state, "session.step.started", {
+      ...onMessage,
       agent: state.info.agent ?? "build",
       model: state.info.model,
+      started: Date.now(),
     })
-    publishSession(state, "message.part.updated", {
-      sessionID,
-      time: Date.now(),
-      part: {
-        id: "text-1",
-        sessionID,
-        messageID: assistantMessageID,
-        type: "text",
-        text: "OpenCode received: ",
-      },
+    publishSession(state, "session.text.started", { ...onMessage, ordinal: 0 })
+    publishSession(state, "session.text.delta", {
+      ...onMessage,
+      ordinal: 0,
+      delta: "OpenCode received: ",
     })
-    publishSession(state, "message.part.delta", {
-      sessionID,
-      messageID: assistantMessageID,
-      partID: "text-1",
-      field: "text",
+    publishSession(state, "session.text.delta", {
+      ...onMessage,
+      ordinal: 0,
       delta: prompt,
     })
-    publishSession(state, "message.part.updated", {
-      sessionID,
-      time: Date.now(),
-      part: {
-        id: "text-1",
-        sessionID,
-        messageID: assistantMessageID,
-        type: "text",
-        text: `OpenCode received: ${prompt}`,
-      },
+    publishSession(state, "session.text.ended", {
+      ...onMessage,
+      ordinal: 0,
+      text: `OpenCode received: ${prompt}`,
     })
-    publishSession(state, "message.part.updated", {
-      sessionID,
-      time: Date.now(),
-      part: {
-        id: "reasoning-1",
-        sessionID,
-        messageID: assistantMessageID,
-        type: "reasoning",
-        text: "Checking the workspace before making changes.",
-        time: { start: Date.now() },
-      },
+    publishSession(state, "session.reasoning.started", {
+      ...onMessage,
+      ordinal: 0,
     })
-    publishSession(state, "message.part.updated", {
-      sessionID,
-      time: Date.now(),
-      part: {
-        id: "tool-1",
-        sessionID,
-        messageID: assistantMessageID,
-        type: "tool",
-        callID: "tool-1",
-        tool: "bash",
-        state: {
-          status: "pending",
-          input: { command: "pwd" },
-          raw: JSON.stringify({ command: "pwd" }),
-        },
-      },
+    publishSession(state, "session.reasoning.ended", {
+      ...onMessage,
+      ordinal: 0,
+      text: "Checking the workspace before making changes.",
     })
-    publishSession(state, "message.part.updated", {
-      sessionID,
-      time: Date.now(),
-      part: {
-        id: "tool-1",
-        sessionID,
-        messageID: assistantMessageID,
-        type: "tool",
-        callID: "tool-1",
-        tool: "bash",
-        state: {
-          status: "running",
-          input: { command: "pwd" },
-          time: { start: Date.now() },
-        },
-      },
+    publishSession(state, "session.tool.input.started", {
+      ...onMessage,
+      id: "tool-1",
+      name: "bash",
     })
-    publishSession(state, "message.part.updated", {
-      sessionID,
-      time: Date.now(),
-      part: {
-        id: "tool-1",
-        sessionID,
-        messageID: assistantMessageID,
-        type: "tool",
-        callID: "tool-1",
-        tool: "bash",
-        state: {
-          status: "completed",
-          input: { command: "pwd" },
-          output: "/tmp/project",
-          title: "pwd",
-          metadata: {},
-          time: { start: Date.now(), end: Date.now() },
-        },
-      },
+    publishSession(state, "session.tool.called", {
+      ...onMessage,
+      id: "tool-1",
+      input: { command: "pwd" },
+      executed: true,
     })
-    publishSession(state, "message.part.updated", {
-      sessionID,
-      time: Date.now(),
-      part: {
-        id: "tool-2",
-        sessionID,
-        messageID: assistantMessageID,
-        type: "tool",
-        callID: "tool-2",
-        tool: "bash",
-        state: {
-          status: "pending",
-          input: { command: "false" },
-          raw: JSON.stringify({ command: "false" }),
-        },
-      },
+    publishSession(state, "session.tool.success", {
+      ...onMessage,
+      id: "tool-1",
+      content: [{ type: "text", text: "/tmp/project" }],
+      executed: true,
     })
-    publishSession(state, "message.part.updated", {
-      sessionID,
-      time: Date.now(),
-      part: {
-        id: "tool-2",
-        sessionID,
-        messageID: assistantMessageID,
-        type: "tool",
-        callID: "tool-2",
-        tool: "bash",
-        state: {
-          status: "running",
-          input: { command: "false" },
-          time: { start: Date.now() },
-        },
-      },
+    publishSession(state, "session.tool.input.started", {
+      ...onMessage,
+      id: "tool-2",
+      name: "bash",
     })
-    publishSession(state, "message.part.updated", {
-      sessionID,
-      time: Date.now(),
-      part: {
-        id: "tool-2",
-        sessionID,
-        messageID: assistantMessageID,
-        type: "tool",
-        callID: "tool-2",
-        tool: "bash",
-        state: {
-          status: "error",
-          input: { command: "false" },
-          error: "expected conformance failure",
-          time: { start: Date.now(), end: Date.now() },
-        },
-      },
+    publishSession(state, "session.tool.called", {
+      ...onMessage,
+      id: "tool-2",
+      input: { command: "false" },
+      executed: true,
+    })
+    publishSession(state, "session.tool.failed", {
+      ...onMessage,
+      id: "tool-2",
+      error: { type: "tool", message: "expected conformance failure" },
+      executed: true,
     })
 
-    state.permission = deferred<void>()
-    publishSession(state, "permission.v2.asked", {
+    const permission: OpencodePermissionRequest = {
       id: "permission-1",
       sessionID,
       action: "bash",
       resources: ["pwd"],
-    })
+    }
+    state.permissions.set(permission.id, permission)
+    state.permission = deferred<void>()
+    publishSession(state, "permission.asked", { ...permission })
     await state.permission.promise
     if (state.interrupted) return
 
-    state.question = deferred<void>()
-    publishSession(state, "question.v2.asked", {
+    const form: OpencodeForm = {
       id: "question-1",
       sessionID,
-      questions: [
+      title: "Continue",
+      fields: [
         {
-          question: "Continue with the conformance turn?",
-          header: "Continue",
+          key: "continue",
+          type: "string",
+          title: "Continue",
+          description: "Continue with the conformance turn?",
+          required: true,
           options: [
-            { label: "Yes", description: "Continue the turn" },
-            { label: "No", description: "Stop the turn" },
+            { value: "Yes", label: "Yes", description: "Continue the turn" },
+            { value: "No", label: "No", description: "Stop the turn" },
           ],
           custom: true,
         },
       ],
-    })
-    await state.question.promise
+    }
+    state.forms.set(form.id, form)
+    state.form = deferred<void>()
+    publishSession(state, "form.created", { form })
+    await state.form.promise
     if (state.interrupted) return
 
-    publishSession(state, "session.idle", { sessionID })
+    publishSession(state, "session.step.ended", {
+      ...onMessage,
+      finish: "stop",
+      cost: 0.0125,
+      tokens: {
+        input: 120,
+        output: 30,
+        reasoning: 5,
+        cache: { read: 10, write: 2 },
+      },
+    })
+    publishSession(state, "session.execution.succeeded", { sessionID })
     state.running = false
     state.wait?.resolve(undefined)
   }
 
   const api: OpencodeApi = {
-    global: {
-      async health() {
+    server: {
+      async info() {
+        return { version: options.version ?? "2.0.18" }
+      },
+    },
+    model: {
+      async list(input) {
+        calls.directories.push(input?.location?.directory)
+        return { data: models }
+      },
+      async default() {
         return {
-          data: { healthy: true, version: options.version ?? "1.18.16" },
+          data:
+            (defaultRef &&
+              models.find(
+                (model) =>
+                  model.id === defaultRef.id &&
+                  model.providerID === defaultRef.providerID
+              )) ??
+            null,
         }
       },
     },
-    config: {
-      async providers(parameters) {
-        calls.directories.push(parameters?.directory)
-        return { data: providers }
-      },
-    },
-    app: {
-      async agents() {
+    agent: {
+      async list() {
         return { data: agents }
       },
     },
-    v2: {
-      session: {
-        async create(parameters) {
-          const id = parameters?.id ?? `opencode-session-${++nextSession}`
-          const info: OpencodeSessionInfo = {
-            id,
-            projectID: "project-1",
-            ...(parameters?.agent ? { agent: parameters.agent } : {}),
-            ...(parameters?.model ? { model: parameters.model } : {}),
-            cost: 0,
-            tokens: {
-              input: 0,
-              output: 0,
-              reasoning: 0,
-              cache: { read: 0, write: 0 },
+    command: {
+      async list() {
+        return {
+          data: [
+            { name: "init", description: "guided AGENTS.md setup" },
+            { name: "review", description: "review changes" },
+          ],
+        }
+      },
+    },
+    skill: {
+      async list() {
+        return {
+          data: [{ id: "pdf", name: "pdf", description: "Work with PDFs" }],
+        }
+      },
+    },
+    provider: {
+      async list() {
+        return {
+          data: [
+            {
+              id: "anthropic",
+              name: "Anthropic",
+              integrationID: "anthropic",
+              activation: "enabled" as const,
             },
-            time: { created: Date.now(), updated: Date.now() },
-            title: "Aide session",
-            location: parameters?.location ?? { directory: "/tmp/project" },
-          }
-          sessions.set(id, {
-            info,
-            events: new ReplayEventLog(),
-            durableSequence: 0,
-            wait: undefined,
-            permission: undefined,
-            question: undefined,
-            interrupted: false,
-            running: false,
-          })
-          return { data: { data: info } }
-        },
-        async get({ sessionID }) {
-          return { data: { data: requireSession(sessionID).info } }
-        },
-        async active() {
-          return {
-            data: {
-              data: Object.fromEntries(
-                [...sessions.entries()]
-                  .filter(([, state]) => state.running)
-                  .map(([id]) => [id, { type: "running" as const }])
-              ),
+            {
+              id: "opencode",
+              name: "OpenCode",
+              activation: "enabled" as const,
             },
-          }
-        },
-        async switchAgent({ sessionID, agent }) {
-          const state = requireSession(sessionID)
-          state.info.agent = agent
-          calls.selections.push({ type: "agent", sessionID, agent })
-          return {}
-        },
-        async switchModel({ sessionID, model }) {
-          const state = requireSession(sessionID)
-          state.info.model = model
-          if (model) calls.selections.push({ type: "model", sessionID, model })
-          return {}
-        },
-        async prompt({ sessionID, id, prompt }) {
-          const state = requireSession(sessionID)
-          const messageID = id ?? `message-${Date.now()}`
-          const text = prompt?.text ?? ""
-          calls.selections.push({
-            type: "prompt",
+          ],
+        }
+      },
+    },
+    integration: {
+      async list() {
+        return {
+          data: [
+            {
+              id: "anthropic",
+              name: "Anthropic",
+              connections: [
+                { type: "env" as const, name: "ANTHROPIC_API_KEY" },
+              ],
+            },
+          ],
+        }
+      },
+    },
+    session: {
+      async create(input) {
+        const id = `opencode-session-${++nextSession}`
+        const info = {
+          id,
+          projectID: "project-1",
+          ...(input.agent ? { agent: input.agent } : {}),
+          ...(input.model ? { model: input.model } : {}),
+          cost: 0,
+          tokens: {},
+          time: { created: Date.now(), updated: Date.now() },
+          title: "Aide session",
+          location: input.location ?? { directory: "/tmp/project" },
+        } as unknown as OpencodeSessionInfo
+        const state: SessionState = {
+          info,
+          events: new ReplayEventLog(),
+          durableSequence: 0,
+          wait: undefined,
+          permission: undefined,
+          form: undefined,
+          permissions: new Map(),
+          forms: new Map(),
+          interrupted: false,
+          running: false,
+        }
+        sessions.set(id, state)
+        publishSession(state, "session.created", {
+          sessionID: id,
+          projectID: "project-1",
+          location: info.location,
+          slug: id,
+          version: options.version ?? "2.0.18",
+        })
+        return info
+      },
+      async get({ sessionID }) {
+        return requireSession(sessionID).info
+      },
+      async active() {
+        return Object.fromEntries(
+          [...sessions.entries()]
+            .filter(([, state]) => state.running)
+            .map(([id]) => [id, { type: "running" as const }])
+        )
+      },
+      async switchAgent({ sessionID, agent }) {
+        requireSession(sessionID).info.agent = agent
+        calls.selections.push({ type: "agent", sessionID, agent })
+      },
+      async switchModel({ sessionID, model }) {
+        // Mirrors OpenCode, which stores a missing variant as "default".
+        requireSession(sessionID).info.model = {
+          ...model,
+          variant: model.variant ?? "default",
+        }
+        calls.selections.push({ type: "model", sessionID, model })
+      },
+      async command({ sessionID, name, text }) {
+        const state = requireSession(sessionID)
+        calls.selections.push({ type: "command", sessionID, name, text })
+        const messageID = `msg_command_${Date.now()}`
+        state.interrupted = false
+        state.running = true
+        state.wait = deferred<void>()
+        queueMicrotask(() => void runTurn(state, messageID, `/${name} ${text}`))
+      },
+      async compact({ sessionID }) {
+        requireSession(sessionID)
+        calls.compactions.push(sessionID)
+        return {}
+      },
+      async synthetic({ sessionID, text, resume }) {
+        requireSession(sessionID)
+        calls.synthetic.push({ sessionID, text, resume })
+        return {}
+      },
+      async prompt({ sessionID, id, text, delivery, skills }) {
+        const state = requireSession(sessionID)
+        if (delivery === "steer") {
+          calls.steers.push({ sessionID, ...(id ? { id } : {}), text })
+          return { id: id ?? `msg_${Date.now()}` }
+        }
+        if (skills && skills.length > 0) {
+          calls.skillPrompts.push({
             sessionID,
-            id: messageID,
+            skills: skills.map((skill) => skill.id),
             text,
           })
-          state.interrupted = false
-          state.running = true
-          state.wait = deferred<void>()
-          const admittedSeq = ++state.durableSequence
-          queueMicrotask(() => void runTurn(state, messageID, text))
-          return {
-            data: {
-              data: {
-                admittedSeq,
-                id: messageID,
-                sessionID,
-                prompt: { text },
-                delivery: "queue",
-                timeCreated: Date.now(),
-              },
-            },
-          }
+        }
+        if (id !== undefined && !id.startsWith("msg_")) {
+          throw new Error('Expected a string starting with "msg_"')
+        }
+        const messageID = id ?? `msg_${Date.now()}`
+        calls.selections.push({
+          type: "prompt",
+          sessionID,
+          id: messageID,
+          text,
+        })
+        state.interrupted = false
+        state.running = true
+        state.wait = deferred<void>()
+        queueMicrotask(() => void runTurn(state, messageID, text))
+        return { id: messageID }
+      },
+      async wait({ sessionID }) {
+        await requireSession(sessionID).wait?.promise
+      },
+      async interrupt({ sessionID }) {
+        const state = requireSession(sessionID)
+        calls.interrupts.push(sessionID)
+        state.interrupted = true
+        state.running = false
+        state.permissions.clear()
+        state.forms.clear()
+        state.permission?.resolve(undefined)
+        state.form?.resolve(undefined)
+        state.wait?.resolve(undefined)
+        publishSession(state, "session.execution.interrupted", {
+          sessionID,
+          reason: "user",
+        })
+        return {}
+      },
+      log({ sessionID, after }, requestOptions) {
+        return requireSession(sessionID).events.stream(
+          after,
+          requestOptions?.signal
+        )
+      },
+      form: {
+        async list({ sessionID }) {
+          return [...requireSession(sessionID).forms.values()]
         },
-        async wait({ sessionID }) {
-          await requireSession(sessionID).wait?.promise
-          return {}
-        },
-        async events({ sessionID, after }) {
-          return { stream: requireSession(sessionID).events.stream(after) }
-        },
-        async interrupt({ sessionID }) {
+        async reply({ sessionID, formID, answer }) {
           const state = requireSession(sessionID)
-          calls.interrupts.push(sessionID)
-          state.interrupted = true
-          state.running = false
-          state.permission?.resolve(undefined)
-          state.question?.resolve(undefined)
-          state.wait?.resolve(undefined)
-          return {}
+          calls.formReplies.push({ formID, answer })
+          state.forms.delete(formID)
+          publishSession(state, "form.replied", {
+            id: formID,
+            sessionID,
+            answer,
+          })
+          state.form?.resolve(undefined)
         },
-        permission: {
-          async reply({ sessionID, requestID, reply }) {
-            const state = requireSession(sessionID)
-            calls.permissionReplies.push({ requestID, reply: reply ?? "once" })
-            publishSession(state, "permission.v2.replied", {
-              sessionID,
-              requestID,
-              reply: reply ?? "once",
-            })
-            state.permission?.resolve(undefined)
-            return {}
-          },
-        },
-        question: {
-          async reply({ sessionID, requestID, questionV2Reply }) {
-            const state = requireSession(sessionID)
-            calls.questionReplies.push({
-              requestID,
-              answers: questionV2Reply.answers,
-            })
-            publishSession(state, "question.v2.replied", {
-              sessionID,
-              requestID,
-              answers: questionV2Reply.answers,
-            })
-            state.question?.resolve(undefined)
-            return {}
-          },
-          async reject({ sessionID, requestID }) {
-            const state = requireSession(sessionID)
-            publishSession(state, "question.v2.rejected", {
-              sessionID,
-              requestID,
-            })
-            state.question?.resolve(undefined)
-            return {}
-          },
+        async cancel({ sessionID, formID }) {
+          const state = requireSession(sessionID)
+          state.forms.delete(formID)
+          publishSession(state, "form.cancelled", { id: formID, sessionID })
+          state.form?.resolve(undefined)
         },
       },
     },
+    permission: {
+      async list({ sessionID }) {
+        return [...requireSession(sessionID).permissions.values()]
+      },
+      async reply({ sessionID, requestID, decision }) {
+        const state = requireSession(sessionID)
+        calls.permissionReplies.push({ requestID, reply: decision })
+        state.permissions.delete(requestID)
+        publishSession(state, "permission.replied", {
+          sessionID,
+          requestID,
+          reply: decision,
+        })
+        state.permission?.resolve(undefined)
+      },
+    },
+    event: {
+      subscribe(requestOptions) {
+        return live.subscribe(requestOptions?.signal)
+      },
+    },
     mcp: {
-      async status(parameters) {
+      async list(input) {
         return {
-          data: Object.fromEntries(
-            [...mcpNames(parameters?.directory)].map((name) => [
-              name,
-              { status: "connected" },
-            ])
-          ),
+          data: [...mcpNames(input?.location?.directory)].map((name) => ({
+            name,
+            status: { status: "connected" as const },
+          })),
         }
       },
-      async add(parameters) {
-        const { directory, name } = parameters ?? {}
-        if (name) calls.mcpAdds.push({ directory, name })
-        if (name && mcpAddFailures.has(mcpKey(directory, name))) {
-          return { error: { message: `failed to add ${name}` } }
+      async add({ location, server }) {
+        const directory = location?.directory
+        calls.mcpAdds.push({ directory, name: server })
+        if (mcpAddFailures.has(mcpKey(directory, server))) {
+          throw new Error(`failed to add ${server}`)
         }
-        if (name) {
-          const names = mcpNames(directory)
-          names.add(name)
-          mcpServers.set(directory ?? "", names)
-        }
-        return {
-          data: Object.fromEntries(
-            [...mcpNames(directory)].map((entry) => [
-              entry,
-              { status: "connected" },
-            ])
-          ),
-        }
+        const names = mcpNames(directory)
+        names.add(server)
+        mcpServers.set(directory ?? "", names)
       },
-      async connect() {
-        return { data: true }
+      async connect({ location, server }) {
+        calls.mcpConnects.push({ directory: location?.directory, name: server })
       },
-      async disconnect({ directory, name }) {
-        calls.mcpDisconnects.push({ directory, name })
-        mcpNames(directory).delete(name)
-        return { data: true }
+      async remove({ location, server }) {
+        const directory = location?.directory
+        calls.mcpRemoves.push({ directory, name: server })
+        mcpNames(directory).delete(server)
       },
     },
   }

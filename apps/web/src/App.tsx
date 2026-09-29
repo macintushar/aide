@@ -3,7 +3,7 @@ import { AideMark } from "@workspace/ui/components/logo"
 import { EmptyState } from "@workspace/ui/components/empty-state"
 import { ScrollArea } from "@workspace/ui/components/scroll-area"
 import { TooltipProvider } from "@workspace/ui/components/tooltip"
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 
 import { AppShell } from "@/components/shell/app-shell"
 import { Sidebar, type SidebarView } from "@/components/shell/sidebar"
@@ -42,17 +42,20 @@ import {
 import { createReadClient } from "@/lib/transport/read-client"
 import { createSessionAuth } from "@/lib/transport/session-auth"
 import {
+  forgetSession,
   readRecentSessions,
   rememberSession,
   type RecentSession,
 } from "@/lib/recent-sessions"
 import { useSessionRoute } from "@/lib/session-route"
+import type { ProjectBrowserClient } from "@/components/shell/project-browser"
 import { useWorkspaceState } from "@/lib/workspace-state"
 
 export type AppProps = {
   readClient?: InstancesProviderProps["readClient"] &
     SettingsBoundaryProps["readClient"] &
-    NonNullable<SessionProviderProps["readClient"]>
+    NonNullable<SessionProviderProps["readClient"]> &
+    Partial<ProjectBrowserClient>
   commandClient?: InstancesProviderProps["commandClient"] &
     SettingsBoundaryProps["commandClient"]
   subscribeInstances?: InstancesProviderProps["subscribe"]
@@ -124,6 +127,27 @@ export function App({
   }
 
   const showSession = view === "session" && Boolean(sessionId)
+  const projectBrowser = useMemo<ProjectBrowserClient | undefined>(
+    () =>
+      reads.listProjects && reads.listSessions
+        ? {
+            listProjects: reads.listProjects.bind(reads),
+            listSessions: reads.listSessions.bind(reads),
+          }
+        : undefined,
+    [reads]
+  )
+  // Any navigation may have created or removed a project or session.
+  const [projectsRefresh, setProjectsRefresh] = useState(0)
+  useEffect(() => {
+    setProjectsRefresh((count) => count + 1)
+  }, [sessionId, view])
+
+  function sessionDeleted() {
+    if (sessionId) setRecents(forgetSession(sessionId))
+    setRouteSessionId(undefined)
+    setView("welcome")
+  }
 
   if (!authenticated) {
     return (
@@ -147,6 +171,8 @@ export function App({
           readClient={reads}
           commandClient={commands}
           subscribe={subscribeSession}
+          openSession={selectSession}
+          onSessionDeleted={sessionDeleted}
         >
           <SessionRecorder onRemember={setRecents} />
           <AppShell
@@ -163,6 +189,8 @@ export function App({
                 }}
                 onOpenSettings={() => setView("settings")}
                 onSelectSession={selectSession}
+                projects={projectBrowser}
+                projectsRefreshKey={projectsRefresh}
               />
             }
             panel={
@@ -213,6 +241,7 @@ export function App({
             ) : (
               <WelcomeView
                 commandClient={commands}
+                listProjects={projectBrowser?.listProjects}
                 onSelectSession={selectSession}
               />
             )}
@@ -225,9 +254,11 @@ export function App({
 
 function WelcomeView({
   commandClient,
+  listProjects,
   onSelectSession,
 }: {
   commandClient: NonNullable<AppProps["commandClient"]>
+  listProjects?: ProjectBrowserClient["listProjects"]
   onSelectSession: (sessionId: string) => void
 }) {
   return (
@@ -243,6 +274,7 @@ function WelcomeView({
         </div>
         <SessionNavigation
           commandClient={commandClient}
+          listProjects={listProjects}
           onSelectSession={onSelectSession}
         />
       </div>
@@ -250,7 +282,7 @@ function WelcomeView({
   )
 }
 
-/** Recents are browser-local until the server exposes a session list. */
+/** Remembers the open session in the browser-local recents. */
 function SessionRecorder({
   onRemember,
 }: {

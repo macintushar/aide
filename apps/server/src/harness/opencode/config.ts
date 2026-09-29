@@ -14,22 +14,20 @@ export const opencodeConfigSchema = z
      * A self-hosted deployment is the reason two OpenCode instances differ.
      */
     baseUrl: z.string().min(1).optional(),
-    /** Bind hostname for an Aide-managed runtime. Ignored when `baseUrl` is set. */
-    hostname: z.string().min(1).optional(),
-    /** Bind port for an Aide-managed runtime. `0` picks a free port. */
-    port: z.number().int().min(0).max(65_535).optional(),
+    /**
+     * Session database for the in-process host. Defaults to a file next to
+     * Aide's own database; OpenCode would otherwise keep sessions in memory.
+     */
+    databasePath: z.string().min(1).optional(),
     /** Fallback working directory when a send is not project-scoped. */
     directory: z.string().min(1).optional(),
     /** Skip the pinned-version compatibility check. */
     allowVersionMismatch: z.boolean().optional(),
   })
-  .refine(
-    (value) => !(value.baseUrl && (value.hostname || value.port !== undefined)),
-    {
-      message:
-        "baseUrl cannot be combined with hostname or port: either Aide manages the runtime or it connects to yours",
-    }
-  )
+  .refine((value) => !(value.baseUrl && value.databasePath), {
+    message:
+      "baseUrl cannot be combined with databasePath: either Aide hosts OpenCode or it connects to yours",
+  })
 
 export type OpencodeInstanceConfig = z.infer<typeof opencodeConfigSchema>
 
@@ -38,14 +36,14 @@ export type OpencodeInstanceConfig = z.infer<typeof opencodeConfigSchema>
  * explicit adapter compatibility update, together with the fixtures that encode
  * the generated event discriminants.
  */
-export const PINNED_OPENCODE_SDK_VERSION = "1.18.16"
+export const PINNED_OPENCODE_SDK_VERSION = "2.0.18"
 
 /**
  * The adapter targets one OpenCode minor line. A runtime outside it is an
  * actionable error rather than a best-effort attempt against unknown wire
  * shapes.
  */
-export const SUPPORTED_OPENCODE_RUNTIME_RANGE = { major: 1, minor: 18 } as const
+export const SUPPORTED_OPENCODE_RUNTIME_RANGE = { major: 2, minor: 0 } as const
 
 export function isCompatibleRuntimeVersion(version: string): boolean {
   const match = /^(\d+)\.(\d+)\./.exec(version.trim())

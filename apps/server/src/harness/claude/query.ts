@@ -35,6 +35,23 @@ export type ClaudeAgentInfo = {
   description?: string
 }
 
+/** A slash command or skill, as `supportedCommands()` lists it. */
+export type ClaudeSlashCommand = {
+  name: string
+  description: string
+  argumentHint: string
+}
+
+/** Cumulative per-model accounting on a `result` message. */
+export type ClaudeModelUsage = {
+  inputTokens: number
+  outputTokens: number
+  thinkingTokens?: number
+  cacheReadInputTokens: number
+  cacheCreationInputTokens: number
+  costUSD: number
+}
+
 export type ClaudeMcpServerStatus = {
   name: string
   status: string
@@ -65,6 +82,7 @@ export type ClaudeInitInfo = {
   account: ClaudeAccountInfo
   models: ClaudeModelInfo[]
   agents: ClaudeAgentInfo[]
+  commands: ClaudeSlashCommand[]
 }
 
 /** The two `PermissionMode` values Aide's interaction modes map onto. */
@@ -101,13 +119,21 @@ export type ClaudeStreamMessage =
       type: "assistant"
       uuid: string
       message: { id?: string; content?: ClaudeContentBlock[] }
+      /** Set on a subagent's own messages; null on the main loop's. */
+      parent_tool_use_id?: string | null
     }
   | {
       type: "user"
       uuid?: string
       message: { content?: ClaudeContentBlock[] | string }
+      parent_tool_use_id?: string | null
     }
-  | { type: "stream_event"; uuid?: string; event: ClaudeRawStreamEvent }
+  | {
+      type: "stream_event"
+      uuid?: string
+      event: ClaudeRawStreamEvent
+      parent_tool_use_id?: string | null
+    }
   | {
       type: "result"
       uuid?: string
@@ -115,6 +141,17 @@ export type ClaudeStreamMessage =
       is_error?: boolean
       result?: string
       errors?: string[]
+      /** Main loop only, this turn only. */
+      usage?: {
+        input_tokens?: number
+        output_tokens?: number
+        cache_read_input_tokens?: number
+        cache_creation_input_tokens?: number
+      }
+      /** Cumulative for the query, including subagents. */
+      modelUsage?: Record<string, ClaudeModelUsage>
+      /** Cumulative for the query. */
+      total_cost_usd?: number
     }
   | {
       type: "system"
@@ -125,7 +162,21 @@ export type ClaudeStreamMessage =
       attempt?: number
       max_retries?: number
       tool_name?: string
-      compact_metadata?: { trigger?: string }
+      compact_metadata?: { trigger?: string; pre_tokens?: number }
+      // task_started / task_progress / task_updated / task_notification
+      task_id?: string
+      description?: string
+      subagent_type?: string
+      summary?: string
+      last_tool_name?: string
+      skip_transcript?: boolean
+      ambient?: boolean
+      usage?: {
+        total_tokens?: number
+        tool_uses?: number
+        duration_ms?: number
+      }
+      patch?: { status?: string; description?: string; error?: string }
     }
 
 export type ClaudePermissionDecision =
@@ -158,12 +209,17 @@ export type ClaudeDialogResult =
 /** The subset of `Query` this adapter uses. */
 export type ClaudeQuery = {
   supportedModels(): Promise<ClaudeModelInfo[]>
+  supportedCommands(): Promise<ClaudeSlashCommand[]>
+  reloadSkills(): Promise<{ skills: ClaudeSlashCommand[] }>
+  accountInfo(): Promise<ClaudeAccountInfo>
   supportedAgents(): Promise<ClaudeAgentInfo[]>
   mcpServerStatus(): Promise<ClaudeMcpServerStatus[]>
   interrupt(): Promise<unknown>
   setModel(model?: string): Promise<void>
   setPermissionMode(mode: ClaudePermissionMode): Promise<void>
   setMcpServers(servers: Record<string, unknown>): Promise<unknown>
+  reconnectMcpServer(serverName: string): Promise<void>
+  stopTask(taskId: string): Promise<void>
 }
 
 /** A live query plus the init facts it reported and the means to drive it. */
@@ -175,9 +231,18 @@ export type ClaudeSession = {
    * per session, because the underlying `Query` is one generator.
    */
   messages(): AsyncIterable<ClaudeStreamMessage>
-  /** Queues a prompt on the open streaming-input iterable. */
-  prompt(text: string): void
+  /**
+   * Queues a prompt on the open streaming-input iterable. `priority: "next"`
+   * folds it into a running turn (steering); `shouldQuery: false` appends it
+   * to the transcript without starting a turn of its own.
+   */
+  prompt(text: string, options?: ClaudePromptOptions): void
   close(): Promise<void>
+}
+
+export type ClaudePromptOptions = {
+  priority?: "now" | "next" | "later"
+  shouldQuery?: boolean
 }
 
 export type ClaudeSessionOpenInput = {
@@ -397,6 +462,7 @@ export const createClaudeSession: ClaudeSessionFactory = async (input) => {
       models?: ClaudeModelInfo[]
       agents?: ClaudeAgentInfo[]
       account?: ClaudeAccountInfo
+      commands?: ClaudeSlashCommand[]
     }
     const models = handshake.models ?? []
     init = {
@@ -409,6 +475,7 @@ export const createClaudeSession: ClaudeSessionFactory = async (input) => {
       account: handshake.account ?? {},
       models,
       agents: handshake.agents ?? [],
+      commands: handshake.commands ?? [],
     }
   } catch (error) {
     await close()
@@ -435,11 +502,13 @@ export const createClaudeSession: ClaudeSessionFactory = async (input) => {
         }),
       }
     },
-    prompt(text: string) {
+    prompt(text: string, options?: ClaudePromptOptions) {
       prompt.push({
         type: "user",
         message: { role: "user", content: text },
         parent_tool_use_id: null,
+        ...(options?.priority ? { priority: options.priority } : {}),
+        ...(options?.shouldQuery === false ? { shouldQuery: false } : {}),
         ...(init.sessionId ? { session_id: init.sessionId } : {}),
       })
     },

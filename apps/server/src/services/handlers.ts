@@ -37,13 +37,61 @@ export function createCoreCommandHandlers(
       },
     },
     "session.create": {
+      // Not transactional: a worktree session runs git before it commits.
       kind: "local",
-      transactional: true,
       handle(command: CommandFor<"session.create">, db) {
+        if (command.worktree) {
+          return services.projects.createWorktreeSession(
+            command.projectId,
+            command.worktree,
+            command.title
+          )
+        }
         return services.projects.createSession(
           command.projectId,
           command.title,
           db
+        )
+      },
+    },
+    "session.fork": {
+      kind: "local",
+      handle(command: CommandFor<"session.fork">) {
+        return services.projects.forkSession({
+          sessionId: command.sessionId,
+          ...(command.throughTurnId
+            ? { throughTurnId: command.throughTurnId }
+            : {}),
+          ...(command.title ? { title: command.title } : {}),
+          ...(command.worktree ? { worktree: command.worktree } : {}),
+        })
+      },
+    },
+    "session.restore": {
+      kind: "local",
+      handle(command: CommandFor<"session.restore">) {
+        return services.turns.restore(command.sessionId, command.turnId)
+      },
+    },
+    "session.compact": {
+      kind: "local",
+      handle(command: CommandFor<"session.compact">) {
+        return services.turns.compact(command.sessionId)
+      },
+    },
+    "subagent.stop": {
+      kind: "local",
+      async handle(command: CommandFor<"subagent.stop">) {
+        await services.turns.stopSubagent(command)
+        return { taskId: command.taskId }
+      },
+    },
+    "worktree.remove": {
+      kind: "local",
+      handle(command: CommandFor<"worktree.remove">) {
+        return services.projects.removeWorktree(
+          command.sessionId,
+          command.deleteBranch ?? false
         )
       },
     },
@@ -60,9 +108,9 @@ export function createCoreCommandHandlers(
     },
     "session.delete": {
       kind: "local",
-      transactional: true,
-      handle(command: CommandFor<"session.delete">, db) {
-        return services.projects.deleteSession(command.sessionId, db)
+      // Not transactional: removing the worktree runs git first.
+      handle(command: CommandFor<"session.delete">) {
+        return services.projects.deleteSession(command.sessionId)
       },
     },
     "turn.send": {
@@ -70,6 +118,12 @@ export function createCoreCommandHandlers(
       async handle(command: CommandFor<"turn.send">, context) {
         context.defer()
         await services.turns.submit({ ...command, context })
+      },
+    },
+    "turn.steer": {
+      kind: "external",
+      async handle(command: CommandFor<"turn.steer">, context) {
+        await services.turns.steer({ ...command, context })
       },
     },
     "turn.interrupt": {
@@ -154,6 +208,20 @@ function createSupervisionHandlers(
       async handle(command: CommandFor<"instance.restart">) {
         await supervisor.restart(command.instanceId)
         return { status: supervisor.status(command.instanceId) }
+      },
+    }
+  }
+
+  if (supervisor) {
+    handlers["mcp.reconnect"] = {
+      kind: "local",
+      async handle(command: CommandFor<"mcp.reconnect">) {
+        return {
+          servers: await supervisor.reconnectMcp(
+            command.instanceId,
+            command.serverName
+          ),
+        }
       },
     }
   }

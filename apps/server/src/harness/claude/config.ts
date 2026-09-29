@@ -26,7 +26,7 @@ export const claudeConfigSchema = z
 export type ClaudeInstanceConfig = z.infer<typeof claudeConfigSchema>
 
 /** Pinned exactly until an explicit adapter compatibility update. */
-export const PINNED_CLAUDE_SDK_VERSION = "0.3.228"
+export const PINNED_CLAUDE_SDK_VERSION = "0.3.283"
 
 /** The Claude Code runtime line this SDK version ships against. */
 export const SUPPORTED_CLAUDE_RUNTIME_MAJOR = 2

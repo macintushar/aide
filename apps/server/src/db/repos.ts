@@ -132,6 +132,22 @@ export const projectsRepo = {
   },
 }
 
+function parseSessionRow(row: typeof tables.sessions.$inferSelect): Session {
+  const { worktreeJson, forkedFromJson, ...rest } = row
+  return parseRecord(
+    sessionSchema,
+    {
+      ...rest,
+      worktree: optionalJson(worktreeJson, `sessions.${row.id}.worktree_json`),
+      forkedFrom: optionalJson(
+        forkedFromJson,
+        `sessions.${row.id}.forked_from_json`
+      ),
+    },
+    "session"
+  )
+}
+
 function getSession(
   db: AideDb | TransactionDb,
   id: string
@@ -141,14 +157,40 @@ function getSession(
     .from(tables.sessions)
     .where(eq(tables.sessions.id, id))
     .get()
-  return row ? parseRecord(sessionSchema, row, "session") : undefined
+  return row ? parseSessionRow(row) : undefined
 }
 
 export const sessionsRepo = {
   create(db: AideDb, session: Session): Session {
-    const input = parseRecord(sessionSchema, session, "session input")
-    db.insert(tables.sessions).values(input).run()
+    const { worktree, forkedFrom, ...input } = parseRecord(
+      sessionSchema,
+      session,
+      "session input"
+    )
+    db.insert(tables.sessions)
+      .values({
+        ...input,
+        worktreeJson: worktree ? JSON.stringify(worktree) : null,
+        forkedFromJson: forkedFrom ? JSON.stringify(forkedFrom) : null,
+      })
+      .run()
     return getSession(db, input.id)!
+  },
+
+  setWorktree(
+    db: AideDb,
+    id: string,
+    worktree: Session["worktree"],
+    updatedAt: string
+  ): Session | undefined {
+    db.update(tables.sessions)
+      .set({
+        worktreeJson: worktree ? JSON.stringify(worktree) : null,
+        updatedAt,
+      })
+      .where(eq(tables.sessions.id, id))
+      .run()
+    return getSession(db, id)
   },
 
   get(db: AideDb, id: string): Session | undefined {
@@ -193,7 +235,7 @@ export const sessionsRepo = {
       .where(eq(tables.sessions.projectId, projectId))
       .orderBy(desc(tables.sessions.updatedAt), asc(tables.sessions.id))
       .all()
-      .map((row) => parseRecord(sessionSchema, row, "session"))
+      .map(parseSessionRow)
   },
 }
 
@@ -284,6 +326,11 @@ function parseMessageRow(
             row.executionJson!,
             `messages.${row.id}.execution_json`
           ),
+          invocation: optionalJson(
+            row.invocationJson,
+            `messages.${row.id}.invocation_json`
+          ),
+          steer: row.steerTurnId ? { turnId: row.steerTurnId } : undefined,
           createdAt: row.createdAt,
         }
       : {
@@ -335,6 +382,12 @@ function createMessage(
           message.role === "assistant" && message.usage
             ? JSON.stringify(message.usage)
             : undefined,
+        invocationJson:
+          message.role === "user" && message.invocation
+            ? JSON.stringify(message.invocation)
+            : undefined,
+        steerTurnId:
+          message.role === "user" ? message.steer?.turnId : undefined,
         createdAt: message.createdAt,
         completedAt:
           message.role === "assistant" ? message.completedAt : undefined,
@@ -1003,6 +1056,17 @@ export const nativeMappingsRepo = {
     return updated ? this.get(db, input.sessionId, input.instanceId) : undefined
   },
 
+  /**
+   * Retires every native session of an Aide session, so the next turn on any
+   * instance opens a fresh one and hands the history over.
+   */
+  markSessionUnsafe(db: AideDb, sessionId: string): void {
+    db.update(tables.nativeSessionMappings)
+      .set({ unsafe: true })
+      .where(eq(tables.nativeSessionMappings.sessionId, sessionId))
+      .run()
+  },
+
   markUnsafe(
     db: AideDb,
     sessionId: string,
@@ -1262,6 +1326,27 @@ export const eventLogRepo = {
       )
       .orderBy(asc(tables.eventLog.sequence))
       .limit(limit)
+      .all()
+      .map(parseEventRow)
+  },
+
+  listByType(
+    db: AideDb,
+    scope: EventScopeTarget,
+    type: AideEvent["type"]
+  ): AideEvent[] {
+    const [scopeKind, scopeId] = eventScopeKey(scope)
+    return db
+      .select()
+      .from(tables.eventLog)
+      .where(
+        and(
+          eq(tables.eventLog.scopeKind, scopeKind),
+          eq(tables.eventLog.scopeId, scopeId),
+          eq(tables.eventLog.type, type)
+        )
+      )
+      .orderBy(asc(tables.eventLog.sequence))
       .all()
       .map(parseEventRow)
   },
@@ -1573,5 +1658,41 @@ export const authSessionsRepo = {
     db.delete(tables.authSessions)
       .where(sql`${tables.authSessions.expiresAt} <= ${nowIso}`)
       .run()
+  },
+}
+
+export type TurnCheckpoint = typeof tables.turnCheckpoints.$inferSelect
+
+export const turnCheckpointsRepo = {
+  put(db: AideDb, checkpoint: TurnCheckpoint): TurnCheckpoint {
+    db.insert(tables.turnCheckpoints)
+      .values(checkpoint)
+      .onConflictDoUpdate({
+        target: tables.turnCheckpoints.turnId,
+        set: {
+          directory: checkpoint.directory,
+          commit: checkpoint.commit,
+          createdAt: checkpoint.createdAt,
+        },
+      })
+      .run()
+    return checkpoint
+  },
+
+  get(db: AideDb, turnId: string): TurnCheckpoint | undefined {
+    return db
+      .select()
+      .from(tables.turnCheckpoints)
+      .where(eq(tables.turnCheckpoints.turnId, turnId))
+      .get()
+  },
+
+  listBySession(db: AideDb, sessionId: string): TurnCheckpoint[] {
+    return db
+      .select()
+      .from(tables.turnCheckpoints)
+      .where(eq(tables.turnCheckpoints.sessionId, sessionId))
+      .orderBy(asc(tables.turnCheckpoints.createdAt))
+      .all()
   },
 }

@@ -8,7 +8,6 @@ export {
   type OpencodeAgent,
   type OpencodeApi,
   type OpencodeModel,
-  type OpencodeProvider,
   type OpencodeRuntime,
   type OpencodeRuntimeFactory,
 } from "./client"

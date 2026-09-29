@@ -60,14 +60,41 @@ export function StatusBadge({ status }: { status: InstanceRuntimeStatus }) {
 
 /** Auth is surfaced, never stored or proxied by Aide. */
 export function AuthState({ auth }: { auth: InstanceAuth }) {
-  const detail = [auth.label, auth.account].filter(Boolean).join(" · ")
+  const detail = [auth.label, auth.account, auth.organization]
+    .filter(Boolean)
+    .join(" · ")
   return (
-    <p className={`text-small ${AUTH_TONE[auth.status]}`}>
-      <span className="font-medium">{AUTH_LABEL[auth.status]}</span>
-      {detail ? (
-        <span className="text-muted-foreground"> — {detail}</span>
+    <div className="flex flex-col gap-1">
+      <p className={`text-small ${AUTH_TONE[auth.status]}`}>
+        <span className="font-medium">{AUTH_LABEL[auth.status]}</span>
+        {detail ? (
+          <span className="text-muted-foreground"> — {detail}</span>
+        ) : null}
+      </p>
+      {auth.providers && auth.providers.length > 0 ? (
+        <ul
+          aria-label="Providers"
+          className="flex flex-wrap gap-1.5"
+          data-testid="auth-providers"
+        >
+          {auth.providers.map((provider) => (
+            <li
+              key={provider.id}
+              title={
+                provider.method ? `Connected via ${provider.method}` : undefined
+              }
+              className={`rounded-full px-2 py-0.5 text-small ${
+                provider.connected
+                  ? "bg-ok/10 text-ok"
+                  : "bg-muted text-muted-foreground"
+              }`}
+            >
+              {provider.label}
+            </li>
+          ))}
+        </ul>
       ) : null}
-    </p>
+    </div>
   )
 }
 
@@ -76,6 +103,7 @@ export type InstanceActions = {
   onStop?: (instanceId: string) => void
   onRestart?: (instanceId: string) => void
   onRefreshInventory?: (instanceId: string) => void
+  onReconnectMcp?: (instanceId: string, serverName: string) => void
 }
 
 export function InstanceCard({
@@ -132,6 +160,48 @@ export function InstanceCard({
           No inventory discovered yet
         </p>
       )}
+
+      {instance.mcpServers && instance.mcpServers.length > 0 ? (
+        <ul
+          className="mt-2 flex flex-col gap-1"
+          aria-label={`${instance.displayName ?? instance.instanceId} MCP servers`}
+        >
+          {instance.mcpServers.map((server) => (
+            <li
+              key={server.name}
+              className="flex items-center gap-2 text-small"
+              title={server.error?.message}
+            >
+              <span
+                className={`size-1.5 shrink-0 rounded-full ${
+                  server.connected ? "bg-ok" : "bg-destructive"
+                }`}
+                aria-hidden="true"
+              />
+              <span className="min-w-0 flex-1 truncate font-mono">
+                {server.name}
+              </span>
+              <span className="text-muted-foreground">
+                {server.connected ? "connected" : "disconnected"}
+              </span>
+              {!server.connected &&
+              running &&
+              instance.inventory?.capabilities.mcpReconnect === true ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="xs"
+                  onClick={() =>
+                    actions.onReconnectMcp?.(instance.instanceId, server.name)
+                  }
+                >
+                  Reconnect
+                </Button>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
 
       {instance.error ? (
         <p

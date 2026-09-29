@@ -60,7 +60,7 @@ async function isInsideWorkTree(directory: string): Promise<boolean> {
   }
 }
 
-async function execGitChecked(
+export async function execGitChecked(
   directory: string,
   args: string[]
 ): Promise<string> {

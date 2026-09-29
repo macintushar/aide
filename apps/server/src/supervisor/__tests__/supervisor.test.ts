@@ -577,6 +577,45 @@ describe("InstanceSupervisor", () => {
       )
     })
 
+    it("serves MCP state in the snapshot and reconnects one server", async () => {
+      const stub = createStubAdapter()
+      const reconnected: string[] = []
+      stub.adapter.reconnectMcpServer = async ({ name }) => {
+        reconnected.push(name)
+      }
+      const supervisor = build([stub])
+      supervisor.boot(
+        effectiveWithMcp(
+          { docs: { type: "http", url: "https://mcp.example.test" } },
+          instance()
+        )
+      )
+      await supervisor.settled()
+      await supervisor.reconcile(
+        effectiveWithMcp(
+          { docs: { type: "http", url: "https://mcp.example.test" } },
+          instance()
+        )
+      )
+
+      expect(supervisor.snapshot()[0]?.mcpServers).toBeDefined()
+      const before = instanceEvents().filter(
+        (event) => event.type === "harness.mcp_status_changed"
+      ).length
+      const servers = await supervisor.reconnectMcp("opencode", "docs")
+
+      expect(reconnected).toEqual(["docs"])
+      expect(supervisor.snapshot()[0]?.mcpServers).toEqual(servers)
+      expect(
+        instanceEvents().filter(
+          (event) => event.type === "harness.mcp_status_changed"
+        ).length
+      ).toBe(before + 1)
+      await expect(
+        supervisor.reconnectMcp("ghost", "docs")
+      ).rejects.toMatchObject({ aideError: { code: "instance_not_running" } })
+    })
+
     it("does not configure MCP after discovery completes for a stale generation", async () => {
       const stub = createStubAdapter()
       const supervisor = build([stub])

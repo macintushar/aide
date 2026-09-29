@@ -1,0 +1,48 @@
+info:
+  name: subagent-stop
+  type: http
+  seq: 10
+
+http:
+  method: POST
+  url: "{{baseUrl}}/commands/subagent.stop"
+  headers:
+    - name: Content-Type
+      value: application/json
+    - name: Authorization
+      value: Bearer {{sessionToken}}
+    - name: Origin
+      value: "{{origin}}"
+  body:
+    type: json
+    data: |-
+      {
+        "name": "subagent.stop",
+        "commandId": "command_subagent_stop",
+        "sessionId": "{{sessionId}}",
+        "turnId": "{{turnId}}",
+        "taskId": "task-unknown"
+      }
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("returns a command receipt", function () {
+          expect([200, 202, 500]).to.include(res.status);
+          expect(res.body).to.have.property("commandName", "subagent.stop");
+        });
+        test("stops a subagent, or says why not", function () {
+          if (res.body.state === "failed") {
+            expect(res.body.error.code).to.be.oneOf(["turn_not_active", "subagent_stop_unsupported"]);
+          }
+        });
+
+settings:
+  encodeUrl: true
+  timeout: 30000
+  followRedirects: true
+  maxRedirects: 5
+
+docs: |-
+  Stops one subagent of the running turn without interrupting it.

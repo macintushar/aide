@@ -1,0 +1,20 @@
+PRAGMA foreign_keys=OFF;--> statement-breakpoint
+CREATE TABLE `__new_command_receipts` (
+	`command_id` text PRIMARY KEY NOT NULL,
+	`command_name` text NOT NULL,
+	`state` text NOT NULL,
+	`native_idempotency_key` text,
+	`acknowledgement_json` text,
+	`result_json` text,
+	`error_json` text,
+	`reconciliation_error_json` text,
+	`created_at` text NOT NULL,
+	`updated_at` text NOT NULL,
+	CONSTRAINT "command_receipts_command_name_check" CHECK("__new_command_receipts"."command_name" in ('project.open', 'project.updateDefaults', 'session.create', 'session.rename', 'session.delete', 'session.fork', 'session.restore', 'session.compact', 'subagent.stop', 'worktree.remove', 'turn.send', 'turn.steer', 'turn.interrupt', 'permission.respond', 'input.respond', 'inventory.refresh', 'instance.start', 'instance.stop', 'instance.restart', 'config.update', 'mcp.reconnect')),
+	CONSTRAINT "command_receipts_state_check" CHECK("__new_command_receipts"."state" in ('accepted', 'dispatching', 'dispatched', 'uncertain', 'completed', 'failed'))
+);
+--> statement-breakpoint
+INSERT INTO `__new_command_receipts`("command_id", "command_name", "state", "native_idempotency_key", "acknowledgement_json", "result_json", "error_json", "reconciliation_error_json", "created_at", "updated_at") SELECT "command_id", "command_name", "state", "native_idempotency_key", "acknowledgement_json", "result_json", "error_json", "reconciliation_error_json", "created_at", "updated_at" FROM `command_receipts`;--> statement-breakpoint
+DROP TABLE `command_receipts`;--> statement-breakpoint
+ALTER TABLE `__new_command_receipts` RENAME TO `command_receipts`;--> statement-breakpoint
+PRAGMA foreign_keys=ON;

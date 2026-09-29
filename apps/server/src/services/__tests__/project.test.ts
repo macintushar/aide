@@ -62,7 +62,7 @@ describe("ProjectService", () => {
     expect(projectsRepo.list(db)).toEqual([reopened])
   })
 
-  it("creates, lists, renames, and deletes sessions", () => {
+  it("creates, lists, renames, and deletes sessions", async () => {
     const project = service.open("/tmp/aide")
     const first = service.createSession(project.id)
     const second = service.createSession(project.id, "Second")
@@ -73,11 +73,11 @@ describe("ProjectService", () => {
       id: first.id,
       title: "Renamed",
     })
-    expect(service.deleteSession(second.id)).toEqual({ deleted: true })
+    expect(await service.deleteSession(second.id)).toEqual({ deleted: true })
     expect(sessionsRepo.get(db, second.id)).toBeUndefined()
   })
 
-  it("reports missing projects and sessions", () => {
+  it("reports missing projects and sessions", async () => {
     expect(() => service.createSession("missing")).toThrowError(
       expect.objectContaining({
         aideError: expect.objectContaining({ code: "project_not_found" }),
@@ -88,11 +88,9 @@ describe("ProjectService", () => {
         aideError: expect.objectContaining({ code: "session_not_found" }),
       })
     )
-    expect(() => service.deleteSession("missing")).toThrowError(
-      expect.objectContaining({
-        aideError: expect.objectContaining({ code: "session_not_found" }),
-      })
-    )
+    await expect(service.deleteSession("missing")).rejects.toMatchObject({
+      aideError: expect.objectContaining({ code: "session_not_found" }),
+    })
     expect(service.listSessions("missing")).toEqual([])
   })
 })

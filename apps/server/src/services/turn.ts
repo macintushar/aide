@@ -4,11 +4,13 @@ import type {
   AideEvent,
   ExecutionSelection,
   InputResolution,
+  Invocation,
   NativeDispatchInput,
   Part,
   PermissionResolution,
   Request,
   Turn,
+  Usage,
   UserMessage,
 } from "@workspace/contracts"
 
@@ -24,6 +26,7 @@ import {
   receiptsRepo,
   requestsRepo,
   sessionsRepo,
+  turnCheckpointsRepo,
   turnsRepo,
   withTransaction,
 } from "../db"
@@ -43,7 +46,9 @@ import {
 import { CoreServiceError } from "./errors"
 import { ExecutionResolver } from "./execution"
 import { SessionChangesTracker } from "../workspace/changes"
+import { createCheckpoint, restoreCheckpoint } from "../workspace/checkpoints"
 import { WorkspaceError } from "../workspace/errors"
+import { sessionDirectory } from "./project"
 
 const DEFAULT_TOOL_OUTPUT_MAX_CHARACTERS = 8_000
 const DEFAULT_REATTACH_SETTLE_MS = 250
@@ -66,6 +71,23 @@ type TurnServiceOptions = {
   reattachSettleMs?: number
   /** Omit to run without workspace change tracking. */
   changes?: SessionChangesTracker
+  /**
+   * Take a restorable checkpoint of the working tree before each turn. Off by
+   * default because it shells out to git; production turns it on.
+   */
+  checkpoints?: boolean
+  /** Receives one entry per finished turn that reported usage. */
+  logUsage?: (entry: TurnUsageLogEntry) => void
+}
+
+export type TurnUsageLogEntry = {
+  sessionId: string
+  turnId: string
+  instanceId: string
+  driver: string
+  model: string
+  status: string
+  usage: Usage
 }
 
 type PendingDispatch = {
@@ -78,6 +100,14 @@ type ActiveTurn = {
   native: NativeSession
   stop: AbortController
   phase: "starting" | "dispatching" | "cancelling" | "cancellation_failed"
+  /** Sequence numbers of steering messages the harness refused. */
+  undeliveredSteerSeqs?: number[]
+}
+
+function syncCursorAfter(cursor: number, undelivered: number[] = []): number {
+  return undelivered.length === 0
+    ? cursor
+    : Math.min(cursor, Math.min(...undelivered) - 1)
 }
 
 function errorOf(error: unknown, instanceId?: string): AideError {
@@ -135,9 +165,13 @@ export class TurnService {
   readonly #toolOutputMaxCharacters: number
   readonly #reattachSettleMs: number
   readonly #changes: SessionChangesTracker | undefined
+  readonly #checkpoints: boolean
+  readonly #logUsage: ((entry: TurnUsageLogEntry) => void) | undefined
   readonly #pending = new Map<string, PendingDispatch>()
   readonly #active = new Map<string, ActiveTurn>()
   readonly #pumping = new Set<string>()
+  /** Sessions compacting right now; their queued turns wait. */
+  readonly #compacting = new Set<string>()
 
   constructor({
     db,
@@ -150,6 +184,8 @@ export class TurnService {
     toolOutputMaxCharacters = DEFAULT_TOOL_OUTPUT_MAX_CHARACTERS,
     reattachSettleMs = DEFAULT_REATTACH_SETTLE_MS,
     changes,
+    checkpoints = false,
+    logUsage,
   }: TurnServiceOptions) {
     this.#db = db
     this.#registry = registry
@@ -161,6 +197,51 @@ export class TurnService {
     this.#toolOutputMaxCharacters = toolOutputMaxCharacters
     this.#reattachSettleMs = reattachSettleMs
     this.#changes = changes
+    this.#checkpoints = checkpoints
+    this.#logUsage = logUsage
+  }
+
+  /**
+   * Pins the working tree as it is before a turn runs, so the user can put
+   * it back. Directories git cannot checkpoint are skipped, and a failed
+   * checkpoint never blocks the turn itself.
+   */
+  async #checkpoint(
+    projectId: string,
+    sessionId: string,
+    directory: string,
+    turn: Turn
+  ): Promise<void> {
+    if (!this.#checkpoints) return
+    let commit: string | undefined
+    try {
+      commit = await createCheckpoint(directory, turn.id)
+    } catch {
+      // A turn without a checkpoint simply cannot be restored to.
+      return
+    }
+    if (!commit) return
+    const createdAt = this.#now()
+    const event = withTransaction(this.#db, (tx) => {
+      turnCheckpointsRepo.put(tx, {
+        turnId: turn.id,
+        sessionId,
+        directory,
+        commit: commit!,
+        createdAt,
+      })
+      return this.#events.persistDurable(tx, {
+        schemaVersion: 1,
+        eventId: this.#id("event"),
+        timestamp: createdAt,
+        scope: { kind: "session", projectId, sessionId, turnId: turn.id },
+        instanceId: turn.execution.selection.instanceId,
+        driver: turn.execution.selection.driver,
+        type: "checkpoint.created",
+        data: { checkpoint: { turnId: turn.id, createdAt } },
+      })
+    })
+    this.#events.broadcastDurable(event)
   }
 
   /**
@@ -192,6 +273,7 @@ export class TurnService {
     sessionId: string
     content: string
     execution: ExecutionSelection
+    invocation?: Invocation
     context: ExternalCommandContext
   }): Promise<Turn> {
     const session = sessionsRepo.get(this.#db, input.sessionId)
@@ -208,10 +290,34 @@ export class TurnService {
         `Project ${session.projectId} was not found`
       )
     }
-    const execution = await this.#resolver.resolve(
-      input.execution,
-      project.directory
-    )
+    // The turn runs in the session's directory (a worktree may carry its own
+    // commands, skills and configuration), so it is validated against that.
+    const directory = sessionDirectory(session, project)
+    const execution = await this.#resolver.resolve(input.execution, directory)
+    if (input.invocation) {
+      const inventory = this.#resolver.inventory(
+        execution.selection.instanceId,
+        directory
+      )
+      const offered =
+        input.invocation.kind === "command"
+          ? inventory?.commands?.some(
+              (command) => command.name === input.invocation!.name
+            )
+          : inventory?.skills?.some(
+              (skill) => skill.id === input.invocation!.name
+            )
+      if (!offered) {
+        throw new CoreServiceError(
+          "invocation_not_offered",
+          `${input.invocation.kind === "command" ? "Command" : "Skill"} "${input.invocation.name}" is not offered by instance ${execution.selection.instanceId}`
+        )
+      }
+    }
+    // What the user typed: an invocation reads `/name arguments`.
+    const text = input.invocation
+      ? `/${input.invocation.name} ${input.content}`.trimEnd()
+      : input.content
     const messageId = this.#id("message")
     const turnId = this.#id("turn")
     const now = this.#now()
@@ -227,10 +333,11 @@ export class TurnService {
             messageId,
             index: 0,
             type: "text",
-            text: input.content,
+            text,
           },
         ],
         execution,
+        ...(input.invocation ? { invocation: input.invocation } : {}),
         createdAt: now,
       })
       const queued = turnsRepo.create(tx, {
@@ -359,6 +466,345 @@ export class TurnService {
     context.markDispatched({ turnId })
     context.complete({ turnId, status: result.status })
     return result
+  }
+
+  /**
+   * Delivers a message into the running turn. The message is kept as a user
+   * message marked with the turn it steered, so the transcript shows it.
+   */
+  async steer(input: {
+    sessionId: string
+    turnId: string
+    content: string
+    context: ExternalCommandContext
+  }): Promise<UserMessage> {
+    const turn = turnsRepo.get(this.#db, input.turnId)
+    if (!turn || turn.sessionId !== input.sessionId) {
+      throw new CoreServiceError(
+        "turn_not_found",
+        `Turn ${input.turnId} was not found`
+      )
+    }
+    const active = this.#active.get(input.sessionId)
+    if (
+      turn.status !== "running" ||
+      active?.turnId !== turn.id ||
+      active.phase !== "dispatching"
+    ) {
+      throw new CoreServiceError(
+        "turn_not_active",
+        `Turn ${turn.id} is not running, so it cannot be steered`
+      )
+    }
+    const entry = this.#registry.get(active.instanceId)
+    if (!entry.adapter.steer) {
+      throw new CoreServiceError(
+        "steer_unsupported",
+        `Instance ${active.instanceId} cannot steer a running turn`
+      )
+    }
+    const session = sessionsRepo.get(this.#db, input.sessionId)!
+    const messageId = this.#id("message")
+    const now = this.#now()
+    const persisted: DurableEvent[] = []
+    const message = withTransaction(this.#db, (tx) => {
+      const created = messagesRepo.createUser(tx, {
+        id: messageId,
+        sessionId: input.sessionId,
+        role: "user",
+        parts: [
+          {
+            id: this.#id("part"),
+            messageId,
+            index: 0,
+            type: "text",
+            text: input.content,
+          },
+        ],
+        execution: turn.execution,
+        steer: { turnId: turn.id },
+        createdAt: now,
+      }) as UserMessage
+      const { parts, ...metadata } = created
+      const scope = {
+        kind: "session" as const,
+        projectId: session.projectId,
+        sessionId: input.sessionId,
+        turnId: turn.id,
+        messageId,
+      }
+      persisted.push(
+        this.#events.persistDurable(tx, {
+          schemaVersion: 1,
+          eventId: this.#id("event"),
+          timestamp: now,
+          scope,
+          instanceId: turn.execution.selection.instanceId,
+          driver: turn.execution.selection.driver,
+          type: "message.upserted",
+          data: { message: metadata },
+        })
+      )
+      for (const part of parts) {
+        persisted.push(
+          this.#events.persistDurable(tx, {
+            schemaVersion: 1,
+            eventId: this.#id("event"),
+            timestamp: now,
+            scope: { ...scope, partId: part.id },
+            instanceId: turn.execution.selection.instanceId,
+            driver: turn.execution.selection.driver,
+            type: "part.upserted",
+            data: { part },
+          })
+        )
+      }
+      return created
+    })
+    for (const event of persisted) this.#events.broadcastDurable(event)
+    input.context.markDispatching(messageId)
+    try {
+      await entry.adapter.steer({
+        handle: entry.handle,
+        nativeSession: active.native,
+        turnId: turn.id,
+        message,
+      })
+    } catch (error) {
+      // The message is already in the transcript; say it never arrived, and
+      // keep the next handoff from treating it as delivered.
+      if (this.#active.get(input.sessionId)?.turnId === turn.id) {
+        const failed = this.#active.get(input.sessionId)!
+        failed.undeliveredSteerSeqs = [
+          ...(failed.undeliveredSteerSeqs ?? []),
+          message.seq,
+        ]
+      }
+      const notice = withTransaction(this.#db, (tx) =>
+        this.#events.persistDurable(tx, {
+          schemaVersion: 1,
+          eventId: this.#id("event"),
+          timestamp: this.#now(),
+          scope: {
+            kind: "session",
+            projectId: session.projectId,
+            sessionId: input.sessionId,
+            turnId: turn.id,
+          },
+          instanceId: turn.execution.selection.instanceId,
+          driver: turn.execution.selection.driver,
+          type: "notice.created",
+          data: {
+            title: "Steering not delivered",
+            message: `The harness did not take the steering message: ${errorOf(error, active.instanceId).message}`,
+            level: "warning",
+          },
+        })
+      )
+      this.#events.broadcastDurable(notice)
+      throw error
+    }
+    input.context.markDispatched({ messageId, turnId: turn.id })
+    input.context.complete({ messageId, turnId: turn.id })
+    return message
+  }
+
+  /**
+   * Puts the session's working directory back the way it was just before a
+   * turn ran. The transcript is left as it is: this rewinds files, not
+   * history (fork from the turn for that).
+   */
+  async restore(
+    sessionId: string,
+    turnId: string
+  ): Promise<{ restored: string[]; removed: string[] }> {
+    const session = sessionsRepo.get(this.#db, sessionId)
+    if (!session) {
+      throw new CoreServiceError(
+        "session_not_found",
+        `Session ${sessionId} was not found`
+      )
+    }
+    const project = projectsRepo.get(this.#db, session.projectId)
+    const directory = project ? sessionDirectory(session, project) : undefined
+    // Sessions and forks without a worktree of their own share a directory,
+    // so a turn in any of them can be using the files being rewound.
+    const sharing = sessionsRepo
+      .listByProject(this.#db, session.projectId)
+      .filter(
+        (other) =>
+          other.id === sessionId ||
+          (directory !== undefined &&
+            sessionDirectory(other, project!) === directory)
+      )
+    if (
+      sharing.some(
+        (other) => turnsRepo.listOpenBySession(this.#db, other.id).length > 0
+      )
+    ) {
+      throw new CoreServiceError(
+        "session_busy",
+        `Session ${sessionId} or another session in the same directory has a queued or running turn; restore after it finishes`
+      )
+    }
+    const checkpoint = turnCheckpointsRepo.get(this.#db, turnId)
+    if (!checkpoint || checkpoint.sessionId !== sessionId) {
+      throw new CoreServiceError(
+        "checkpoint_not_found",
+        `Turn ${turnId} has no checkpoint to restore`
+      )
+    }
+    const result = await restoreCheckpoint(
+      checkpoint.directory,
+      checkpoint.commit
+    )
+    const count = result.restored.length + result.removed.length
+    const event = withTransaction(this.#db, (tx) =>
+      this.#events.persistDurable(tx, {
+        schemaVersion: 1,
+        eventId: this.#id("event"),
+        timestamp: this.#now(),
+        scope: { kind: "session", projectId: session.projectId, sessionId },
+        type: "notice.created",
+        data: {
+          title: "Checkpoint restored",
+          message: `Files are back to how they were before that turn (${count} file${count === 1 ? "" : "s"} changed).`,
+          level: "info",
+        },
+      })
+    )
+    this.#events.broadcastDurable(event)
+    // Re-baseline so the restore is not credited to the next turn.
+    await this.#captureChanges(sessionId, checkpoint.directory)
+    return result
+  }
+
+  /**
+   * Compacts the native session of the instance that ran the latest turn.
+   * Only between turns: turns queued meanwhile wait until it finishes.
+   */
+  async compact(sessionId: string): Promise<{ instanceId: string }> {
+    const session = sessionsRepo.get(this.#db, sessionId)
+    if (!session) {
+      throw new CoreServiceError(
+        "session_not_found",
+        `Session ${sessionId} was not found`
+      )
+    }
+    if (
+      this.#compacting.has(sessionId) ||
+      this.#active.has(sessionId) ||
+      turnsRepo.listOpenBySession(this.#db, sessionId).length > 0
+    ) {
+      throw new CoreServiceError(
+        "session_busy",
+        `Session ${sessionId} is busy; compact between turns`
+      )
+    }
+    const latest = turnsRepo
+      .listBySession(this.#db, sessionId)
+      .filter((turn) => turn.status === "completed")
+      .at(-1)
+    const instanceId = latest?.execution.selection.instanceId
+    const mapping = instanceId
+      ? nativeMappingsRepo.get(this.#db, sessionId, instanceId)
+      : undefined
+    if (!latest || !instanceId || !mapping || mapping.unsafe) {
+      throw new CoreServiceError(
+        "nothing_to_compact",
+        "This session has no native session to compact yet; send a message first"
+      )
+    }
+    const entry = this.#registry.get(
+      instanceId,
+      latest.execution.selection.driver
+    )
+    if (!entry.adapter.compact) {
+      throw new CoreServiceError(
+        "compact_unsupported",
+        `Instance ${instanceId} cannot compact on request`
+      )
+    }
+    this.#compacting.add(sessionId)
+    try {
+      const native = await entry.adapter.resumeSession({
+        handle: entry.handle,
+        sessionId,
+        nativeSessionId: mapping.nativeSessionId,
+        resumeCursor: mapping.resumeCursor,
+      })
+      await entry.adapter.compact({
+        handle: entry.handle,
+        nativeSession: native,
+      })
+      const event = withTransaction(this.#db, (tx) =>
+        this.#events.persistDurable(tx, {
+          schemaVersion: 1,
+          eventId: this.#id("event"),
+          timestamp: this.#now(),
+          scope: { kind: "session", projectId: session.projectId, sessionId },
+          instanceId,
+          driver: latest.execution.selection.driver,
+          type: "notice.created",
+          data: {
+            title: "Context compacted",
+            message: `${latest.execution.display.instanceName} compacted this session's context. The Aide transcript is unchanged.`,
+            level: "info",
+          },
+        })
+      )
+      this.#events.broadcastDurable(event)
+      return { instanceId }
+    } finally {
+      this.#compacting.delete(sessionId)
+      this.#schedule(sessionId)
+    }
+  }
+
+  /** Stops one subagent of the running turn; the turn itself carries on. */
+  async stopSubagent(input: {
+    sessionId: string
+    turnId: string
+    taskId: string
+  }): Promise<void> {
+    const active = this.#active.get(input.sessionId)
+    if (!active || active.turnId !== input.turnId) {
+      throw new CoreServiceError(
+        "turn_not_active",
+        `Turn ${input.turnId} is not running`
+      )
+    }
+    const entry = this.#registry.get(active.instanceId)
+    if (!entry.adapter.stopSubagent) {
+      throw new CoreServiceError(
+        "subagent_stop_unsupported",
+        `Instance ${active.instanceId} cannot stop a single subagent`
+      )
+    }
+    await entry.adapter.stopSubagent({
+      handle: entry.handle,
+      nativeSession: active.native,
+      turnId: input.turnId,
+      taskId: input.taskId,
+    })
+  }
+
+  /** Logs what a finished turn used, when the harness reported it. */
+  #reportUsage(turnId: string): void {
+    if (!this.#logUsage) return
+    const turn = turnsRepo.get(this.#db, turnId)
+    if (!turn?.assistantMessageId) return
+    const message = messagesRepo.get(this.#db, turn.assistantMessageId)
+    if (message?.role !== "assistant" || !message.usage) return
+    this.#logUsage({
+      sessionId: turn.sessionId,
+      turnId: turn.id,
+      instanceId: turn.execution.selection.instanceId,
+      driver: turn.execution.selection.driver,
+      model: turn.execution.selection.model.modelId,
+      status: turn.status,
+      usage: message.usage,
+    })
   }
 
   async respondToPermission(
@@ -543,7 +989,13 @@ export class TurnService {
   }
 
   #schedule(sessionId: string): void {
-    if (this.#pumping.has(sessionId) || this.#active.has(sessionId)) return
+    if (
+      this.#pumping.has(sessionId) ||
+      this.#active.has(sessionId) ||
+      this.#compacting.has(sessionId)
+    ) {
+      return
+    }
     this.#pumping.add(sessionId)
     queueMicrotask(() => {
       void this.#pump(sessionId).finally(() => this.#pumping.delete(sessionId))
@@ -568,13 +1020,15 @@ export class TurnService {
     let entry: ReturnType<AdapterRegistry["get"]> | undefined
     pending?.context.markDispatching(turn.userMessageId)
 
+    const directory = sessionDirectory(session, project)
     try {
       // Baseline the working tree before the harness can touch it, so edits
       // that were already there are not credited to this turn.
-      await this.#captureChanges(session.id, project.directory)
+      await this.#captureChanges(session.id, directory)
+      await this.#checkpoint(project.id, session.id, directory, turn)
       // A queued turn keeps its captured selection, but admission must prove the
       // same values are still available in current inventory.
-      await this.#resolver.resolve(turn.execution.selection, project.directory)
+      await this.#resolver.resolve(turn.execution.selection, directory)
       const adapterEntry = this.#registry.get(
         instanceId,
         turn.execution.selection.driver
@@ -603,7 +1057,7 @@ export class TurnService {
           native = await adapterEntry.adapter.openSession({
             handle: adapterEntry.handle,
             sessionId: session.id,
-            projectDirectory: project.directory,
+            projectDirectory: directory,
             execution: turn.execution,
           })
           if (this.#stopTerminalStart(turn)) return
@@ -612,7 +1066,7 @@ export class TurnService {
         native = await adapterEntry.adapter.openSession({
           handle: adapterEntry.handle,
           sessionId: session.id,
-          projectDirectory: project.directory,
+          projectDirectory: directory,
           execution: turn.execution,
         })
         if (this.#stopTerminalStart(turn)) return
@@ -644,7 +1098,7 @@ export class TurnService {
           buildPortableHandoffPacket({
             sessionId: session.id,
             messages: messagesRepo.listBySession(tx, session.id),
-            workingDirectory: project.directory,
+            workingDirectory: directory,
             fromMessageSeq,
             throughMessageSeq,
           }),
@@ -885,12 +1339,22 @@ export class TurnService {
       } else if (normalized.type === "part.removed") {
         partsRepo.remove(tx, normalized.data.partId)
       } else if (normalized.type === "message.upserted") {
-        const message = messagesRepo.get(tx, normalized.data.message.id)
+        let message = messagesRepo.get(tx, normalized.data.message.id)
         if (!message) {
           throw new CoreServiceError(
             "assistant_message_mismatch",
             `Adapter emitted unknown message ${normalized.data.message.id}`
           )
+        }
+        // Usage is the one field an adapter reports on the message itself.
+        const reported =
+          normalized.data.message.role === "assistant"
+            ? normalized.data.message.usage
+            : undefined
+        if (message.role === "assistant" && reported) {
+          message = messagesRepo.updateAssistant(tx, message.id, {
+            usage: reported,
+          })!
         }
         const { parts: _parts, ...metadata } = message
         normalized.data.message = metadata
@@ -951,7 +1415,24 @@ export class TurnService {
                     sessionId: turn.sessionId,
                     instanceId: active.instanceId,
                     nativeSessionId: active.native.nativeSessionId,
-                    syncCursor: assistant.seq,
+                    // Steering messages were delivered natively too, so the
+                    // next handoff must not repeat them.
+                    // Refused steering stays undelivered, so the cursor stops
+                    // short of the first one.
+                    syncCursor: syncCursorAfter(
+                      Math.max(
+                        assistant.seq,
+                        ...messagesRepo
+                          .listBySession(tx, turn.sessionId)
+                          .filter(
+                            (message) =>
+                              message.role === "user" &&
+                              message.steer?.turnId === turn.id
+                          )
+                          .map((message) => message.seq)
+                      ),
+                      active.undeliveredSteerSeqs
+                    ),
                     resumeCursor: active.native.resumeCursor,
                   })
                 : undefined
@@ -990,9 +1471,15 @@ export class TurnService {
     for (const event of persistedEvents) this.#events.broadcastDurable(event)
     if (terminal) {
       this.#clearActive(turn.sessionId, turn.id)
+      this.#reportUsage(turn.id)
       const project = projectsRepo.get(this.#db, projectId)
-      if (project) {
-        await this.#captureChanges(turn.sessionId, project.directory, turn.id)
+      const session = sessionsRepo.get(this.#db, turn.sessionId)
+      if (project && session) {
+        await this.#captureChanges(
+          turn.sessionId,
+          sessionDirectory(session, project),
+          turn.id
+        )
       }
     }
   }

@@ -79,6 +79,31 @@ export type SendTurnInput = {
   handoff?: NativeDispatchInput
 }
 
+export type SteerTurnInput = {
+  handle: InstanceHandle
+  nativeSession: NativeSession
+  /** The running turn the message is delivered into. */
+  turnId: string
+  message: UserMessage
+}
+
+export type CompactInput = {
+  handle: InstanceHandle
+  nativeSession: NativeSession
+}
+
+export type StopSubagentInput = {
+  handle: InstanceHandle
+  nativeSession: NativeSession
+  turnId: string
+  taskId: string
+}
+
+export type ReconnectMcpServerInput = {
+  handle: InstanceHandle
+  name: string
+}
+
 export type InterruptTurnInput = {
   handle: InstanceHandle
   nativeSession: NativeSession
@@ -139,7 +164,20 @@ export interface HarnessAdapter {
   resumeSession(input: ResumeSessionInput): Promise<NativeSession>
 
   send(input: SendTurnInput): Promise<void>
+  /**
+   * Delivers a message into the turn that is already running, so the harness
+   * takes it into account before it finishes. Adapters that cannot steer omit
+   * this, and Aide refuses the steer rather than queueing it silently.
+   */
+  steer?(input: SteerTurnInput): Promise<void>
   interrupt(input: InterruptTurnInput): Promise<void>
+  /**
+   * Compacts the native session's context while no turn is running, and
+   * resolves once the harness has finished. Omitted when the harness cannot.
+   */
+  compact?(input: CompactInput): Promise<void>
+  /** Stops one subagent of the running turn. Omitted when unsupported. */
+  stopSubagent?(input: StopSubagentInput): Promise<void>
   /**
    * Reports the turn this native session is currently executing, if any.
    * Boot reconciliation needs it because an event stream only carries what
@@ -154,6 +192,8 @@ export interface HarnessAdapter {
 
   setMcpServers(input: SetMcpServersInput): Promise<void>
   mcpStatus(input: McpStatusInput): Promise<McpServerStatus[]>
+  /** Reconnects one MCP server. Omitted when the harness cannot. */
+  reconnectMcpServer?(input: ReconnectMcpServerInput): Promise<void>
 
   /**
    * Streams events for an instance, or for one native session. Events emitted
@@ -164,4 +204,24 @@ export interface HarnessAdapter {
    */
   events(input: HarnessEventsInput): AsyncIterable<AideEvent>
   dispose(input: DisposeInput): Promise<void>
+}
+
+/**
+ * The text a user message carries, and for an invoked command or skill, its
+ * arguments: the stored text is what the user typed (`/name args`), so the
+ * leading `/name` is stripped here.
+ */
+export function messageText(message: UserMessage): {
+  text: string
+  arguments: string
+} {
+  const text = message.parts
+    .filter((part) => part.type === "text")
+    .map((part) => part.text)
+    .join("\n")
+  const invocation = message.invocation
+  if (!invocation) return { text, arguments: text }
+  const prefix = `/${invocation.name}`
+  const rest = text.startsWith(prefix) ? text.slice(prefix.length) : text
+  return { text, arguments: rest.trim() }
 }

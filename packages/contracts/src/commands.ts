@@ -8,6 +8,7 @@ import {
 import {
   executionSelectionSchema,
   inputResolutionSchema,
+  invocationSchema,
   permissionResolutionSchema,
 } from "./domain"
 import { aideErrorSchema, idSchema, timestampSchema } from "./primitives"
@@ -18,7 +19,13 @@ export const commandNameSchema = z.enum([
   "session.create",
   "session.rename",
   "session.delete",
+  "session.fork",
+  "session.restore",
+  "session.compact",
+  "subagent.stop",
+  "worktree.remove",
   "turn.send",
+  "turn.steer",
   "turn.interrupt",
   "permission.respond",
   "input.respond",
@@ -59,10 +66,86 @@ export const projectUpdateDefaultsCommandSchema = commandEnvelopeSchema.extend({
   defaults: configDefaultsSchema,
 })
 
+/**
+ * Asks for the session to run in its own git worktree. Aide creates the
+ * worktree under its data directory on a new branch cut from `baseRef`
+ * (default: the project's current HEAD).
+ */
+export const worktreeRequestSchema = z.object({
+  // Both reach git as arguments, so neither may look like an option.
+  branch: z
+    .string()
+    .min(1)
+    .regex(
+      /^(?!-)[A-Za-z0-9._/-]+$/,
+      "Branch names use letters, digits, . _ / - and do not start with -"
+    )
+    .optional(),
+  baseRef: z
+    .string()
+    .min(1)
+    .regex(
+      /^(?!-)[A-Za-z0-9._/@^~{}:-]+$/,
+      "A base ref is a branch, tag or commit and does not start with -"
+    )
+    .optional(),
+})
+
+export type WorktreeRequest = z.infer<typeof worktreeRequestSchema>
+
 export const sessionCreateCommandSchema = commandEnvelopeSchema.extend({
   name: z.literal("session.create"),
   projectId: idSchema,
   title: z.string().min(1).optional(),
+  worktree: worktreeRequestSchema.optional(),
+})
+
+/**
+ * Copies a session's history into a new session. With `throughTurnId`, only
+ * the messages up to and including that turn are copied. The fork starts
+ * without native sessions: its first turn hands the copied history over.
+ */
+export const sessionForkCommandSchema = commandEnvelopeSchema.extend({
+  name: z.literal("session.fork"),
+  sessionId: idSchema,
+  throughTurnId: idSchema.optional(),
+  title: z.string().min(1).optional(),
+  worktree: worktreeRequestSchema.optional(),
+})
+
+/**
+ * Restores the session's working directory to the checkpoint Aide took just
+ * before `turnId` ran. The transcript is not rewritten.
+ */
+export const sessionRestoreCommandSchema = commandEnvelopeSchema.extend({
+  name: z.literal("session.restore"),
+  sessionId: idSchema,
+  turnId: idSchema,
+})
+
+/**
+ * Compacts the context of the session's native session on the instance that
+ * ran its latest turn. The Aide transcript is unchanged.
+ */
+export const sessionCompactCommandSchema = commandEnvelopeSchema.extend({
+  name: z.literal("session.compact"),
+  sessionId: idSchema,
+})
+
+/** Stops one running subagent; the turn that started it carries on. */
+export const subagentStopCommandSchema = commandEnvelopeSchema.extend({
+  name: z.literal("subagent.stop"),
+  sessionId: idSchema,
+  turnId: idSchema,
+  taskId: z.string().min(1),
+})
+
+/** Deletes the session's worktree and its branch; the session keeps its history. */
+export const worktreeRemoveCommandSchema = commandEnvelopeSchema.extend({
+  name: z.literal("worktree.remove"),
+  sessionId: idSchema,
+  /** Also delete the branch, even when it has commits not merged elsewhere. */
+  deleteBranch: z.boolean().optional(),
 })
 
 export const sessionRenameCommandSchema = commandEnvelopeSchema.extend({
@@ -76,11 +159,26 @@ export const sessionDeleteCommandSchema = commandEnvelopeSchema.extend({
   sessionId: idSchema,
 })
 
-export const turnSendCommandSchema = commandEnvelopeSchema.extend({
-  name: z.literal("turn.send"),
+export const turnSendCommandSchema = commandEnvelopeSchema
+  .extend({
+    name: z.literal("turn.send"),
+    sessionId: idSchema,
+    /** The message, or a command's or skill's arguments (which may be empty). */
+    content: z.string(),
+    execution: executionSelectionSchema,
+    invocation: invocationSchema.optional(),
+  })
+  .refine(
+    (command) => command.invocation !== undefined || command.content.length > 0,
+    { message: "A message needs content", path: ["content"] }
+  )
+
+/** Adds a message to a turn that is already running instead of queueing one. */
+export const turnSteerCommandSchema = commandEnvelopeSchema.extend({
+  name: z.literal("turn.steer"),
   sessionId: idSchema,
+  turnId: idSchema,
   content: z.string().min(1),
-  execution: executionSelectionSchema,
 })
 
 export const turnInterruptCommandSchema = commandEnvelopeSchema.extend({
@@ -150,7 +248,13 @@ export const commandSchema = z.discriminatedUnion("name", [
   sessionCreateCommandSchema,
   sessionRenameCommandSchema,
   sessionDeleteCommandSchema,
+  sessionForkCommandSchema,
+  sessionRestoreCommandSchema,
+  sessionCompactCommandSchema,
+  subagentStopCommandSchema,
+  worktreeRemoveCommandSchema,
   turnSendCommandSchema,
+  turnSteerCommandSchema,
   turnInterruptCommandSchema,
   permissionRespondCommandSchema,
   inputRespondCommandSchema,

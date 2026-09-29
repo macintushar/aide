@@ -1,0 +1,55 @@
+info:
+  name: session-restore
+  type: http
+  seq: 6
+
+http:
+  method: POST
+  url: "{{baseUrl}}/commands/session.restore"
+  headers:
+    - name: Content-Type
+      value: application/json
+    - name: Authorization
+      value: Bearer {{sessionToken}}
+    - name: Origin
+      value: "{{origin}}"
+  body:
+    type: json
+    data: |-
+      {
+        "name": "session.restore",
+        "commandId": "command_session_restore",
+        "sessionId": "{{sessionId}}",
+        "turnId": "{{turnId}}"
+      }
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("returns a command receipt", function () {
+          expect([200, 202, 500]).to.include(res.status);
+          expect(res.body).to.have.property("commandName", "session.restore");
+        });
+        test("restores the checkpoint, or explains why it cannot", function () {
+          if (res.body.state === "failed") {
+            expect(res.body.error.code).to.be.oneOf(["checkpoint_not_found", "session_busy"]);
+          } else {
+            expect(res.body.result).to.have.property("restored").that.is.an("array");
+            expect(res.body.result).to.have.property("removed").that.is.an("array");
+          }
+        });
+  assertions:
+    - expression: res.body.commandName
+      operator: eq
+      value: session.restore
+
+settings:
+  encodeUrl: true
+  timeout: 30000
+  followRedirects: true
+  maxRedirects: 5
+
+docs: |-
+  Restores the session's working directory to the checkpoint taken just
+  before `turnId` ran. Refused while a turn is queued or running.

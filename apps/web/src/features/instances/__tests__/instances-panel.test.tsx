@@ -150,3 +150,43 @@ describe("InstanceCard", () => {
     expect(actions.onRefreshInventory).toHaveBeenCalledWith("opencode")
   })
 })
+
+describe("InstanceCard: MCP servers", () => {
+  it("lists servers and reconnects a disconnected one", async () => {
+    const user = userEvent.setup()
+    const onReconnectMcp = vi.fn()
+    const inventory = inventoryFixture()
+    render(
+      <InstanceCard
+        instance={entry({
+          inventory: {
+            ...inventory,
+            capabilities: { ...inventory.capabilities, mcpReconnect: true },
+          },
+          mcpServers: [
+            { name: "github", connected: true },
+            { name: "linear", connected: false },
+          ],
+        })}
+        actions={{ onReconnectMcp }}
+      />
+    )
+    expect(screen.getByText("github")).toBeInTheDocument()
+    const buttons = screen.getAllByRole("button", { name: "Reconnect" })
+    expect(buttons).toHaveLength(1)
+    await user.click(buttons[0]!)
+    expect(onReconnectMcp).toHaveBeenCalledWith("opencode", "linear")
+  })
+
+  it("hides Reconnect when the harness cannot reconnect", () => {
+    render(
+      <InstanceCard
+        instance={entry({
+          inventory: inventoryFixture(),
+          mcpServers: [{ name: "linear", connected: false }],
+        })}
+      />
+    )
+    expect(screen.queryByRole("button", { name: "Reconnect" })).toBeNull()
+  })
+})

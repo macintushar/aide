@@ -159,18 +159,43 @@ describe("opencode send", () => {
       {
         type: "prompt",
         sessionID: nativeSession.nativeSessionId,
-        id: "user-message-1",
+        id: "msg_user-message-1",
         text: "PRIOR CONTEXT\n\nfinish the adapter",
       },
     ])
-    expect(nativeSession.resumeCursor).toBe("1")
 
+    await adapter.interrupt({ handle, nativeSession, turnId: "turn-1" })
+  })
+
+  it("accepts OpenCode's default variant for a selection without one", async () => {
+    const { adapter, handle, nativeSession, calls } = await subject()
+    const plain = execution({ modelId: "claude-sonnet-5" })
+    const { variant: _variant, ...options } = plain.selection.options
+    const selected: ResolvedExecution = {
+      ...plain,
+      selection: { ...plain.selection, options },
+    }
+
+    await adapter.send({
+      handle,
+      nativeSession,
+      commandId: "command-1",
+      turnId: "turn-1",
+      userMessage: userMessage(selected),
+      execution: selected,
+    })
+
+    expect(calls.selections).toContainEqual(
+      expect.objectContaining({ type: "prompt" })
+    )
     await adapter.interrupt({ handle, nativeSession, turnId: "turn-1" })
   })
 
   it("fails before admission when a selection switch is rejected", async () => {
     const { api, calls } = createOpencodeSdkDouble()
-    api.v2!.session.switchModel = async () => ({ error: { message: "nope" } })
+    api.session.switchModel = async () => {
+      throw new Error("nope")
+    }
     const adapter = createOpencodeAdapter({
       createRuntime: async () => ({ api }),
     })
@@ -199,7 +224,7 @@ describe("opencode send", () => {
     expect(calls.selections).toEqual([])
   })
 
-  it("maps pinned snapshots and deltas and preserves mixed question answers", async () => {
+  it("maps durable parts and live deltas and preserves mixed form answers", async () => {
     const { adapter, handle, nativeSession, selected, calls } = await subject()
     const iterator = adapter
       .events({ handle, nativeSession })
@@ -258,7 +283,7 @@ describe("opencode send", () => {
       resolution: {
         kind: "input",
         answers: {
-          "question-0": { optionIds: ["Yes"], text: "custom detail" },
+          continue: { optionIds: ["Yes"], text: "custom detail" },
         },
       },
     }
@@ -270,8 +295,8 @@ describe("opencode send", () => {
       events
     )
     expect(terminal.type).toBe("turn.completed")
-    expect(calls.questionReplies).toEqual([
-      { requestID: "question-1", answers: [["Yes", "custom detail"]] },
+    expect(calls.formReplies).toEqual([
+      { formID: "question-1", answer: { continue: "Yes\ncustom detail" } },
     ])
     expect(events).toContainEqual(
       expect.objectContaining({
@@ -284,7 +309,7 @@ describe("opencode send", () => {
     await iterator.return?.()
   })
 
-  it("normalizes file and agent parts and filters unrelated removals", async () => {
+  it("maps tool file content to file parts and ignores other sessions", async () => {
     const { adapter, handle, nativeSession, selected, controls } =
       await subject()
     const iterator = adapter
@@ -292,7 +317,10 @@ describe("opencode send", () => {
       [Symbol.asyncIterator]()
     const events: AideEvent[] = []
     const sessionID = nativeSession.nativeSessionId
-    const messageID = "user-message-1-assistant"
+    const onMessage = {
+      sessionID,
+      assistantMessageID: "msg_user-message-1-assistant",
+    }
 
     await adapter.send({
       handle,
@@ -303,90 +331,66 @@ describe("opencode send", () => {
       execution: selected,
     })
 
-    controls.publish(sessionID, "message.part.updated", {
-      sessionID,
-      time: Date.now(),
-      part: {
-        id: "file-plain",
-        sessionID,
-        messageID,
-        type: "file",
-        url: "/tmp/plain.txt",
-        mime: "text/plain",
-      },
+    controls.publish(sessionID, "session.tool.input.started", {
+      ...onMessage,
+      id: "read-1",
+      name: "read",
     })
-    controls.publish(sessionID, "message.part.updated", {
-      sessionID,
-      time: Date.now(),
-      part: {
-        id: "file-url",
-        sessionID,
-        messageID,
-        type: "file",
-        url: "file:///tmp/aide%20report.txt",
-        mime: "text/plain",
-      },
+    controls.publish(sessionID, "session.tool.success", {
+      ...onMessage,
+      id: "read-1",
+      executed: true,
+      content: [
+        { type: "text", text: "read three files" },
+        { type: "file", uri: "/tmp/plain.txt", mime: "text/plain" },
+        {
+          type: "file",
+          uri: "file:///tmp/aide%20report.txt",
+          mime: "text/plain",
+        },
+        {
+          type: "file",
+          uri: "file://%",
+          mime: "application/octet-stream",
+        },
+      ],
     })
-    controls.publish(sessionID, "message.part.updated", {
-      sessionID,
-      time: Date.now(),
-      part: {
-        id: "file-malformed",
-        sessionID,
-        messageID,
-        type: "file",
-        url: "file://%",
-        mime: "application/octet-stream",
-      },
-    })
-    controls.publish(sessionID, "message.part.updated", {
-      sessionID,
-      time: Date.now(),
-      part: {
-        id: "agent-1",
-        sessionID,
-        messageID,
-        type: "agent",
-        name: "explore",
-      },
-    })
-    controls.publish(sessionID, "message.part.updated", {
-      sessionID,
-      time: Date.now(),
-      part: {
-        id: "ignored-step",
-        sessionID,
-        messageID,
-        type: "step-start",
-      },
-    })
-    controls.publish(sessionID, "message.part.removed", {
+    controls.publish(sessionID, "session.tool.input.started", {
+      ...onMessage,
       sessionID: "another-session",
-      messageID,
-      partID: "file-plain",
-    })
-    controls.publish(sessionID, "message.part.removed", {
-      sessionID,
-      messageID,
-      partID: "file-plain",
+      id: "foreign-1",
+      name: "bash",
     })
 
     await expect(
-      nextMatching(iterator, (event) => event.type === "part.removed", events)
-    ).resolves.toMatchObject({
-      type: "part.removed",
-      data: {
-        partId: "turn-1-file-plain",
-        messageId: "turn-1-assistant",
-      },
-    })
+      nextMatching(
+        iterator,
+        (event) =>
+          event.type === "part.upserted" &&
+          event.data.part.id === "turn-1-file-read-1-3",
+        events
+      )
+    ).resolves.toBeDefined()
     expect(events).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           type: "part.upserted",
           data: {
             part: expect.objectContaining({
-              id: "turn-1-file-plain",
+              id: "turn-1-tool-read-1",
+              type: "tool",
+              name: "read",
+              category: "file_read",
+              status: "completed",
+              output: "read three files",
+            }),
+          },
+        }),
+        expect.objectContaining({
+          type: "part.upserted",
+          data: {
+            part: expect.objectContaining({
+              id: "turn-1-file-read-1-1",
               type: "file",
               path: "/tmp/plain.txt",
             }),
@@ -396,7 +400,7 @@ describe("opencode send", () => {
           type: "part.upserted",
           data: {
             part: expect.objectContaining({
-              id: "turn-1-file-url",
+              id: "turn-1-file-read-1-2",
               type: "file",
               path: "/tmp/aide report.txt",
             }),
@@ -406,19 +410,9 @@ describe("opencode send", () => {
           type: "part.upserted",
           data: {
             part: expect.objectContaining({
-              id: "turn-1-file-malformed",
+              id: "turn-1-file-read-1-3",
               type: "file",
               path: "file://%",
-            }),
-          },
-        }),
-        expect.objectContaining({
-          type: "part.upserted",
-          data: {
-            part: expect.objectContaining({
-              id: "turn-1-agent-1",
-              type: "agent",
-              name: "explore",
             }),
           },
         }),
@@ -428,18 +422,15 @@ describe("opencode send", () => {
       events.some(
         (event) =>
           event.type === "part.upserted" &&
-          event.data.part.id === "turn-1-ignored-step"
+          event.data.part.id === "turn-1-tool-foreign-1"
       )
     ).toBe(false)
-    expect(
-      events.filter((event) => event.type === "part.removed")
-    ).toHaveLength(1)
 
     await adapter.interrupt({ handle, nativeSession, turnId: "turn-1" })
     await iterator.return?.()
   })
 
-  it("reconciles questions answered or rejected outside Aide", async () => {
+  it("reconciles forms answered or cancelled outside Aide", async () => {
     const { adapter, handle, nativeSession, selected, controls } =
       await subject()
     const iterator = adapter
@@ -456,42 +447,76 @@ describe("opencode send", () => {
       execution: selected,
     })
 
-    controls.publish(sessionID, "question.v2.asked", {
-      id: "external-question",
-      sessionID,
-      questions: [
-        {
-          question: "Proceed?",
-          header: "Decision",
-          options: [
-            { label: "Yes", description: "Continue" },
-            { label: "No", description: "Stop" },
-          ],
-          multiple: true,
-          custom: true,
-        },
-        {
-          question: "Additional details?",
-          header: "Details",
-          options: [],
-          custom: true,
-        },
-      ],
+    controls.publish(sessionID, "form.created", {
+      form: {
+        id: "external-question",
+        sessionID,
+        title: "Decision",
+        fields: [
+          {
+            key: "decision",
+            type: "multiselect",
+            title: "Decision",
+            description: "Proceed?",
+            required: true,
+            options: [
+              { value: "Yes", label: "Yes" },
+              { value: "No", label: "No" },
+            ],
+            custom: true,
+          },
+          {
+            key: "details",
+            type: "string",
+            title: "Details",
+            description: "Additional details?",
+          },
+          {
+            key: "docs",
+            type: "external",
+            url: "https://example.com/approve",
+          },
+        ],
+      },
     })
-    await nextMatching(
+    const opened = await nextMatching(
       iterator,
       (event) =>
         event.type === "request.opened" &&
         event.data.request.id === "external-question"
     )
+    expect(opened).toMatchObject({
+      data: {
+        request: {
+          kind: "input",
+          payload: {
+            questions: [
+              {
+                id: "decision",
+                prompt: "Proceed?",
+                header: "Decision",
+                allowMultiple: true,
+                allowFreeText: true,
+              },
+              {
+                id: "details",
+                prompt: "Additional details?",
+                allowMultiple: false,
+                allowFreeText: true,
+              },
+            ],
+          },
+        },
+      },
+    })
 
-    controls.publish(sessionID, "question.v2.replied", {
+    controls.publish(sessionID, "form.replied", {
+      id: "external-question",
       sessionID,
-      requestID: "external-question",
-      answers: [
-        ["Yes", "custom line one", "custom line two"],
-        ["free-form detail"],
-      ],
+      answer: {
+        decision: ["Yes", "custom line one", "custom line two"],
+        details: "free-form detail",
+      },
     })
     await expect(
       nextMatching(
@@ -509,28 +534,31 @@ describe("opencode send", () => {
           resolution: {
             kind: "input",
             answers: {
-              "question-0": {
+              decision: {
                 optionIds: ["Yes"],
                 text: "custom line one\ncustom line two",
               },
-              "question-1": { text: "free-form detail" },
+              details: { text: "free-form detail" },
             },
           },
         },
       },
     })
 
-    controls.publish(sessionID, "question.v2.asked", {
-      id: "external-rejected-question",
-      sessionID,
-      questions: [
-        {
-          question: "Choose?",
-          header: "Choice",
-          options: [{ label: "One", description: "First" }],
-          custom: false,
-        },
-      ],
+    controls.publish(sessionID, "form.created", {
+      form: {
+        id: "external-rejected-question",
+        sessionID,
+        title: "Choice",
+        fields: [
+          {
+            key: "choice",
+            type: "boolean",
+            title: "Choose?",
+            required: true,
+          },
+        ],
+      },
     })
     await nextMatching(
       iterator,
@@ -538,9 +566,9 @@ describe("opencode send", () => {
         event.type === "request.opened" &&
         event.data.request.id === "external-rejected-question"
     )
-    controls.publish(sessionID, "question.v2.rejected", {
+    controls.publish(sessionID, "form.cancelled", {
       sessionID,
-      requestID: "external-rejected-question",
+      id: "external-rejected-question",
     })
     await expect(
       nextMatching(
@@ -665,7 +693,7 @@ describe("opencode send", () => {
           status: "resolved",
           resolution: {
             kind: "input",
-            answers: { "question-0": { optionIds: ["Maybe"] } },
+            answers: { continue: { optionIds: ["Maybe"] } },
           },
         },
       })
@@ -675,7 +703,7 @@ describe("opencode send", () => {
       status: "resolved",
       resolution: {
         kind: "input",
-        answers: { "question-0": { optionIds: ["Yes"] } },
+        answers: { continue: { optionIds: ["Yes"] } },
       },
     }
     await adapter.respondToInput({
@@ -693,8 +721,8 @@ describe("opencode send", () => {
     expect(calls.permissionReplies).toEqual([
       { requestID: "permission-1", reply: "once" },
     ])
-    expect(calls.questionReplies).toEqual([
-      { requestID: "question-1", answers: [["Yes"]] },
+    expect(calls.formReplies).toEqual([
+      { formID: "question-1", answer: { continue: "Yes" } },
     ])
 
     await expect(
@@ -703,7 +731,7 @@ describe("opencode send", () => {
     await iterator.return?.()
   })
 
-  it("emits an error before failing a turn on session.error", async () => {
+  it("emits an error before failing a turn on execution failure", async () => {
     const { adapter, handle, nativeSession, selected, controls } =
       await subject()
     const iterator = adapter
@@ -718,10 +746,14 @@ describe("opencode send", () => {
       execution: selected,
     })
 
-    controls.publish(nativeSession.nativeSessionId, "session.error", {
-      sessionID: nativeSession.nativeSessionId,
-      error: { name: "UnknownError", data: { message: "provider failed" } },
-    })
+    controls.publish(
+      nativeSession.nativeSessionId,
+      "session.execution.failed",
+      {
+        sessionID: nativeSession.nativeSessionId,
+        error: { type: "provider", message: "provider failed" },
+      }
+    )
     const error = await nextMatching(
       iterator,
       (event) => event.type === "error.occurred"
@@ -738,7 +770,7 @@ describe("opencode send", () => {
     await iterator.return?.()
   })
 
-  it("treats session.status idle as authoritative completion", async () => {
+  it("treats execution success as authoritative completion", async () => {
     const { adapter, handle, nativeSession, selected, controls } =
       await subject()
     const iterator = adapter
@@ -753,10 +785,66 @@ describe("opencode send", () => {
       execution: selected,
     })
 
-    controls.publish(nativeSession.nativeSessionId, "session.status", {
-      sessionID: nativeSession.nativeSessionId,
-      status: { type: "idle" },
+    controls.publish(
+      nativeSession.nativeSessionId,
+      "session.execution.succeeded",
+      { sessionID: nativeSession.nativeSessionId }
+    )
+    await expect(
+      nextMatching(iterator, (event) => event.type === "turn.completed")
+    ).resolves.toMatchObject({ type: "turn.completed" })
+    await iterator.return?.()
+  })
+
+  it("completes turns from the live stream when the host keeps no log", async () => {
+    const double = createOpencodeSdkDouble()
+    double.api.session.log = (_input, requestOptions) =>
+      (async function* () {
+        yield { type: "log.synced" } as never
+        await new Promise((resolve) =>
+          requestOptions?.signal?.addEventListener("abort", resolve)
+        )
+      })()
+    const adapter = createOpencodeAdapter({
+      createRuntime: async () => ({ api: double.api }),
     })
+    const handle = await adapter.start({
+      instance: INSTANCE,
+      projectDirectory: PROJECT_DIRECTORY,
+    })
+    const selected = execution()
+    const nativeSession = await adapter.openSession({
+      handle,
+      sessionId: "aide-session-1",
+      projectDirectory: PROJECT_DIRECTORY,
+      execution: selected,
+    })
+    const iterator = adapter
+      .events({ handle, nativeSession })
+      [Symbol.asyncIterator]()
+    await adapter.send({
+      handle,
+      nativeSession,
+      commandId: "command-1",
+      turnId: "turn-1",
+      userMessage: userMessage(selected),
+      execution: selected,
+    })
+
+    await expect(
+      nextMatching(
+        iterator,
+        (event) =>
+          event.type === "part.upserted" &&
+          event.data.part.type === "tool" &&
+          event.data.part.status === "completed"
+      )
+    ).resolves.toBeDefined()
+    double.controls.publish(
+      nativeSession.nativeSessionId,
+      "session.execution.succeeded",
+      { sessionID: nativeSession.nativeSessionId }
+    )
     await expect(
       nextMatching(iterator, (event) => event.type === "turn.completed")
     ).resolves.toMatchObject({ type: "turn.completed" })
@@ -806,9 +894,12 @@ describe("opencode send", () => {
       scope: { turnId: "turn-1" },
     })
 
-    controls.publish(sessionID, "session.next.retried", {
+    controls.publish(sessionID, "session.retry.scheduled", {
       sessionID,
+      assistantMessageID: "msg_user-message-1-assistant",
       attempt: 2,
+      at: Date.now() + 1_000,
+      error: { type: "rate_limit", message: "slow down" },
     })
     await expect(
       nextMatching(iterator, (event) => event.type === "notice.created", events)
@@ -829,12 +920,12 @@ describe("opencode send", () => {
     await iterator.return?.()
   })
 
-  it("lets interruption win when rejecting a request triggers idle", async () => {
+  it("lets interruption win when rejecting a request ends execution", async () => {
     const { api, controls, adapter, handle, nativeSession, selected } =
       await subject()
-    const interrupt = api.v2!.session.interrupt.bind(api.v2!.session)
-    api.v2!.session.interrupt = async (parameters) => {
-      controls.publish(parameters.sessionID, "session.idle", {
+    const interrupt = api.session.interrupt.bind(api.session)
+    api.session.interrupt = async (parameters) => {
+      controls.publish(parameters.sessionID, "session.execution.succeeded", {
         sessionID: parameters.sessionID,
       })
       return interrupt(parameters)
@@ -937,7 +1028,7 @@ describe("opencode send", () => {
     await replay.return?.()
   })
 
-  it("applies configured MCP servers to runtimes created later", async () => {
+  it("applies configured MCP servers to directories used later", async () => {
     const { adapter, handle, calls } = await subject()
     await adapter.setMcpServers({
       handle,
@@ -1034,22 +1125,20 @@ describe("opencode send", () => {
       userMessage: userMessage(selected),
       execution: selected,
     })
-    controls.publish(nativeSession.nativeSessionId, "message.part.updated", {
+    const onMessage = {
       sessionID: nativeSession.nativeSessionId,
-      time: Date.now(),
-      part: {
-        id: "mcp-tool-1",
-        sessionID: nativeSession.nativeSessionId,
-        messageID: "user-message-1-assistant",
-        type: "tool",
-        callID: "mcp-call-1",
-        tool: "docs_search",
-        state: {
-          status: "running",
-          input: { query: "OpenCode" },
-          time: { start: Date.now() },
-        },
-      },
+      assistantMessageID: "msg_user-message-1-assistant",
+    }
+    controls.publish(
+      nativeSession.nativeSessionId,
+      "session.tool.input.started",
+      { ...onMessage, id: "mcp-call-1", name: "docs_search" }
+    )
+    controls.publish(nativeSession.nativeSessionId, "session.tool.called", {
+      ...onMessage,
+      id: "mcp-call-1",
+      input: { query: "OpenCode" },
+      executed: true,
     })
 
     const tool = await nextMatching(
@@ -1057,7 +1146,8 @@ describe("opencode send", () => {
       (event) =>
         event.type === "part.upserted" &&
         event.data.part.type === "tool" &&
-        event.data.part.name === "docs_search"
+        event.data.part.name === "docs_search" &&
+        event.data.part.status === "running"
     )
     expect(tool).toMatchObject({
       type: "part.upserted",
@@ -1072,7 +1162,7 @@ describe("opencode send", () => {
     await iterator.return?.()
   })
 
-  it("can clear a previously selected agent", async () => {
+  it("keeps the session agent when a turn selects none", async () => {
     const { adapter, handle, nativeSession, selected, controls, calls } =
       await subject()
     const iterator = adapter
@@ -1086,9 +1176,11 @@ describe("opencode send", () => {
       userMessage: userMessage(selected),
       execution: selected,
     })
-    controls.publish(nativeSession.nativeSessionId, "session.idle", {
-      sessionID: nativeSession.nativeSessionId,
-    })
+    controls.publish(
+      nativeSession.nativeSessionId,
+      "session.execution.succeeded",
+      { sessionID: nativeSession.nativeSessionId }
+    )
     await nextMatching(iterator, (event) => event.type === "turn.completed")
 
     const { agent: _agent, ...selection } = selected.selection
@@ -1107,12 +1199,331 @@ describe("opencode send", () => {
       execution: cleared,
     })
 
-    expect(calls.selections).toContainEqual({
-      type: "agent",
-      sessionID: nativeSession.nativeSessionId,
-      agent: undefined,
-    })
+    expect(
+      calls.selections.filter((selection) => selection.type === "agent")
+    ).toEqual([
+      {
+        type: "agent",
+        sessionID: nativeSession.nativeSessionId,
+        agent: "build",
+      },
+    ])
     await adapter.interrupt({ handle, nativeSession, turnId: "turn-2" })
     await iterator.return?.()
+  })
+})
+
+describe("opencode commands, skills, usage, subagents, steering", () => {
+  it("reports the turn's usage summed over its steps", async () => {
+    const { adapter, handle, nativeSession, selected, controls } =
+      await subject()
+    const iterator = adapter
+      .events({ handle, nativeSession })
+      [Symbol.asyncIterator]()
+    const events: AideEvent[] = []
+    await adapter.send({
+      handle,
+      nativeSession,
+      commandId: "command-1",
+      turnId: "turn-1",
+      userMessage: userMessage(selected),
+      execution: selected,
+    })
+    const onMessage = {
+      sessionID: nativeSession.nativeSessionId,
+      assistantMessageID: "msg_user-message-1-assistant",
+    }
+    for (const cost of [0.01, 0.02]) {
+      controls.publish(nativeSession.nativeSessionId, "session.step.ended", {
+        ...onMessage,
+        finish: "tool-calls",
+        cost,
+        tokens: {
+          input: 100,
+          output: 20,
+          reasoning: 4,
+          cache: { read: 7, write: 1 },
+        },
+      })
+    }
+    controls.publish(
+      nativeSession.nativeSessionId,
+      "session.execution.succeeded",
+      { sessionID: nativeSession.nativeSessionId }
+    )
+    await nextMatching(
+      iterator,
+      (event) => event.type === "turn.completed",
+      events
+    )
+
+    const usage = events.flatMap((event) =>
+      event.type === "message.upserted" &&
+      event.data.message.role === "assistant" &&
+      event.data.message.usage
+        ? [event.data.message.usage]
+        : []
+    )
+    expect(usage).toHaveLength(1)
+    expect(usage[0]).toMatchObject({
+      inputTokens: 200,
+      outputTokens: 40,
+      reasoningTokens: 8,
+      cacheReadTokens: 14,
+      cacheWriteTokens: 2,
+    })
+    expect(usage[0]!.costUsd).toBeCloseTo(0.03)
+    await iterator.return?.()
+  })
+
+  it("renders the task tool as a subagent part", async () => {
+    const { adapter, handle, nativeSession, selected, controls } =
+      await subject()
+    const iterator = adapter
+      .events({ handle, nativeSession })
+      [Symbol.asyncIterator]()
+    await adapter.send({
+      handle,
+      nativeSession,
+      commandId: "command-1",
+      turnId: "turn-1",
+      userMessage: userMessage(selected),
+      execution: selected,
+    })
+    const onMessage = {
+      sessionID: nativeSession.nativeSessionId,
+      assistantMessageID: "msg_user-message-1-assistant",
+    }
+    controls.publish(
+      nativeSession.nativeSessionId,
+      "session.tool.input.started",
+      {
+        ...onMessage,
+        id: "task-call",
+        name: "task",
+      }
+    )
+    controls.publish(nativeSession.nativeSessionId, "session.tool.called", {
+      ...onMessage,
+      id: "task-call",
+      input: {
+        subagent_type: "explore",
+        description: "Map the modules",
+        prompt: "…",
+      },
+      executed: true,
+    })
+    controls.publish(nativeSession.nativeSessionId, "session.tool.success", {
+      ...onMessage,
+      id: "task-call",
+      executed: true,
+      content: [{ type: "text", text: "Three modules found" }],
+    })
+
+    await expect(
+      nextMatching(
+        iterator,
+        (event) =>
+          event.type === "part.upserted" &&
+          event.data.part.type === "agent" &&
+          event.data.part.status === "completed"
+      )
+    ).resolves.toMatchObject({
+      data: {
+        part: {
+          id: "turn-1-agent-task-call",
+          name: "explore",
+          description: "Map the modules",
+          summary: "Three modules found",
+        },
+      },
+    })
+    await adapter.interrupt({ handle, nativeSession, turnId: "turn-1" })
+    await iterator.return?.()
+  })
+
+  it("runs a command with its arguments and hands history over first", async () => {
+    const { adapter, handle, nativeSession, selected, calls } = await subject()
+    await adapter.send({
+      handle,
+      nativeSession,
+      commandId: "command-1",
+      turnId: "turn-1",
+      userMessage: {
+        ...userMessage(selected),
+        parts: [
+          {
+            id: "user-message-1-part-0",
+            messageId: "user-message-1",
+            index: 0,
+            type: "text",
+            text: "/review the last commit",
+          },
+        ],
+        invocation: { kind: "command", name: "review" },
+      },
+      execution: selected,
+      handoff: {
+        id: "handoff-1",
+        turnId: "turn-1",
+        instanceId: "opencode",
+        nativeSessionId: nativeSession.nativeSessionId,
+        role: "handoff",
+        fromMessageSeq: 0,
+        throughMessageSeq: 0,
+        content: "PRIOR CONTEXT",
+        createdAt: new Date(0).toISOString(),
+      },
+    })
+
+    expect(calls.synthetic).toEqual([
+      {
+        sessionID: nativeSession.nativeSessionId,
+        text: "PRIOR CONTEXT",
+        resume: false,
+      },
+    ])
+    expect(calls.selections.at(-1)).toEqual({
+      type: "command",
+      sessionID: nativeSession.nativeSessionId,
+      name: "review",
+      text: "the last commit",
+    })
+    await adapter.interrupt({ handle, nativeSession, turnId: "turn-1" })
+  })
+
+  it("attaches an invoked skill to the prompt", async () => {
+    const { adapter, handle, nativeSession, selected, calls } = await subject()
+    await adapter.send({
+      handle,
+      nativeSession,
+      commandId: "command-1",
+      turnId: "turn-1",
+      userMessage: {
+        ...userMessage(selected),
+        parts: [
+          {
+            id: "user-message-1-part-0",
+            messageId: "user-message-1",
+            index: 0,
+            type: "text",
+            text: "/pdf summarise report.pdf",
+          },
+        ],
+        invocation: { kind: "skill", name: "pdf" },
+      },
+      execution: selected,
+    })
+    expect(calls.skillPrompts).toEqual([
+      {
+        sessionID: nativeSession.nativeSessionId,
+        skills: ["pdf"],
+        text: "summarise report.pdf",
+      },
+    ])
+    await adapter.interrupt({ handle, nativeSession, turnId: "turn-1" })
+  })
+
+  it("steers the running turn and refuses once it is over", async () => {
+    const { adapter, handle, nativeSession, selected, calls } = await subject()
+    await adapter.send({
+      handle,
+      nativeSession,
+      commandId: "command-1",
+      turnId: "turn-1",
+      userMessage: userMessage(selected),
+      execution: selected,
+    })
+    const steer: UserMessage = {
+      ...userMessage(selected),
+      id: "steer-1",
+      seq: 3,
+      parts: [
+        {
+          id: "steer-1-part-0",
+          messageId: "steer-1",
+          index: 0,
+          type: "text",
+          text: "skip the tests",
+        },
+      ],
+      steer: { turnId: "turn-1" },
+    }
+    await adapter.steer?.({
+      handle,
+      nativeSession,
+      turnId: "turn-1",
+      message: steer,
+    })
+    expect(calls.steers).toEqual([
+      {
+        sessionID: nativeSession.nativeSessionId,
+        id: "msg_steer-1",
+        text: "skip the tests",
+      },
+    ])
+    await adapter.interrupt({ handle, nativeSession, turnId: "turn-1" })
+    await expect(
+      adapter.steer?.({
+        handle,
+        nativeSession,
+        turnId: "turn-1",
+        message: steer,
+      })
+    ).rejects.toMatchObject({ aideError: { code: "turn_not_active" } })
+  })
+
+  it("lists commands, skills and connected providers in inventory", async () => {
+    const { adapter, handle } = await subject()
+    const inventory = await adapter.discover({
+      handle,
+      directory: PROJECT_DIRECTORY,
+    })
+    expect(inventory.commands).toEqual([
+      { name: "init", description: "guided AGENTS.md setup" },
+      { name: "review", description: "review changes" },
+    ])
+    expect(inventory.skills).toEqual([
+      { id: "pdf", name: "pdf", description: "Work with PDFs" },
+    ])
+    expect(inventory.auth.providers).toEqual([
+      {
+        id: "anthropic",
+        label: "Anthropic",
+        connected: true,
+        method: "env:ANTHROPIC_API_KEY",
+      },
+      { id: "opencode", label: "OpenCode", connected: true },
+    ])
+  })
+})
+
+describe("opencode compaction and MCP reconnect", () => {
+  it("compacts between turns and refuses while a turn runs", async () => {
+    const { adapter, handle, nativeSession, selected, calls } = await subject()
+    await adapter.compact?.({ handle, nativeSession })
+    expect(calls.compactions).toEqual([nativeSession.nativeSessionId])
+
+    await adapter.send({
+      handle,
+      nativeSession,
+      commandId: "command-1",
+      turnId: "turn-1",
+      userMessage: userMessage(selected),
+      execution: selected,
+    })
+    await expect(
+      adapter.compact?.({ handle, nativeSession })
+    ).rejects.toMatchObject({ aideError: { code: "session_busy" } })
+    await adapter.interrupt({ handle, nativeSession, turnId: "turn-1" })
+  })
+
+  it("reconnects an MCP server in every directory it serves", async () => {
+    const { adapter, handle, calls } = await subject()
+    await adapter.discover({ handle, directory: "/tmp/second-project" })
+    await adapter.reconnectMcpServer?.({ handle, name: "docs" })
+    expect(
+      calls.mcpConnects.map((connect) => connect.directory).sort()
+    ).toEqual([PROJECT_DIRECTORY, "/tmp/second-project"].sort())
   })
 })

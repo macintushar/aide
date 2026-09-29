@@ -52,6 +52,10 @@ type SupervisedInstance = {
   config: InstanceConfig
   status: InstanceRuntimeStatus
   handle?: InstanceHandle
+  /** The last published MCP state, served in the instances snapshot. */
+  mcpServers?: McpServerStatus[]
+  /** Servers the driver cannot host, which a reconnect cannot change. */
+  unsupportedMcp?: McpServerStatus[]
   version?: string
   installed?: boolean
   auth: InstanceAuth
@@ -345,6 +349,7 @@ export class InstanceSupervisor {
           : { installed: entry.installed }),
         auth: entry.auth,
         ...this.#cachedInventory(entry),
+        ...(entry.mcpServers ? { mcpServers: entry.mcpServers } : {}),
         ...(entry.error ? { error: entry.error } : {}),
       }))
   }
@@ -613,9 +618,52 @@ export class InstanceSupervisor {
     }
 
     if (!this.#isCurrent(entry, generation, handle)) return
-    this.#emit(instanceId, entry.config.driver, "harness.mcp_status_changed", {
-      servers: [...statuses, ...unsupported],
-    })
+    entry.unsupportedMcp = unsupported
+    this.#publishMcp(entry, [...statuses, ...unsupported])
+  }
+
+  #publishMcp(entry: SupervisedInstance, servers: McpServerStatus[]): void {
+    entry.mcpServers = servers
+    this.#emit(
+      entry.config.instanceId,
+      entry.config.driver,
+      "harness.mcp_status_changed",
+      { servers }
+    )
+  }
+
+  /**
+   * Reconnects one MCP server and republishes every server's state, so the
+   * UI sees whether it came back.
+   */
+  async reconnectMcp(
+    instanceId: string,
+    serverName: string
+  ): Promise<McpServerStatus[]> {
+    const entry = this.#instances.get(instanceId)
+    const adapter = entry ? this.#adapters(entry.config.driver) : undefined
+    if (!entry?.handle || !adapter) {
+      throw new SupervisorError({
+        code: "instance_not_running",
+        message: `Instance ${instanceId} is not running`,
+        instanceId,
+        retryable: true,
+      })
+    }
+    if (!adapter.reconnectMcpServer) {
+      throw new SupervisorError({
+        code: "mcp_reconnect_unsupported",
+        message: `Instance ${instanceId} cannot reconnect an MCP server on request`,
+        instanceId,
+        retryable: false,
+      })
+    }
+    const handle = entry.handle
+    await adapter.reconnectMcpServer({ handle, name: serverName })
+    const statuses = await adapter.mcpStatus({ handle })
+    const servers = [...statuses, ...(entry.unsupportedMcp ?? [])]
+    this.#publishMcp(entry, servers)
+    return servers
   }
 
   #isCurrent(
