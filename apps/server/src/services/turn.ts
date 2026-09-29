@@ -197,24 +197,41 @@ export class TurnService {
    * checkpoint never blocks the turn itself.
    */
   async #checkpoint(
+    projectId: string,
     sessionId: string,
     directory: string,
-    turnId: string
+    turn: Turn
   ): Promise<void> {
     if (!this.#checkpoints) return
+    let commit: string | undefined
     try {
-      const commit = await createCheckpoint(directory, turnId)
-      if (!commit) return
-      turnCheckpointsRepo.put(this.#db, {
-        turnId,
-        sessionId,
-        directory,
-        commit,
-        createdAt: this.#now(),
-      })
+      commit = await createCheckpoint(directory, turn.id)
     } catch {
       // A turn without a checkpoint simply cannot be restored to.
+      return
     }
+    if (!commit) return
+    const createdAt = this.#now()
+    const event = withTransaction(this.#db, (tx) => {
+      turnCheckpointsRepo.put(tx, {
+        turnId: turn.id,
+        sessionId,
+        directory,
+        commit: commit!,
+        createdAt,
+      })
+      return this.#events.persistDurable(tx, {
+        schemaVersion: 1,
+        eventId: this.#id("event"),
+        timestamp: createdAt,
+        scope: { kind: "session", projectId, sessionId, turnId: turn.id },
+        instanceId: turn.execution.selection.instanceId,
+        driver: turn.execution.selection.driver,
+        type: "checkpoint.created",
+        data: { checkpoint: { turnId: turn.id, createdAt } },
+      })
+    })
+    this.#events.broadcastDurable(event)
   }
 
   /**
@@ -536,12 +553,39 @@ export class TurnService {
     })
     for (const event of persisted) this.#events.broadcastDurable(event)
     input.context.markDispatching(messageId)
-    await entry.adapter.steer({
-      handle: entry.handle,
-      nativeSession: active.native,
-      turnId: turn.id,
-      message,
-    })
+    try {
+      await entry.adapter.steer({
+        handle: entry.handle,
+        nativeSession: active.native,
+        turnId: turn.id,
+        message,
+      })
+    } catch (error) {
+      // The message is already in the transcript; say it never arrived.
+      const notice = withTransaction(this.#db, (tx) =>
+        this.#events.persistDurable(tx, {
+          schemaVersion: 1,
+          eventId: this.#id("event"),
+          timestamp: this.#now(),
+          scope: {
+            kind: "session",
+            projectId: session.projectId,
+            sessionId: input.sessionId,
+            turnId: turn.id,
+          },
+          instanceId: turn.execution.selection.instanceId,
+          driver: turn.execution.selection.driver,
+          type: "notice.created",
+          data: {
+            title: "Steering not delivered",
+            message: `The harness did not take the steering message: ${errorOf(error, active.instanceId).message}`,
+            level: "warning",
+          },
+        })
+      )
+      this.#events.broadcastDurable(notice)
+      throw error
+    }
     input.context.markDispatched({ messageId, turnId: turn.id })
     input.context.complete({ messageId, turnId: turn.id })
     return message
@@ -831,7 +875,7 @@ export class TurnService {
       // Baseline the working tree before the harness can touch it, so edits
       // that were already there are not credited to this turn.
       await this.#captureChanges(session.id, directory)
-      await this.#checkpoint(session.id, directory, turn.id)
+      await this.#checkpoint(project.id, session.id, directory, turn)
       // A queued turn keeps its captured selection, but admission must prove the
       // same values are still available in current inventory.
       await this.#resolver.resolve(turn.execution.selection, project.directory)

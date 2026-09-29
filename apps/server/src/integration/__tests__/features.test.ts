@@ -11,7 +11,7 @@ import type {
 } from "@workspace/contracts"
 import { afterAll, afterEach, describe, expect, it } from "vitest"
 
-import { nativeMappingsRepo } from "../../db"
+import { eventLogRepo, nativeMappingsRepo } from "../../db"
 import { createFakeHarnessAdapter } from "../../harness/fake"
 import { AdapterRegistry } from "../../services"
 import type { TurnUsageLogEntry } from "../../services/turn"
@@ -303,6 +303,63 @@ describe("usage, steering and invocations", () => {
     })
   })
 
+  it("says so when the harness does not take a steering message", async () => {
+    const directory = await gitRepo()
+    const subject = await boot({ directory })
+    const session = (
+      await subject.command("session.create", { projectId: subject.project.id })
+    ).result as { id: string }
+    await subject.command("turn.send", {
+      sessionId: session.id,
+      content: "start",
+      execution: selection,
+    })
+    const turnId = await waitFor(
+      () =>
+        subject.snapshot(session.id).requests.find((r) => r.status === "open")
+          ?.turnId
+    )
+    const entry = subject.registry.get("fake-primary")
+    const original = entry.adapter.steer!.bind(entry.adapter)
+    entry.adapter.steer = async () => {
+      throw new Error("the turn just ended")
+    }
+    try {
+      const receipt = await subject.command("turn.steer", {
+        sessionId: session.id,
+        turnId,
+        content: "late words",
+      })
+      // Dispatch had begun, so the receipt state machine reports uncertain.
+      expect(["failed", "uncertain"]).toContain(receipt.state)
+      expect(subject.snapshot(session.id).notices).toContainEqual(
+        expect.objectContaining({
+          turnId,
+          title: "Steering not delivered",
+        })
+      )
+    } finally {
+      entry.adapter.steer = original
+      await subject.command("turn.interrupt", { sessionId: session.id, turnId })
+    }
+  })
+
+  it("rejects worktree names that git would read as options", async () => {
+    const directory = await gitRepo()
+    const subject = await boot({ directory })
+    const response = await subject.app.request("/commands/session.create", {
+      method: "POST",
+      headers: { ...subject.headers, "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "session.create",
+        commandId: "cmd_bad_branch",
+        projectId: subject.project.id,
+        worktree: { branch: "--delete" },
+      }),
+    })
+    expect(response.status).toBe(400)
+  })
+
   it("records an offered command invocation and rejects an unknown one", async () => {
     const directory = await gitRepo()
     const subject = await boot({ directory })
@@ -395,6 +452,17 @@ describe("fork, checkpoints and restore", () => {
     const turnId = await subject.completeTurn(session.id, "edit things")
     expect(subject.snapshot(session.id).checkpoints).toEqual([
       expect.objectContaining({ turnId }),
+    ])
+    expect(
+      eventLogRepo.listByType(
+        subject.db,
+        { kind: "session", sessionId: session.id },
+        "checkpoint.created"
+      )
+    ).toEqual([
+      expect.objectContaining({
+        data: { checkpoint: expect.objectContaining({ turnId }) },
+      }),
     ])
     // What the turn "did".
     await writeFile(join(directory, "notes.md"), "edited by the turn\n")

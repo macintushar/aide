@@ -27,6 +27,8 @@ export function SessionNavigation({
   const [project, setProject] = useState<Project>()
   const [error, setError] = useState<string>()
   const [pending, setPending] = useState(false)
+  const [useWorktree, setUseWorktree] = useState(false)
+  const [branch, setBranch] = useState("")
 
   function openSession(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -63,6 +65,9 @@ export function SessionNavigation({
         name: "session.create",
         commandId: newCommandId(),
         projectId: project.id,
+        ...(useWorktree
+          ? { worktree: branch.trim() ? { branch: branch.trim() } : {} }
+          : {}),
       })
       const session = sessionSchema.parse(receipt.result)
       setSessionId(session.id)
@@ -100,16 +105,44 @@ export function SessionNavigation({
           </Button>
         </div>
         {project ? (
-          <div className="mt-3 flex items-center justify-between gap-3 rounded-lg bg-muted/50 px-3 py-2">
-            <span className="truncate text-ui">{project.name}</span>
-            <Button
-              type="button"
-              size="sm"
-              disabled={pending}
-              onClick={() => void createSession()}
-            >
-              New session
-            </Button>
+          <div className="mt-3 flex flex-col gap-2 rounded-lg bg-muted/50 px-3 py-2">
+            <div className="flex items-center justify-between gap-3">
+              <span className="truncate text-ui">{project.name}</span>
+              <Button
+                type="button"
+                size="sm"
+                disabled={pending}
+                onClick={() => void createSession()}
+              >
+                New session
+              </Button>
+            </div>
+            <label className="flex items-center gap-2 text-small">
+              <input
+                type="checkbox"
+                checked={useWorktree}
+                onChange={(event) => setUseWorktree(event.target.checked)}
+              />
+              Run in a new worktree
+            </label>
+            {useWorktree ? (
+              <div className="flex flex-col gap-1">
+                <label htmlFor="worktree-branch" className="text-small">
+                  Branch (optional)
+                </label>
+                <input
+                  id="worktree-branch"
+                  value={branch}
+                  placeholder="aide/…"
+                  onChange={(event) => setBranch(event.target.value)}
+                  className="h-8 rounded-md border border-input bg-background px-2 text-ui"
+                />
+                <p className="text-small text-muted-foreground">
+                  Aide checks the project out into its own directory on a new
+                  branch, so this session's edits stay out of your working tree.
+                </p>
+              </div>
+            ) : null}
           </div>
         ) : null}
       </form>

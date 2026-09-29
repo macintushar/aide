@@ -70,12 +70,23 @@ export const projectUpdateDefaultsCommandSchema = commandEnvelopeSchema.extend({
  * (default: the project's current HEAD).
  */
 export const worktreeRequestSchema = z.object({
+  // Both reach git as arguments, so neither may look like an option.
   branch: z
     .string()
     .min(1)
-    .regex(/^[A-Za-z0-9._/-]+$/, "Branch names use letters, digits, . _ / -")
+    .regex(
+      /^(?!-)[A-Za-z0-9._/-]+$/,
+      "Branch names use letters, digits, . _ / - and do not start with -"
+    )
     .optional(),
-  baseRef: z.string().min(1).optional(),
+  baseRef: z
+    .string()
+    .min(1)
+    .regex(
+      /^(?!-)[A-Za-z0-9._/@^~{}:-]+$/,
+      "A base ref is a branch, tag or commit and does not start with -"
+    )
+    .optional(),
 })
 
 export type WorktreeRequest = z.infer<typeof worktreeRequestSchema>

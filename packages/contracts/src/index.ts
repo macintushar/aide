@@ -175,6 +175,7 @@ export type {
 
 export {
   aideEventSchema,
+  checkpointCreatedEventSchema,
   configUpdatedEventSchema,
   durableDeliverySchema,
   ephemeralDeliverySchema,

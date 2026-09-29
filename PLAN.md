@@ -57,6 +57,52 @@ Add `packages/contracts` as the only types that cross the wire. `apps/web` and `
 
 Server process configuration (bind host/port, per-launch bearer token, `DB_FILE_NAME`) is validated at boot with `@t3-oss/env-core` + zod and fails fast on invalid values. This is process environment only — user-facing Aide configuration remains UI-managed and DB-persisted, never environment variables or files.
 
+## Session Features
+
+These are Aide's own and work the same on every harness, including a session
+that switches harness between turns.
+
+- **Checkpoints.** Before each turn Aide writes the working tree (tracked and
+  untracked files, minus what `.gitignore` excludes) as a git commit through a
+  throwaway index, pinned under `refs/aide/checkpoints/<turnId>`, and emits
+  `checkpoint.created`. `session.restore` puts the files back to that state:
+  files are rewritten, files created since are deleted, ignored files are
+  left alone, and neither the user's index nor HEAD moves. The transcript is
+  not rewritten; forking is how history is branched. Native harness
+  checkpoints (Claude `rewindFiles`, OpenCode revert) are not used because
+  they only know about their own harness's edits.
+- **Forks.** `session.fork` copies a session's settled messages (optionally
+  through one turn) into a new session. Turns are not copied. The fork has no
+  native sessions, so its first turn hands the copied history over through
+  the normal handoff path. Without a worktree of its own, a fork works in its
+  source's directory.
+- **Worktrees.** `session.create` (and `session.fork`) can ask for a
+  worktree: Aide runs `git worktree add` into a directory under its data
+  directory (never inside the project) on a new branch. The session's turns,
+  change tracking, checkpoints and file search all use that directory.
+  `worktree.remove` deletes it (leaving it in place while another session
+  still uses it) and retires the session's native sessions, which were bound
+  to the removed directory.
+- **Steering.** `turn.steer` delivers a message into the running turn
+  (Claude: a `priority: "next"` prompt; OpenCode: `delivery: "steer"`). It is
+  kept as a user message marked with the turn it steered, and the native sync
+  cursor moves past it so a later handoff does not repeat it.
+- **Commands and skills.** Inventory lists each instance's commands and
+  skills; `turn.send` carries an `invocation`. The stored text is what the
+  user typed (`/name arguments`). A handoff that precedes a command goes in
+  as context that starts no execution of its own (Claude
+  `shouldQuery: false`, OpenCode `session.synthetic`), because a command only
+  runs when it leads the message.
+- **Usage.** Adapters report usage on the assistant message: OpenCode sums
+  its steps; Claude differences the SDK's cumulative per-model totals, which
+  include subagents, and falls back to main-loop tokens without cost after a
+  resume, where the starting totals are unknown. The server stores it and
+  logs one line per turn.
+- **File search.** `GET /sessions/:id/files?query=` fuzzy-matches files in
+  the session's working directory (`git ls-files`, or a bounded walk outside
+  git) and returns paths relative to it. The composer links a chosen file as
+  `[name](relative/path)`.
+
 ## Initial Scope
 
 ### Included
@@ -78,6 +124,11 @@ Server process configuration (bind host/port, per-launch bearer token, `DB_FILE_
 - Session restoration after restarting the browser or Aide server.
 - Canonical context reconstruction when a native session cannot be resumed or the selected instance changes.
 - Current workspace changes and Git diff inspection.
+- Harness commands and skills, invoked from the composer as `/name arguments`.
+- Steering a running turn with an extra message.
+- Subagent status, compaction and retry notices, and per-turn token usage and cost.
+- Session forks, Aide-owned checkpoints with file restore, and Aide-owned git worktrees.
+- File search in the session's working directory, linked into messages as relative Markdown links.
 
 ### Excluded Initially
 
@@ -88,7 +139,8 @@ Server process configuration (bind host/port, per-launch bearer token, `DB_FILE_
 - ACP integrations.
 - CLI output parsing for harness functionality or inventory.
 - Mobile clients.
-- Git staging, committing, pushing, reverting, or checkpoint restoration.
+- Git staging, committing, pushing, or reverting commits. (Restoring a turn's
+  checkpoint is in scope; see Session Features.)
 - A general embedded terminal unless later proven necessary.
 - Full event-sourced CQRS (decider, reactors, projection pipeline).
 - WebSocket. Add it later if a terminal or remote client needs one multiplexed pipe.
@@ -938,6 +990,7 @@ For durable delivery, `sequence` is monotonic within `scope`: each Aide session 
 - `turn.completed`
 - `turn.interrupted`
 - `turn.failed`
+- `checkpoint.created` — a restorable pre-turn checkpoint exists
 
 ### Requests
 
@@ -1166,7 +1219,8 @@ Claude-specific:
 - Add Git status and diff inspection.
 - Associate file changes with turns where observable.
 - Show changed files beside the conversation.
-- Add usage and cost reporting where the harness supplies it.
+- Add usage and cost reporting where the harness supplies it. (Done: see
+  Session Features.)
 
 ### Phase 8: Context Quality
 

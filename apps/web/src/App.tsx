@@ -147,6 +147,7 @@ export function App({
           readClient={reads}
           commandClient={commands}
           subscribe={subscribeSession}
+          openSession={selectSession}
         >
           <SessionRecorder onRemember={setRecents} />
           <AppShell

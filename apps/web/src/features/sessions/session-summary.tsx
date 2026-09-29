@@ -1,4 +1,9 @@
-import { RiFolder3Line, RiStopCircleLine } from "@remixicon/react"
+import {
+  RiFolder3Line,
+  RiGitBranchLine,
+  RiStopCircleLine,
+} from "@remixicon/react"
+import { sessionSchema } from "@workspace/contracts"
 import { Button } from "@workspace/ui/components/button"
 
 import { useSession } from "@/features/sessions/session-provider"
@@ -36,13 +41,49 @@ export function SessionActions() {
   const session = useSession()
   if (!session) return null
 
-  const { state, send, pending, sessionId } = session
+  const { state, send, pending, sessionId, applySession } = session
   const turn = latestTurn(state.turns)
   const interruptible =
     turn && (turn.status === "running" || turn.status === "queued")
+  const worktree = state.session?.worktree
+
+  async function removeWorktree() {
+    const confirmed = window.confirm(
+      `Remove this session's worktree (${worktree?.path})? Uncommitted changes in it are lost. The branch ${worktree?.branch} is kept.`
+    )
+    if (!confirmed) return
+    const receipt = await send({
+      name: "worktree.remove",
+      commandId: newCommandId(),
+      sessionId,
+    })
+    const updated = sessionSchema.safeParse(receipt?.result)
+    if (updated.success) applySession(updated.data)
+  }
 
   return (
     <div className="flex items-center gap-2">
+      {worktree ? (
+        <span
+          title={worktree.path}
+          data-testid="worktree-badge"
+          className="flex max-w-48 items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-small text-muted-foreground"
+        >
+          <RiGitBranchLine className="size-3.5 shrink-0" aria-hidden="true" />
+          <span className="truncate font-mono">{worktree.branch}</span>
+        </span>
+      ) : null}
+      {worktree && !interruptible ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          disabled={pending}
+          onClick={() => void removeWorktree()}
+        >
+          Remove worktree
+        </Button>
+      ) : null}
       {interruptible ? (
         <Button
           type="button"

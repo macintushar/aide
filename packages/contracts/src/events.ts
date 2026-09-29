@@ -1,6 +1,7 @@
 import { z } from "zod"
 
 import {
+  checkpointSchema,
   messageMetadataSchema,
   partSchema,
   requestSchema,
@@ -134,6 +135,12 @@ export const requestCancelledEventSchema = aideEventBaseSchema.extend({
   data: z.object({ request: requestSchema }),
 })
 
+/** Aide took a restorable checkpoint of the working tree before a turn. */
+export const checkpointCreatedEventSchema = aideEventBaseSchema.extend({
+  type: z.literal("checkpoint.created"),
+  data: z.object({ checkpoint: checkpointSchema }),
+})
+
 export const harnessInstanceStartingEventSchema = aideEventBaseSchema.extend({
   type: z.literal("harness.instance_starting"),
   data: z.object({}),
@@ -234,6 +241,7 @@ const SESSION_EVENT_TYPES = [
   "request.opened",
   "request.resolved",
   "request.cancelled",
+  "checkpoint.created",
 ] as const
 
 const INSTANCES_EVENT_TYPES = [
@@ -263,6 +271,7 @@ export const aideEventSchema = z
     requestOpenedEventSchema,
     requestResolvedEventSchema,
     requestCancelledEventSchema,
+    checkpointCreatedEventSchema,
     harnessInstanceStartingEventSchema,
     harnessConnectedEventSchema,
     harnessDisconnectedEventSchema,

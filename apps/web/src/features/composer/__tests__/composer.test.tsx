@@ -1,5 +1,5 @@
 import type { InstanceSnapshotEntry } from "@workspace/contracts"
-import { fireEvent, render, screen } from "@testing-library/react"
+import { act, fireEvent, render, screen, within } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
 import { Composer } from ".././composer"
@@ -66,6 +66,8 @@ function claudeInstance(
       ],
       agents: [],
       interactionModes: [{ id: "build", label: "Build", isDefault: true }],
+      commands: [{ name: "review", description: "Review changes" }],
+      skills: [{ id: "pdf", name: "pdf", description: "Work with PDFs" }],
     },
     ...overrides,
   }
@@ -194,5 +196,91 @@ describe("Composer", () => {
 
     expect(selectByControl("model")).toBeDisabled()
     expect(screen.getByRole("button", { name: "Send" })).toBeDisabled()
+  })
+})
+
+describe("Composer pickers and steering", () => {
+  it("offers commands and skills after a slash and sends an invocation", () => {
+    const onSend = vi.fn()
+    render(
+      <Composer sources={{ instances: [claudeInstance()] }} onSend={onSend} />
+    )
+    const message = screen.getByLabelText("Message")
+
+    fireEvent.change(message, { target: { value: "/" } })
+    const options = within(
+      screen.getByRole("listbox", { name: "Commands" })
+    ).getAllByRole("option")
+    expect(options.map((option) => option.textContent)).toEqual([
+      expect.stringContaining("/review"),
+      expect.stringContaining("/pdf"),
+    ])
+
+    fireEvent.keyDown(message, { key: "Enter" })
+    expect(message).toHaveValue("/review ")
+    fireEvent.change(message, { target: { value: "/review the diff" } })
+    fireEvent.click(screen.getByRole("button", { name: "Send" }))
+
+    expect(onSend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: "the diff",
+        invocation: { kind: "command", name: "review" },
+      })
+    )
+  })
+
+  it("links a searched file as a relative Markdown link", async () => {
+    vi.useFakeTimers()
+    try {
+      const searchFiles = vi.fn().mockResolvedValue({
+        root: "/work/repo",
+        files: [{ path: "src/app/main.ts", name: "main.ts" }],
+      })
+      render(
+        <Composer
+          sources={{ instances: [claudeInstance()] }}
+          onSend={vi.fn()}
+          searchFiles={searchFiles}
+        />
+      )
+      const message = screen.getByLabelText("Message") as HTMLTextAreaElement
+
+      fireEvent.change(message, {
+        target: { value: "open @mai", selectionStart: 9 },
+      })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(200)
+      })
+      expect(searchFiles).toHaveBeenCalledWith("mai")
+
+      fireEvent.mouseDown(
+        within(screen.getByRole("listbox", { name: "Files" })).getByRole(
+          "option",
+          { name: /main\.ts/ }
+        )
+      )
+      expect(message).toHaveValue("open [main.ts](src/app/main.ts) ")
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("steers the running turn instead of queueing", () => {
+    const onSend = vi.fn()
+    const onSteer = vi.fn()
+    render(
+      <Composer
+        sources={{ instances: [claudeInstance()] }}
+        onSend={onSend}
+        onSteer={onSteer}
+      />
+    )
+    fireEvent.change(screen.getByLabelText("Message"), {
+      target: { value: "  only the src folder " },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Steer current turn" }))
+
+    expect(onSteer).toHaveBeenCalledWith("only the src folder")
+    expect(onSend).not.toHaveBeenCalled()
   })
 })

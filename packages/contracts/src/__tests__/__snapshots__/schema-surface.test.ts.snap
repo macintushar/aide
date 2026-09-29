@@ -9,6 +9,7 @@ exports[`schema surface > locks exported schema names 1`] = `
   "assistantMessageMetadataSchema",
   "assistantMessageSchema",
   "authProviderSchema",
+  "checkpointCreatedEventSchema",
   "checkpointSchema",
   "commandNameSchema",
   "commandReceiptSchema",

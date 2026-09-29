@@ -212,3 +212,133 @@ describe("ExecutionDisplay", () => {
     expect(screen.queryByText("mutable-model-id")).not.toBeInTheDocument()
   })
 })
+
+describe("Transcript turn extras", () => {
+  it("shows usage, subagents, notices and per-turn actions", async () => {
+    const { fireEvent } = await import("@testing-library/react")
+    const { turnFixture } = await import("@workspace/contracts")
+    const assistant = assistantMessageFixture()
+    const withAgent = {
+      ...assistant,
+      usage: {
+        inputTokens: 1200,
+        outputTokens: 340,
+        cacheReadTokens: 60,
+        cacheWriteTokens: 20,
+        costUsd: 0.0042,
+      },
+      parts: [
+        ...assistant.parts,
+        {
+          id: "part_agent_9",
+          messageId: assistant.id,
+          index: 9,
+          type: "agent" as const,
+          name: "Explore",
+          status: "completed",
+          description: "Survey the repository",
+          summary: "Found three entry points",
+          progress: { toolUses: 4, totalTokens: 1500, durationMs: 5000 },
+        },
+      ],
+    }
+    const forks: string[] = []
+    const restores: string[] = []
+
+    render(
+      <Transcript
+        messages={[userMessageFixture(), withAgent]}
+        turns={[turnFixture("completed")]}
+        notices={[
+          {
+            id: "notice_1",
+            turnId: "turn_1",
+            title: "Context compacted",
+            message: "Claude compacted its context.",
+            level: "info",
+            createdAt: "2026-01-01T00:00:00.000Z",
+          },
+        ]}
+        restorable={new Set(["turn_1"])}
+        onFork={(turnId) => forks.push(turnId)}
+        onRestore={(turnId) => restores.push(turnId)}
+      />
+    )
+
+    expect(screen.getByTestId("message-usage")).toHaveTextContent(
+      "1.2k in · 340 out · 80 cached · $0.0042"
+    )
+    const agent = screen.getByTestId("agent-part")
+    expect(agent).toHaveTextContent("Explore")
+    expect(agent).toHaveTextContent("Survey the repository")
+    expect(agent).toHaveTextContent("4 tool calls · 1,500 tokens · 5.0s")
+    expect(agent).toHaveTextContent("Found three entry points")
+    expect(screen.getByTestId("notice")).toHaveTextContent("Context compacted")
+
+    fireEvent.click(screen.getByRole("button", { name: "Fork from here" }))
+    fireEvent.click(
+      screen.getByRole("button", { name: "Restore files to before this turn" })
+    )
+    expect(forks).toEqual(["turn_1"])
+    expect(restores).toEqual(["turn_1"])
+  })
+
+  it("marks invoked commands and steering messages", () => {
+    const user = userMessageFixture()
+    render(
+      <Transcript
+        messages={[
+          { ...user, invocation: { kind: "command", name: "review" } },
+          {
+            ...user,
+            id: "msg_user_steer",
+            seq: 5,
+            steer: { turnId: "turn_1" },
+          },
+        ]}
+      />
+    )
+    expect(screen.getByText("/review")).toBeVisible()
+    expect(screen.getByText("Steered the running turn")).toBeVisible()
+  })
+
+  it("offers no restore for a turn without a checkpoint", async () => {
+    const { turnFixture } = await import("@workspace/contracts")
+    render(
+      <Transcript
+        messages={[userMessageFixture(), assistantMessageFixture()]}
+        turns={[turnFixture("completed")]}
+        restorable={new Set()}
+        onFork={() => undefined}
+        onRestore={() => undefined}
+      />
+    )
+    expect(
+      screen.queryByRole("button", { name: /Restore files/ })
+    ).not.toBeInTheDocument()
+  })
+})
+
+describe("Transcript failed turns", () => {
+  it("shows why a turn failed under its reply", async () => {
+    const { turnFixture } = await import("@workspace/contracts")
+    render(
+      <Transcript
+        messages={[userMessageFixture(), assistantMessageFixture()]}
+        turns={[
+          {
+            ...turnFixture("failed"),
+            error: {
+              code: "opencode_session_error",
+              message: "Provider request failed with HTTP 400",
+              retryable: false,
+            },
+          },
+        ]}
+      />
+    )
+    expect(screen.getByTestId("turn-error")).toHaveTextContent(
+      "Provider request failed with HTTP 400"
+    )
+  })
+})

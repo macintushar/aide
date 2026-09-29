@@ -1,4 +1,4 @@
-import type { Command, Request } from "@workspace/contracts"
+import { sessionSchema, type Command, type Request } from "@workspace/contracts"
 import { Button } from "@workspace/ui/components/button"
 import { EmptyState } from "@workspace/ui/components/empty-state"
 import { ScrollArea } from "@workspace/ui/components/scroll-area"
@@ -9,7 +9,7 @@ import { Composer } from "@/features/composer"
 import { useInstances } from "@/features/instances"
 import { useRequiredSession } from "@/features/sessions/session-provider"
 import { RequestCard } from "@/features/transcript/request-card"
-import { Transcript } from "@/features/transcript/transcript"
+import { NoticeView, Transcript } from "@/features/transcript/transcript"
 import { TypingIndicator } from "@/features/transcript/typing-indicator"
 import { newCommandId } from "@/lib/transport/command-client"
 import {
@@ -33,6 +33,8 @@ export function SessionThread() {
     send,
     retry,
     sessionId,
+    searchFiles,
+    openSession,
   } = useRequiredSession()
   const { state: instancesState } = useInstances()
   const viewportRef = useRef<HTMLDivElement>(null)
@@ -78,6 +80,63 @@ export function SessionThread() {
   )
   const execution = latestExecution(state.messages)
 
+  // Steering needs a running turn on an instance that says it can steer.
+  const runningTurn = state.turns.find((turn) => turn.status === "running")
+  const runningInstance = runningTurn
+    ? instancesState.instances.find(
+        (entry) =>
+          entry.instanceId === runningTurn.execution.selection.instanceId
+      )
+    : undefined
+  const canSteer =
+    runningTurn !== undefined &&
+    runningInstance?.inventory?.capabilities.steer === true
+
+  // Notices that belong to no turn, or to a turn with no reply to hang them
+  // on, run along the end of the transcript.
+  const assistantIds = new Set(
+    state.messages.flatMap((message) =>
+      message.role === "assistant" ? [message.id] : []
+    )
+  )
+  const turnsWithReply = new Set(
+    state.turns.flatMap((turn) =>
+      turn.assistantMessageId && assistantIds.has(turn.assistantMessageId)
+        ? [turn.id]
+        : []
+    )
+  )
+  const looseNotices = state.notices.filter(
+    (notice) => !notice.turnId || !turnsWithReply.has(notice.turnId)
+  )
+  const restorable = new Set(
+    state.checkpoints.map((checkpoint) => checkpoint.turnId)
+  )
+
+  async function fork(turnId: string) {
+    const receipt = await send({
+      name: "session.fork",
+      commandId: newCommandId(),
+      sessionId,
+      throughTurnId: turnId,
+    })
+    const forked = sessionSchema.safeParse(receipt?.result)
+    if (forked.success) openSession?.(forked.data.id)
+  }
+
+  function restore(turnId: string) {
+    const confirmed = window.confirm(
+      "Restore the files in this session's working directory to how they were before that turn? Changes made since then are lost. The conversation is kept as it is."
+    )
+    if (!confirmed) return
+    void send({
+      name: "session.restore",
+      commandId: newCommandId(),
+      sessionId,
+      turnId,
+    })
+  }
+
   function resolveRequest(request: Request, resolution: Resolution) {
     void send(
       request.kind === "permission"
@@ -107,7 +166,15 @@ export function SessionThread() {
       <ScrollArea className="flex-1" viewportRef={viewportRef}>
         <div className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-6">
           {state.messages.length > 0 ? (
-            <Transcript messages={state.messages} />
+            <Transcript
+              messages={state.messages}
+              turns={state.turns}
+              notices={state.notices}
+              restorable={restorable}
+              onFork={(turnId) => void fork(turnId)}
+              onRestore={restore}
+              actionsDisabled={pending}
+            />
           ) : (
             <EmptyState
               icon={<RiQuestionAnswerLine />}
@@ -115,6 +182,14 @@ export function SessionThread() {
               description="Send the first message to start this session."
             />
           )}
+
+          {looseNotices.length > 0 ? (
+            <div className="flex flex-col gap-2">
+              {looseNotices.map((notice) => (
+                <NoticeView key={notice.id} notice={notice} />
+              ))}
+            </div>
+          ) : null}
 
           {openRequests.length > 0 ? (
             <section
@@ -169,15 +244,30 @@ export function SessionThread() {
           ...(execution ? { lastSent: execution.selection } : {}),
         }}
         disabled={pending}
-        onSend={({ content, execution: selection }) => {
+        {...(searchFiles ? { searchFiles } : {})}
+        onSend={({ content, execution: selection, invocation }) => {
           void send({
             name: "turn.send",
             commandId: newCommandId(),
             sessionId,
             content,
             execution: selection,
+            ...(invocation ? { invocation } : {}),
           })
         }}
+        {...(canSteer && runningTurn
+          ? {
+              onSteer: (content: string) => {
+                void send({
+                  name: "turn.steer",
+                  commandId: newCommandId(),
+                  sessionId,
+                  turnId: runningTurn.id,
+                  content,
+                })
+              },
+            }
+          : {})}
       />
     </div>
   )

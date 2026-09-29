@@ -26,11 +26,24 @@ export class CommandError extends Error {
   readonly body: unknown
 
   constructor(status: number, body: unknown) {
-    super(`Command failed with status ${status}`)
+    super(receiptErrorMessage(body) ?? `Command failed with status ${status}`)
     this.name = "CommandError"
     this.status = status
     this.body = body
   }
+}
+
+/** The server's own explanation, when a failed receipt carries one. */
+function receiptErrorMessage(body: unknown): string | undefined {
+  if (typeof body !== "object" || body === null || !("error" in body)) {
+    return undefined
+  }
+  const error = (body as { error: unknown }).error
+  if (typeof error === "object" && error !== null && "message" in error) {
+    const message = (error as { message: unknown }).message
+    return typeof message === "string" ? message : undefined
+  }
+  return undefined
 }
 
 export function newCommandId(): string {

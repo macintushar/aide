@@ -343,3 +343,58 @@ function durableSequence(event: AideEvent): number {
   if (!event.delivery.durable) throw new Error("Expected durable event")
   return event.delivery.sequence
 }
+
+describe("notices and checkpoints", () => {
+  it("collects them from the snapshot and live events", () => {
+    const store = createSessionStore()
+    store.applySnapshot({
+      ...sessionSnapshotFixture(),
+      notices: [
+        {
+          id: "evt_old_notice",
+          title: "Retrying",
+          message: "Attempt 1.",
+          createdAt: "2026-01-01T00:00:00.000Z",
+        },
+      ],
+      checkpoints: [
+        { turnId: "turn_0", createdAt: "2026-01-01T00:00:00.000Z" },
+      ],
+    })
+    const scope = {
+      kind: "session" as const,
+      projectId: "proj_1",
+      sessionId: "ses_1",
+      turnId: "turn_1",
+    }
+    store.applyEvent({
+      schemaVersion: 1,
+      eventId: "evt_notice_1",
+      timestamp: "2026-01-01T00:00:01.000Z",
+      delivery: { durable: true, sequence: 20 },
+      scope,
+      type: "notice.created",
+      data: { title: "Context compacted", message: "Done.", level: "info" },
+    })
+    store.applyEvent({
+      schemaVersion: 1,
+      eventId: "evt_checkpoint_1",
+      timestamp: "2026-01-01T00:00:02.000Z",
+      delivery: { durable: true, sequence: 21 },
+      scope,
+      type: "checkpoint.created",
+      data: {
+        checkpoint: { turnId: "turn_1", createdAt: "2026-01-01T00:00:02.000Z" },
+      },
+    })
+
+    expect(store.getState().notices.map((notice) => notice.title)).toEqual([
+      "Retrying",
+      "Context compacted",
+    ])
+    expect(store.getState().notices[1]).toMatchObject({ turnId: "turn_1" })
+    expect(
+      store.getState().checkpoints.map((checkpoint) => checkpoint.turnId)
+    ).toEqual(["turn_0", "turn_1"])
+  })
+})

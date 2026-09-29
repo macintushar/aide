@@ -1,9 +1,15 @@
-import type { Command } from "@workspace/contracts"
+import type {
+  Command,
+  CommandReceipt,
+  FileSearchResult,
+  Session,
+} from "@workspace/contracts"
 import {
   createContext,
   useContext,
   useEffect,
   useEffectEvent,
+  useMemo,
   useState,
   useSyncExternalStore,
 } from "react"
@@ -16,7 +22,8 @@ import {
 import { createReadClient } from "@/lib/transport/read-client"
 import { createSessionStore, type SessionStoreState } from "@/store/event-store"
 
-type ReadClient = Pick<ReturnType<typeof createReadClient>, "getSession">
+type ReadClient = Pick<ReturnType<typeof createReadClient>, "getSession"> &
+  Partial<Pick<ReturnType<typeof createReadClient>, "searchFiles">>
 type CommandClient = Pick<ReturnType<typeof createCommandClient>, "send">
 type Subscribe = (options: SessionEventsOptions) => { close(): void }
 
@@ -27,8 +34,15 @@ export type SessionContextValue = {
   streamError: boolean
   commandError: string | undefined
   pending: boolean
-  send: (command: Command) => Promise<void>
+  /** Sends a command; resolves with its receipt, or undefined when it failed. */
+  send: (command: Command) => Promise<CommandReceipt | undefined>
   retry: () => void
+  /** Present when the server can search this session's files. */
+  searchFiles?: (query: string) => Promise<FileSearchResult>
+  /** Opens another session (a fork, for one), when the host allows it. */
+  openSession?: (sessionId: string) => void
+  /** Applies a session record a command returned (e.g. worktree removal). */
+  applySession: (session: Session) => void
 }
 
 export type SessionProviderProps = {
@@ -37,6 +51,7 @@ export type SessionProviderProps = {
   commandClient?: CommandClient
   subscribe?: Subscribe
   reconnectDelayMs?: number
+  openSession?: (sessionId: string) => void
   children: React.ReactNode
 }
 
@@ -82,6 +97,7 @@ function SessionController({
   commandClient = defaultCommandClient,
   subscribe = subscribeSessionEvents,
   reconnectDelayMs = 1_000,
+  openSession,
   children,
 }: SessionProviderProps & { sessionId: string }) {
   const [store] = useState(createSessionStore)
@@ -139,13 +155,24 @@ function SessionController({
     }
   }, [attempt, readClient, reconnectDelayMs, sessionId, store, subscribe])
 
+  // Stable per session, so the composer's debounced search does not restart
+  // on every render.
+  const searchFiles = useMemo(
+    () =>
+      readClient.searchFiles
+        ? (query: string) => readClient.searchFiles!(sessionId, query)
+        : undefined,
+    [readClient, sessionId]
+  )
+
   async function send(command: Command) {
     setCommandError(undefined)
     setPending(true)
     try {
-      await commandClient.send(command)
+      return await commandClient.send(command)
     } catch (error) {
       setCommandError(errorMessage(error))
+      return undefined
     } finally {
       setPending(false)
     }
@@ -160,6 +187,9 @@ function SessionController({
     pending,
     send,
     retry: () => setAttempt((current) => current + 1),
+    ...(searchFiles ? { searchFiles } : {}),
+    ...(openSession ? { openSession } : {}),
+    applySession: store.applySession,
   }
 
   return (

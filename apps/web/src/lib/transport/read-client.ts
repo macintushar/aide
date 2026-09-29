@@ -1,8 +1,10 @@
 import {
+  fileSearchResultSchema,
   globalConfigRecordSchema,
   instancesSnapshotSchema,
   projectConfigRecordSchema,
   sessionSnapshotSchema,
+  type FileSearchResult,
   type GlobalConfigRecord,
   type InstancesSnapshot,
   type ProjectConfigRecord,
@@ -60,6 +62,20 @@ export function createReadClient(options: ReadClientOptions = {}) {
     async getSession(sessionId: string): Promise<SessionSnapshot> {
       return sessionSnapshotSchema.parse(
         await get(`/sessions/${encodeURIComponent(sessionId)}`)
+      )
+    },
+
+    /** Fuzzy file search in the session's working directory. */
+    async searchFiles(
+      sessionId: string,
+      query: string,
+      limit = 12
+    ): Promise<FileSearchResult> {
+      const params = new URLSearchParams({ query, limit: String(limit) })
+      return fileSearchResultSchema.parse(
+        await get(
+          `/sessions/${encodeURIComponent(sessionId)}/files?${params.toString()}`
+        )
       )
     },
 
