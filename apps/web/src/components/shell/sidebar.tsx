@@ -1,6 +1,7 @@
 import {
   RiAddLine,
   RiComputerLine,
+  RiFolder3Line,
   RiMoonLine,
   RiSearchLine,
   RiSettings3Line,
@@ -125,10 +126,16 @@ export function Sidebar({
                   key={group.project || "no-project"}
                   aria-label={group.project || "No project"}
                 >
-                  <p className="truncate px-2 pb-1 text-label text-muted-foreground uppercase">
-                    {group.project || "No project"}
+                  <p className="flex min-w-0 items-center gap-2 px-2 pb-1 text-label text-muted-foreground uppercase">
+                    <RiFolder3Line
+                      className="size-4 shrink-0"
+                      aria-hidden="true"
+                    />
+                    <span className="truncate">
+                      {group.project || "No project"}
+                    </span>
                   </p>
-                  <ul className="flex flex-col gap-0.5">
+                  <ul className="ml-4 flex flex-col gap-0.5">
                     {group.sessions.map((session) => (
                       <li key={session.sessionId}>
                         <SessionItem

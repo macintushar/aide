@@ -279,7 +279,7 @@ export function SessionThread() {
           ) : null}
           {commandError ? (
             <p role="alert" className="text-small text-destructive">
-              Command failed: {commandError}
+              Unable to complete that action: {commandError}. Try again.
             </p>
           ) : null}
         </div>

@@ -27,7 +27,8 @@ function ScrollArea({
           viewportProps?.className
         )}
       >
-        <ScrollAreaPrimitive.Content className="min-w-0">
+        {/* Override the primitive's inline fit-content width so long rows truncate. */}
+        <ScrollAreaPrimitive.Content className="min-w-0!">
           {children}
         </ScrollAreaPrimitive.Content>
       </ScrollAreaPrimitive.Viewport>

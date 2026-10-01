@@ -6,8 +6,10 @@ import {
   type AssistantMessage,
 } from "@workspace/contracts"
 import { render, screen, within } from "@testing-library/react"
-import { describe, expect, it } from "vitest"
+import userEvent from "@testing-library/user-event"
+import { describe, expect, it, vi } from "vitest"
 
+import { TranscriptActionsProvider } from ".././actions"
 import { ExecutionDisplay } from ".././execution-display"
 import { ToolPartView, Transcript } from ".././transcript"
 
@@ -90,6 +92,34 @@ describe("Transcript", () => {
 })
 
 describe("ToolPartView", () => {
+  it("keeps artifact actions inside the disclosure and opens failures", async () => {
+    const user = userEvent.setup()
+    const openArtifact = vi.fn()
+    const part = { ...toolPartFixture("completed"), artifactId: "art_full" }
+    const view = (status: typeof part.status) => (
+      <TranscriptActionsProvider value={{ openArtifact }}>
+        <ToolPartView part={{ ...part, status }} />
+      </TranscriptActionsProvider>
+    )
+    const { rerender } = render(view("completed"))
+    const disclosure = document.querySelector("details")!
+    expect(disclosure.open).toBe(false)
+    await user.click(
+      within(disclosure.querySelector("summary")!).getByText(part.name)
+    )
+    expect(disclosure.open).toBe(true)
+    await user.click(screen.getByRole("button", { name: "View full output" }))
+    expect(openArtifact).toHaveBeenCalledWith("art_full")
+    await user.click(
+      within(disclosure.querySelector("summary")!).getByText(part.name)
+    )
+    expect(disclosure.open).toBe(false)
+
+    rerender(view("failed"))
+    expect(document.querySelector("details")).toBe(disclosure)
+    expect(disclosure.open).toBe(true)
+  })
+
   it("rerenders status, output, and MCP server", () => {
     const part = {
       ...toolPartFixture("running"),

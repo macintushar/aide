@@ -20,8 +20,8 @@ CREATE TABLE `__new_command_receipts` (
 	`reconciliation_error_json` text,
 	`created_at` text NOT NULL,
 	`updated_at` text NOT NULL,
-	CONSTRAINT "command_receipts_command_name_check" CHECK("__new_command_receipts"."command_name" in ('project.open', 'project.updateDefaults', 'session.create', 'session.rename', 'session.delete', 'session.fork', 'session.restore', 'worktree.remove', 'turn.send', 'turn.steer', 'turn.interrupt', 'permission.respond', 'input.respond', 'inventory.refresh', 'instance.start', 'instance.stop', 'instance.restart', 'config.update', 'mcp.reconnect')),
-	CONSTRAINT "command_receipts_state_check" CHECK("__new_command_receipts"."state" in ('accepted', 'dispatching', 'dispatched', 'uncertain', 'completed', 'failed'))
+	CONSTRAINT "command_receipts_command_name_check" CHECK("command_name" in ('project.open', 'project.updateDefaults', 'session.create', 'session.rename', 'session.delete', 'session.fork', 'session.restore', 'worktree.remove', 'turn.send', 'turn.steer', 'turn.interrupt', 'permission.respond', 'input.respond', 'inventory.refresh', 'instance.start', 'instance.stop', 'instance.restart', 'config.update', 'mcp.reconnect')),
+	CONSTRAINT "command_receipts_state_check" CHECK("state" in ('accepted', 'dispatching', 'dispatched', 'uncertain', 'completed', 'failed'))
 );
 --> statement-breakpoint
 INSERT INTO `__new_command_receipts`("command_id", "command_name", "state", "native_idempotency_key", "acknowledgement_json", "result_json", "error_json", "reconciliation_error_json", "created_at", "updated_at") SELECT "command_id", "command_name", "state", "native_idempotency_key", "acknowledgement_json", "result_json", "error_json", "reconciliation_error_json", "created_at", "updated_at" FROM `command_receipts`;--> statement-breakpoint

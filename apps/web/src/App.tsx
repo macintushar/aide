@@ -263,7 +263,7 @@ function WelcomeView({
 }) {
   return (
     <ScrollArea className="flex-1">
-      <div className="mx-auto flex max-w-2xl flex-col gap-8 px-4 py-16">
+      <div className="mx-auto flex min-h-[calc(100svh-3rem)] max-w-2xl flex-col justify-center gap-8 px-4 py-16">
         <div className="flex flex-col items-center gap-3 text-center">
           <AideMark size={32} aria-hidden="true" />
           <h1 className="text-h2">One conversation. Any agent.</h1>

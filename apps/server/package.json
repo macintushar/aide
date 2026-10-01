@@ -30,6 +30,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@libsql/client": "^0.18.0",
     "@types/bun": "latest",
     "@usebruno/cli": "^3.0.0",
     "@vitest/coverage-istanbul": "^4.1.10",

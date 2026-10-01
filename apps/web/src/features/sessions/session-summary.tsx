@@ -73,7 +73,7 @@ export function SessionTitle() {
   )
 }
 
-/** Rendered into the header's far end, opposite the session title. */
+/** Project segment preceding the editable session title. */
 export function SessionProject() {
   const session = useSession()
   const project = session?.state.project?.name

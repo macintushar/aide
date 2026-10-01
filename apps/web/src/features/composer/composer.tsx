@@ -1,3 +1,4 @@
+import { RiArrowUpLine } from "@remixicon/react"
 import type {
   ExecutionSelection,
   FileMatch,
@@ -127,6 +128,12 @@ function Picker({
   onPick: (index: number) => void
   empty?: string
 }) {
+  useEffect(() => {
+    document
+      .getElementById(`${id}-${active}`)
+      ?.scrollIntoView?.({ block: "nearest" })
+  }, [id, active])
+
   return (
     <div
       className="absolute inset-x-0 bottom-full z-10 mb-2 max-h-64 overflow-auto rounded-2xl border border-border bg-popover p-1 shadow-lg"
@@ -305,6 +312,7 @@ export function Composer({
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.nativeEvent.isComposing) return
     if (!pickerOpen || items.length === 0) {
       if (pickerOpen && event.key === "Escape") setDismissed(pickerKey)
       return
@@ -315,7 +323,10 @@ export function Composer({
     } else if (event.key === "ArrowUp") {
       event.preventDefault()
       setActive((activeIndex - 1 + items.length) % items.length)
-    } else if (event.key === "Enter" || event.key === "Tab") {
+    } else if (
+      (event.key === "Enter" && !event.shiftKey) ||
+      event.key === "Tab"
+    ) {
       event.preventDefault()
       pick(activeIndex)
     } else if (event.key === "Escape") {
@@ -345,21 +356,6 @@ export function Composer({
 
   return (
     <form className="border-t border-border pt-5" onSubmit={submit}>
-      <div className="flex flex-wrap gap-3">
-        {view.controls.map((control) => (
-          <ControlSelect
-            key={control.id}
-            control={control}
-            disabled={disabled}
-            onChange={(value) =>
-              setDraft((current) =>
-                applyComposerChange(current, control.id, value)
-              )
-            }
-          />
-        ))}
-      </div>
-
       {view.blockedReason ? (
         <p
           role="alert"
@@ -372,7 +368,7 @@ export function Composer({
       <label htmlFor={messageId} className="mt-4 block text-sm font-medium">
         Message
       </label>
-      <div className="relative mt-2">
+      <div className="relative mt-2 rounded-2xl border border-input bg-background px-4 py-3 focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/30">
         {pickerOpen && (slash !== undefined || mention) ? (
           <Picker
             id={pickerId}
@@ -419,8 +415,32 @@ export function Composer({
             setCaret(event.currentTarget.selectionStart ?? content.length)
           }
           onKeyDown={onKeyDown}
-          className="w-full resize-y rounded-2xl border border-input bg-background px-4 py-3 text-sm outline-none focus:border-ring focus:ring-3 focus:ring-ring/30 disabled:opacity-60"
+          className="block w-full resize-y bg-transparent text-sm outline-none disabled:opacity-60"
         />
+        <div className="mt-3 flex flex-wrap items-end gap-3 border-t border-border pt-3">
+          <div className="flex min-w-0 flex-1 flex-wrap gap-3">
+            {view.controls.map((control) => (
+              <ControlSelect
+                key={control.id}
+                control={control}
+                disabled={disabled}
+                onChange={(value) =>
+                  setDraft((current) =>
+                    applyComposerChange(current, control.id, value)
+                  )
+                }
+              />
+            ))}
+          </div>
+          <Button
+            type="submit"
+            size="icon"
+            aria-label="Send"
+            disabled={!canSend}
+          >
+            <RiArrowUpLine aria-hidden="true" />
+          </Button>
+        </div>
       </div>
       {parsed.invocation ? (
         <p
@@ -432,11 +452,8 @@ export function Composer({
           {parsed.content ? " with the rest as its arguments" : ""}.
         </p>
       ) : null}
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <Button type="submit" disabled={!canSend}>
-          Send
-        </Button>
-        {onSteer ? (
+      {onSteer ? (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
           <Button
             type="button"
             variant="outline"
@@ -445,13 +462,11 @@ export function Composer({
           >
             Steer current turn
           </Button>
-        ) : null}
-        {onSteer ? (
           <span className="text-xs text-muted-foreground">
             Send queues a new turn; steer adds this to the one running now.
           </span>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
     </form>
   )
 }

@@ -34,8 +34,8 @@
           {
             "patterns": [
               {
-                "group": ["@opencode-ai", "@opencode-ai/**"],
-                "message": "@opencode-ai is only importable under apps/server/src/harness/opencode/**"
+                "group": ["@opencode/*", "@opencode/**"],
+                "message": "@opencode/* is only importable under apps/server/src/harness/opencode/**"
               },
               {
                 "group": ["@anthropic-ai", "@anthropic-ai/**"],
@@ -70,8 +70,8 @@
           {
             "patterns": [
               {
-                "group": ["@opencode-ai", "@opencode-ai/**"],
-                "message": "@opencode-ai is only importable under apps/server/src/harness/opencode/**"
+                "group": ["@opencode/*", "@opencode/**"],
+                "message": "@opencode/* is only importable under apps/server/src/harness/opencode/**"
               }
             ]
           }

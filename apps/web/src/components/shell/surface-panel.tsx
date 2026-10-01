@@ -118,21 +118,23 @@ function SurfaceTile({
       onClick={onSelect}
       className="group rounded-lg border border-border bg-card p-3 text-left transition-colors duration-[var(--dur-fast)] outline-none hover:bg-[var(--n2)] focus-visible:ring-3 focus-visible:ring-ring/30 disabled:pointer-events-none disabled:opacity-45"
     >
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex items-start justify-between gap-2">
         <span className="flex items-center gap-2 text-ui font-medium">
           <surface.icon
             className="size-4 text-muted-foreground"
             aria-hidden="true"
           />
-          {surface.label}
+          <span className="flex flex-col gap-1">
+            <span>{surface.label}</span>
+            <span className="text-small font-normal text-muted-foreground">
+              {surface.available
+                ? surface.description
+                : (surface.unavailableReason ?? surface.description)}
+            </span>
+          </span>
         </span>
         {surface.available ? <Kbd>{surface.shortcut.toUpperCase()}</Kbd> : null}
       </div>
-      <p className="mt-1 text-small text-muted-foreground">
-        {surface.available
-          ? surface.description
-          : (surface.unavailableReason ?? surface.description)}
-      </p>
     </button>
   )
 }

@@ -1,3 +1,9 @@
+import {
+  RiArrowRightSLine,
+  RiBrainLine,
+  RiFileTextLine,
+  RiTerminalLine,
+} from "@remixicon/react"
 import type {
   AgentPart,
   Message,
@@ -8,6 +14,10 @@ import type {
   UserMessage,
 } from "@workspace/contracts"
 import { Button } from "@workspace/ui/components/button"
+import { HarnessMark } from "@workspace/ui/components/harness-mark"
+import { cn } from "@workspace/ui/lib/utils"
+
+import { harnessMarkFor } from "@/features/instances/harness-marks"
 
 import { useTranscriptActions } from "./actions"
 import { ExecutionDisplay } from "./execution-display"
@@ -38,20 +48,24 @@ function toolInputText(input: unknown): string | undefined {
 
 /**
  * One tool call is one part that changes `status` — pending while its input
- * streams, running once it is dispatched, then completed or failed. The card
- * is deliberately the same element throughout so the transcript does not
- * reflow as a call progresses.
+ * streams, running once it is dispatched, then completed or failed. The same
+ * disclosure stays mounted throughout; failures open their details.
  */
 export function ToolPartView({ part }: { part: ToolPart }) {
   const input = toolInputText(part.input)
   const { openArtifact } = useTranscriptActions()
 
   return (
-    <div
+    <details
+      open={part.status === "failed" || undefined}
       data-tool-status={part.status}
       className="flex flex-col gap-1.5 rounded-2xl border border-border bg-card px-3 py-2"
     >
-      <div className="flex flex-wrap items-center gap-2 text-sm">
+      <summary className="flex cursor-pointer list-none flex-wrap items-center gap-2 text-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/30 [&::-webkit-details-marker]:hidden">
+        <RiTerminalLine
+          className="size-4 shrink-0 text-muted-foreground"
+          aria-hidden="true"
+        />
         <span className="font-medium">{part.name}</span>
         {part.source?.kind === "mcp" ? (
           <span className="text-xs text-muted-foreground">
@@ -63,7 +77,11 @@ export function ToolPartView({ part }: { part: ToolPart }) {
         >
           {part.status}
         </span>
-      </div>
+        <RiArrowRightSLine
+          className="size-4 shrink-0 text-muted-foreground in-open:rotate-90"
+          aria-hidden="true"
+        />
+      </summary>
       {input !== undefined ? (
         <pre
           data-testid="tool-input"
@@ -101,7 +119,7 @@ export function ToolPartView({ part }: { part: ToolPart }) {
           ) : null}
         </p>
       ) : null}
-    </div>
+    </details>
   )
 }
 
@@ -124,7 +142,8 @@ function PartView({ part }: { part: Part }) {
           data-testid="reasoning-part"
           className="rounded-2xl border border-border/60 bg-muted/30 px-3 py-2"
         >
-          <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+          <span className="flex items-center gap-2 text-xs font-medium tracking-wide text-muted-foreground uppercase">
+            <RiBrainLine className="size-4 shrink-0" aria-hidden="true" />
             Reasoning
           </span>
           <p className="text-sm whitespace-pre-wrap">{part.text}</p>
@@ -135,6 +154,7 @@ function PartView({ part }: { part: Part }) {
     case "file":
       return (
         <div className="flex flex-wrap items-center gap-2 rounded-xl bg-muted/50 px-3 py-2 font-mono text-xs text-muted-foreground">
+          <RiFileTextLine className="size-4 shrink-0" aria-hidden="true" />
           <span className="font-sans font-medium text-foreground">File</span>
           <span>{part.path}</span>
           {part.mime ? <span>{part.mime}</span> : null}
@@ -327,16 +347,35 @@ export function Transcript({
           <article
             key={message.id}
             data-message-id={message.id}
-            className="flex flex-col gap-2"
+            className={cn(
+              "flex min-w-0 flex-col gap-2",
+              message.role === "user" && "items-end"
+            )}
           >
-            <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-              {message.role === "user" ? "User" : "Assistant"}
-            </span>
-            {execution ? <ExecutionDisplay execution={execution} /> : null}
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              {message.role === "assistant" && execution ? (
+                <HarnessMark
+                  src={harnessMarkFor(execution.selection.driver)}
+                  name={execution.display.instanceName}
+                  size={16}
+                  decorative
+                />
+              ) : null}
+              <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                {message.role === "user" ? "User" : "Assistant"}
+              </span>
+              {execution ? <ExecutionDisplay execution={execution} /> : null}
+            </div>
             {message.role === "user" ? (
               <UserMessageBadges message={message} />
             ) : null}
-            <div className="flex flex-col gap-2">
+            <div
+              className={cn(
+                "flex min-w-0 flex-col gap-2",
+                message.role === "user" &&
+                  "max-w-[85%] rounded-2xl bg-muted/50 px-3 py-2"
+              )}
+            >
               {[...message.parts].sort(byIndexThenId).map((part) => (
                 <PartView key={part.id} part={part} />
               ))}

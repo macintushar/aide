@@ -200,6 +200,26 @@ describe("Composer", () => {
 })
 
 describe("Composer pickers and steering", () => {
+  it("leaves composition and Shift+Enter alone while the picker is open", () => {
+    render(
+      <Composer sources={{ instances: [claudeInstance()] }} onSend={vi.fn()} />
+    )
+    const message = screen.getByLabelText("Message")
+    fireEvent.change(message, { target: { value: "/" } })
+
+    expect(
+      fireEvent.keyDown(message, { key: "Enter", isComposing: true })
+    ).toBe(true)
+    expect(message).toHaveValue("/")
+    expect(fireEvent.keyDown(message, { key: "Enter", shiftKey: true })).toBe(
+      true
+    )
+    expect(message).toHaveValue("/")
+
+    fireEvent.keyDown(message, { key: "Enter" })
+    expect(message).toHaveValue("/review ")
+  })
+
   it("offers commands and skills after a slash and sends an invocation", () => {
     const onSend = vi.fn()
     render(

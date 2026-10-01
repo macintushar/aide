@@ -3,8 +3,8 @@ import { IconButton } from "@workspace/ui/components/button"
 import { cn } from "@workspace/ui/lib/utils"
 
 /**
- * The session's own name leads; the project it belongs to sits at the far end,
- * so the two never compete for the same corner of the eye.
+ * The project and editable session title form a breadcrumb; actions stay at
+ * the far end.
  */
 export function ThreadHeader({
   sidebarOpen,
@@ -36,11 +36,13 @@ export function ThreadHeader({
         <RiLayoutLeftLine aria-hidden="true" />
       </IconButton>
 
-      <div className="flex min-w-0 flex-1 items-center gap-2">{title}</div>
+      <div className="flex min-w-0 flex-1 items-center gap-2">
+        {meta}
+        {title}
+      </div>
 
       <div className="flex shrink-0 items-center gap-2">
         {actions}
-        {meta}
         <IconButton
           type="button"
           variant="ghost"
@@ -72,7 +74,7 @@ export function ThreadTitle({
   )
 }
 
-/** The project label at the opposite end of the header. */
+/** The project segment of the header breadcrumb. */
 export function ThreadMeta({
   icon,
   children,
@@ -81,9 +83,12 @@ export function ThreadMeta({
   children: React.ReactNode
 }) {
   return (
-    <span className="flex max-w-48 items-center gap-1.5 text-ui text-muted-foreground">
+    <span className="flex max-w-48 min-w-0 items-center gap-1.5 text-ui text-muted-foreground">
       {icon}
       <span className="truncate">{children}</span>
+      <span className="shrink-0" aria-hidden="true">
+        /
+      </span>
     </span>
   )
 }

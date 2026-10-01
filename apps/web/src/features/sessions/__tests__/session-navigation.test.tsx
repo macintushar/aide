@@ -98,7 +98,7 @@ describe("SessionNavigation", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open" }))
 
     expect(
-      await screen.findByText(/Navigation failed: no such directory/)
+      await screen.findByText(/Unable to open \/missing: no such directory/)
     ).toBeInTheDocument()
     expect(onSelectSession).not.toHaveBeenCalled()
   })

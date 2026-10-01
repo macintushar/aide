@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process"
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -104,6 +105,69 @@ describe("production database initialization", () => {
     })
     reopened.close()
   })
+
+  it.each(["runtime", "cli"])(
+    "migrates a populated database using real Bun SQLite (%s)",
+    (mode) => {
+      const directory = mkdtempSync(join(tmpdir(), "aide-db-bun-"))
+      directories.push(directory)
+      const fileName = join(directory, "aide.sqlite")
+      const serverFolder = fileURLToPath(new URL("../../../", import.meta.url))
+      const modulePath = fileURLToPath(new URL("../index.ts", import.meta.url))
+      const options = {
+        cwd: serverFolder,
+        env: { ...process.env, DB_FILE_NAME: fileName },
+        encoding: "utf8" as const,
+        timeout: 30_000,
+      }
+      const runBun = (script: string) => {
+        const result = spawnSync("bun", ["--eval", script], options)
+        expect(result.error).toBeUndefined()
+        expect(result.status, result.stderr).toBe(0)
+      }
+      const imports = `
+        import { initializeDb } from ${JSON.stringify(modulePath)};
+        import { Database } from "bun:sqlite";
+        import { strict as assert } from "node:assert";
+      `
+      runBun(`${imports}
+        const client = initializeDb().$client;
+        client.exec(\`
+          INSERT INTO projects (id, name, directory, created_at, last_opened_at)
+          VALUES ('p', 'p', '/p', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
+          INSERT INTO sessions (id, project_id, title, created_at, updated_at)
+          VALUES ('s', 'p', 't', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
+          INSERT INTO messages (id, session_id, seq, role, execution_json, created_at)
+          VALUES ('m', 's', 0, 'user', '{}', '2026-01-01T00:00:00.000Z');
+          INSERT INTO command_receipts (command_id, command_name, state, created_at, updated_at)
+          VALUES ('c', 'turn.send', 'completed', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
+          INSERT INTO turns (id, session_id, seq, status, execution_json, command_id, user_message_id)
+          VALUES ('t', 's', 0, 'completed', '{}', 'c', 'm');
+        \`)
+        client.exec("DELETE FROM __drizzle_migrations WHERE id = (SELECT max(id) FROM __drizzle_migrations)");
+        client.close();
+      `)
+      if (mode === "cli") {
+        const result = spawnSync("bun", ["run", "db:migrate"], options)
+        expect(result.error).toBeUndefined()
+        expect(result.status, result.stderr + result.stdout).toBe(0)
+      }
+      runBun(`${imports}
+        const existing = new Database(process.env.DB_FILE_NAME);
+        if (${JSON.stringify(mode)} === "cli") {
+          assert.equal(existing.query("SELECT count(*) AS count FROM __drizzle_migrations").get().count, 6);
+        }
+        existing.close();
+        const client = initializeDb().$client;
+        assert.deepEqual(client.query("SELECT id FROM turns").all(), [{ id: "t" }]);
+        assert.deepEqual(client.query("PRAGMA foreign_key_check").all(), []);
+        assert.equal(client.query("PRAGMA foreign_keys").get().foreign_keys, 1);
+        assert.throws(() => client.exec("UPDATE command_receipts SET state = 'invalid'"));
+        assert.throws(() => client.exec("UPDATE command_receipts SET command_name = 'invalid'"));
+        client.close();
+      `)
+    }
+  )
 
   it("closes and resets the singleton for isolated tests", () => {
     const first = getDb()

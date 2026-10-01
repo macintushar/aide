@@ -69,7 +69,9 @@ export function SessionNavigation({
       })
       setProject(projectSchema.parse(receipt.result))
     } catch (cause) {
-      setError(errorMessage(cause))
+      setError(
+        `Unable to open ${path}: ${errorMessage(cause)}. Check the path and try again.`
+      )
     } finally {
       setPending(false)
     }
@@ -92,7 +94,7 @@ export function SessionNavigation({
       setSessionId(session.id)
       onSelectSession(session.id)
     } catch (cause) {
-      setError(errorMessage(cause))
+      setError(`Unable to create a session: ${errorMessage(cause)}. Try again.`)
     } finally {
       setPending(false)
     }
@@ -224,7 +226,7 @@ export function SessionNavigation({
 
       {error ? (
         <p role="alert" className="text-ui text-destructive md:col-span-2">
-          Navigation failed: {error}
+          {error}
         </p>
       ) : null}
     </div>
