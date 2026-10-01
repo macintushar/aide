@@ -35,67 +35,69 @@ substitute visually-similar hex.
 
 ### 2.1 Neutral ramp
 
-Nine steps, true black to white. The dark ramp is achromatic; the light ramp and
-the upper dark steps carry a whisper of warmth (C ≈0.005, hue 107) so text never
-reads as blue-gray next to the accent. This ramp replaces every gray in the
-system — there is no second neutral family.
+Nine steps from deep ink to white. Every step carries a faint blue (C ≈0.003–0.015,
+hue 255) so the dark theme reads as ink rather than flat grey and sits naturally
+beside the sky accent. This ramp replaces every gray in the system: there is no
+second neutral family.
 
-| Token  | Dark                     | Light                    | Role                     |
-| ------ | ------------------------ | ------------------------ | ------------------------ |
-| `--n0` | `oklch(0.145 0 0)`       | `oklch(1 0 0)`           | Canvas                   |
-| `--n1` | `oklch(0.178 0 0)`       | `oklch(0.976 0.003 106)` | Card, sidebar, composer  |
-| `--n2` | `oklch(0.209 0 0)`       | `oklch(0.951 0.004 106)` | Popover, dropdown, hover |
-| `--n3` | `oklch(0.252 0 0)`       | `oklch(0.918 0.005 107)` | Input fill, pressed      |
-| `--n4` | `oklch(0.348 0.003 107)` | `oklch(0.834 0.008 107)` | Ghost text, disabled     |
-| `--n5` | `oklch(0.537 0.005 107)` | `oklch(0.632 0.009 107)` | Faint text, placeholders |
-| `--n6` | `oklch(0.715 0.004 107)` | `oklch(0.448 0.010 107)` | Muted / secondary body   |
-| `--n7` | `oklch(0.884 0.005 107)` | `oklch(0.284 0.005 107)` | Body text                |
-| `--n8` | `oklch(0.967 0.003 106)` | `oklch(0.145 0 0)`       | Headings, emphasis       |
+| Token  | Dark                     | Light                    | Role                                 |
+| ------ | ------------------------ | ------------------------ | ------------------------------------ |
+| `--n0` | `oklch(0.145 0.006 255)` | `oklch(0.966 0.004 255)` | Frame: page, sidebar, input wells    |
+| `--n1` | `oklch(0.172 0.007 255)` | `oklch(1 0 0)`           | Work surface (the inset main panel)  |
+| `--n2` | `oklch(0.203 0.008 255)` | `oklch(0.975 0.003 255)` | Card, composer, popover, hover       |
+| `--n3` | `oklch(0.243 0.009 255)` | `oklch(0.945 0.005 255)` | Raised control, user bubble, pressed |
+| `--n4` | `oklch(0.322 0.011 255)` | `oklch(0.872 0.008 255)` | Ghost text, disabled, separators     |
+| `--n5` | `oklch(0.528 0.013 255)` | `oklch(0.61 0.013 255)`  | Faint text, placeholders, timestamps |
+| `--n6` | `oklch(0.708 0.011 255)` | `oklch(0.47 0.015 255)`  | Muted / secondary text               |
+| `--n7` | `oklch(0.868 0.006 255)` | `oklch(0.31 0.013 255)`  | Body text                            |
+| `--n8` | `oklch(0.968 0.003 255)` | `oklch(0.18 0.012 255)`  | Headings, emphasis                   |
 
-Never use pure `#fff` for text on dark. `--n8` on `--n0` is the maximum contrast
-pair (18:1); pure white vibrates against the canvas. The light canvas is pure white
-by design: surfaces alternate black and white.
+Never use pure `#fff` for text on dark; `--n8` is the ceiling. The frame (`--n0`) is
+darker than the work surface (`--n1`) in dark mode and slightly greyer than it in
+light mode, so the inset panel always reads as the place where work happens.
 
-### 2.2 Accent — sky blue, hue 236
+### 2.2 Accent — saturated sky, hue 240
 
-The brand color, `#5FA8D3`. Soft and light rather than saturated, so it reads as
-aide's own chrome next to vendor marks instead of competing with them.
+The brand hue, pushed until it reads as _live_. The earlier soft sky (`#5FA8D3`,
+C 0.097) made primary buttons look disabled; at C 0.155 the accent carries the
+"an agent is working" meaning the board depends on.
 
-| Token             | Dark                            | Light                           | Role                          |
-| ----------------- | ------------------------------- | ------------------------------- | ----------------------------- |
-| `--accent-subtle` | `oklch(0.701 0.097 236 / 0.16)` | `oklch(0.701 0.097 236 / 0.16)` | Badge fill, selected row      |
-| `--accent-dim`    | `oklch(0.701 0.097 236 / 0.5)`  | `oklch(0.701 0.097 236 / 0.55)` | Borders, dividers             |
-| `--accent-base`   | `oklch(0.701 0.097 236)`        | `oklch(0.701 0.097 236)`        | Primary fill, dots, underline |
-| `--accent-hi`     | `oklch(0.760 0.084 235)`        | `oklch(0.647 0.097 237)`        | Hover, focus ring             |
-| `--accent-ink`    | `oklch(0.701 0.097 236)`        | `oklch(0.518 0.095 240)`        | Accent-colored **text**       |
-| `--accent-fg`     | `oklch(0.145 0 0)`              | `oklch(0.145 0 0)`              | Text **on** the accent        |
+| Token             | Dark                           | Light                        | Role                                 |
+| ----------------- | ------------------------------ | ---------------------------- | ------------------------------------ |
+| `--accent-subtle` | `oklch(0.72 0.155 240 / 0.14)` | `oklch(0.6 0.18 246 / 0.1)`  | Selected fill, toggled chip          |
+| `--accent-dim`    | `oklch(0.72 0.155 240 / 0.45)` | `oklch(0.6 0.18 246 / 0.45)` | Focus border, running card border    |
+| `--accent-base`   | `oklch(0.72 0.155 240)`        | `oklch(0.6 0.18 246)`        | Primary fill, running dot, scan line |
+| `--accent-hi`     | `oklch(0.78 0.13 238)`         | `oklch(0.55 0.18 248)`       | Primary hover                        |
+| `--accent-ink`    | `oklch(0.79 0.125 238)`        | `oklch(0.5 0.17 250)`        | Accent-coloured **text**             |
+| `--accent-fg`     | `oklch(0.17 0.035 250)`        | `oklch(1 0 0)`               | Text **on** the accent               |
+| `--accent-glow`   | `oklch(0.72 0.155 240 / 0.28)` | `oklch(0.6 0.18 246 / 0.2)`  | Focus rings, primary hover halo      |
 
-**`--accent-fg` is near-black in both themes.** The accent is light, so text on a
-blue fill is dark (7.6:1). Anything hardcoding white-on-primary is a bug.
+**`--accent-fg` flips with the theme.** The dark accent is bright, so text on it is
+deep navy; the light accent is deeper, so text on it is white. Never hardcode
+either.
 
-**Accent text uses `--accent-ink`, never `--accent-base`.** The base blue is 7.6:1
-on black but only 2.6:1 on white, so in light mode accent text drops to a deeper
-blue (5.5:1). Fills, dots, rings and underlines keep `--accent-base`.
+**Accent text uses `--accent-ink`, never `--accent-base`.**
 
 ### 2.3 Borders
 
-Alpha, never a step in the neutral ramp. A solid gray border breaks the moment a
-card sits on a different surface; an alpha border never does.
+Alpha, never a step in the neutral ramp, so a border survives any surface.
 
-| Token           | Dark                  | Light                 | Role                                          |
-| --------------- | --------------------- | --------------------- | --------------------------------------------- |
-| `--line`        | `oklch(1 0 0 / 0.09)` | `oklch(0 0 0 / 0.10)` | Hairlines, card edges, table rules            |
-| `--line-strong` | `oklch(1 0 0 / 0.18)` | `oklch(0 0 0 / 0.20)` | Inputs, secondary buttons, focused containers |
+| Token           | Dark                   | Light                        | Role                                         |
+| --------------- | ---------------------- | ---------------------------- | -------------------------------------------- |
+| `--line`        | `oklch(1 0 0 / 0.075)` | `oklch(0.2 0.02 255 / 0.09)` | Hairlines, card edges, the work-surface edge |
+| `--line-strong` | `oklch(1 0 0 / 0.14)`  | `oklch(0.2 0.02 255 / 0.17)` | Inputs, outline buttons, hovered cards       |
 
 ### 2.4 Status
 
-Three roles, all at L 0.62–0.76 in dark so no status outshouts another.
+Status is aide's main colour language. The same four hues mean the same thing on
+the board, in the sidebar, in the header pill and in the transcript.
 
-| Token           | Dark                     | Light                    | Meaning                                                    |
-| --------------- | ------------------------ | ------------------------ | ---------------------------------------------------------- |
-| `--ok`          | `oklch(0.702 0.143 157)` | `oklch(0.561 0.125 156)` | Turn completed, tool succeeded, instance healthy           |
-| `--warn`        | `oklch(0.760 0.139 74)`  | `oklch(0.544 0.117 71)`  | Permission requested, degraded capability, context rebuilt |
-| `--danger-base` | `oklch(0.626 0.193 23)`  | `oklch(0.545 0.188 24)`  | Turn failed, adapter crashed, destructive confirm          |
+| Token           | Dark                    | Light                  | Meaning                                       |
+| --------------- | ----------------------- | ---------------------- | --------------------------------------------- |
+| accent          | `--accent-base`         | `--accent-base`        | An agent is working right now                 |
+| `--warn`        | `oklch(0.82 0.145 78)`  | `oklch(0.6 0.145 62)`  | Waiting on you: permission or input requested |
+| `--ok`          | `oklch(0.765 0.15 158)` | `oklch(0.56 0.14 158)` | Finished; tool succeeded; instance healthy    |
+| `--danger-base` | `oklch(0.69 0.19 22)`   | `oklch(0.56 0.2 25)`   | Failed; adapter crashed; destructive confirm  |
 
 ### 2.5 Diff
 
@@ -117,7 +119,7 @@ reads as a status.
 
 - No categorical color palette exists. aide has no charts and no per-harness colors.
   If you need to distinguish N things, use marks, labels, or position — not hue.
-- Turn state is the only thing in a transcript that carries color (§5).
+- Status (§2.4, §5) is the only thing that carries color, everywhere in the app.
 - Never introduce a color outside this file. Extend this file instead.
 
 ---
@@ -126,16 +128,18 @@ reads as a status.
 
 ### 3.1 Faces
 
-| Face              | Where                                                                              | Never                      |
-| ----------------- | ---------------------------------------------------------------------------------- | -------------------------- |
-| **Geist**         | Everything — app body, UI, headings, labels, buttons, and the site's display type. | —                          |
-| **IBM Plex Mono** | The allowlist in §3.4 only.                                                        | Anywhere not on that list. |
+| Face           | Where                                                                              | Never                      |
+| -------------- | ---------------------------------------------------------------------------------- | -------------------------- |
+| **Geist**      | Everything — app body, UI, headings, labels, buttons, and the site's display type. | —                          |
+| **Geist Mono** | The allowlist in §3.4 only.                                                        | Anywhere not on that list. |
 
 aide uses **one typeface**, app and site alike. There is no separate heading or
 display face — hierarchy comes from weight and tracking (§3.2). Instrument Sans,
 Instrument Serif and JetBrains Mono are removed.
 
-Packages: `@fontsource-variable/geist`, `@fontsource/ibm-plex-mono` (400 and 500).
+Packages: `@fontsource-variable/geist`, `@fontsource-variable/geist-mono`. Mono is
+Geist's own sibling so the two registers share proportions and never look pasted
+together.
 
 ### 3.2 Scale
 
@@ -177,9 +181,12 @@ something: a monospaced line is machine-issued and probably copyable.
 - Inline `code` spans inside assistant output
 - Raw event payloads in the debug/inspector view
 - Design-token names and values in documentation
+- Branch names and file paths shown as identifiers (worktree chip, tool subject)
+- Numbers that tick or are compared in a column: elapsed clocks, relative times on
+  cards, costs, token counts, counters (always `tabular-nums`)
 
 **Sans — everything else**, including: section labels, badges and status tags,
-timestamps, model and agent names in the composer, sidebar items, table headers,
+model and agent names in the composer, sidebar items, table headers,
 nav, buttons, settings fields, file paths written in prose, error messages, empty
 states, window title bars.
 
@@ -242,6 +249,21 @@ identically in the sidebar dot, the message badge, and the composer.
 and the failed dot is a `--danger-base` diamond; every other state is a filled
 circle. No state depends on color alone.
 
+### 5.1 Session activity
+
+A session takes the state of its latest turn, except that a pending request always
+wins. This is what the board, the sidebar and ⌘K show (`GET /sessions`).
+
+| Activity      | Dot                 | Label     | Board lane |
+| ------------- | ------------------- | --------- | ---------- |
+| `needs_input` | hollow `--warn`     | Needs you | Needs you  |
+| `failed`      | `--danger-base` ◆   | Failed    | Needs you  |
+| `running`     | accent, radar pulse | Running   | Running    |
+| `queued`      | `--n4`              | Queued    | Running    |
+| `completed`   | `--ok`              | Done      | Recent     |
+| `interrupted` | `--n5`              | Stopped   | Recent     |
+| `idle`        | `--n4`              | New       | Recent     |
+
 **interrupted ≠ failed.** aide has explicit turn interruption in Day-0 scope, so
 users hit "interrupted" constantly. It is a deliberate user action, not an error.
 Coloring it red trains people to ignore red.
@@ -252,54 +274,60 @@ Coloring it red trains people to ignore red.
 
 ### 6.1 Radius
 
-Base `--radius: 0.375rem` (6px). Flat and printed rather than soft.
+Base `--radius: 0.5rem` (8px). Soft enough to feel like a modern tool, never bubbly.
 
-| Token          | Value | Use                                  |
-| -------------- | ----- | ------------------------------------ |
-| `--radius-sm`  | 2px   | Chips, small controls, inline badges |
-| `--radius-md`  | 3px   | Buttons, inputs                      |
-| `--radius-lg`  | 6px   | Cards, popovers, tool-call blocks    |
-| `--radius-xl`  | 10px  | Panels, modals                       |
-| `--radius-2xl` | 14px  | Large containers, window chrome      |
+| Token          | Value | Use                                            |
+| -------------- | ----- | ---------------------------------------------- |
+| `--radius-sm`  | 4px   | Inline code, tiny chips                        |
+| `--radius-md`  | 6px   | Kbd, menu rows                                 |
+| `--radius-lg`  | 8px   | Buttons, inputs, tool calls, sidebar rows      |
+| `--radius-xl`  | 12px  | Cards, popovers, the work surface              |
+| `--radius-2xl` | 16px  | Composer, modals, command palette, user bubble |
 
-Capped at 14px. `99px` (full round) is available for dots and pills only.
+Full round is for dots, pills, the send button and status chips only.
 
 ### 6.2 Elevation
 
-**Surfaces, not shadows.** On a canvas at L 0.145 a drop shadow is nearly invisible;
-a 0.04 step in lightness is not.
+Surfaces first, then a whisper of light. Each layer is a step up the ramp (§2.1);
+cards and controls add `--shadow-card`, a 1px top highlight plus a soft drop, which
+reads as a physical edge on dark without looking like a drop shadow. Floating
+layers (popovers, menus, modals, ⌘K) take `--shadow-pop`.
 
-| Surface  | Token  | Use                            |
-| -------- | ------ | ------------------------------ |
-| Canvas   | `--n0` | Page / app background          |
-| Raised   | `--n1` | Card, sidebar, composer        |
-| Floating | `--n2` | Popover, dropdown, hover state |
-| Active   | `--n3` | Focused input, pressed control |
-
-Shadows are reserved for genuinely floating layers — modals, command palette, and
-the app window itself — where they read as depth rather than decoration.
+| Layer         | Fill   | Shadow          |
+| ------------- | ------ | --------------- |
+| Frame         | `--n0` | —               |
+| Work surface  | `--n1` | `--shadow-card` |
+| Card/composer | `--n2` | `--shadow-card` |
+| Floating      | `--n2` | `--shadow-pop`  |
 
 ---
 
 ## 7. Motion
 
-| Token         | Value                        | Applies to                                         |
-| ------------- | ---------------------------- | -------------------------------------------------- |
-| `--ease`      | `cubic-bezier(0.2, 0, 0, 1)` | Everything. Fast out, long settle.                 |
-| `--dur-fast`  | 120ms                        | Hover, focus ring, chip toggle, button press       |
-| `--dur-base`  | 180ms                        | Popover, dropdown, sidebar item, tab change        |
-| `--dur-slow`  | 280ms                        | Modal, panel slide, session switch                 |
-| `--dur-pulse` | 1600ms                       | Streaming dot only. Nothing else in the app loops. |
+| Token         | Value                        | Applies to                                   |
+| ------------- | ---------------------------- | -------------------------------------------- |
+| `--ease`      | `cubic-bezier(0.2, 0, 0, 1)` | Everything. Fast out, long settle.           |
+| `--dur-fast`  | 120ms                        | Hover, focus ring, chip toggle, button press |
+| `--dur-base`  | 180ms                        | Popover, dropdown, card hover lift           |
+| `--dur-slow`  | 280ms                        | Modal, panel slide, card entrance (`rise`)   |
+| `--dur-pulse` | 1600ms                       | Live state only (below)                      |
+
+### Only live things loop
+
+Looping motion means _an agent is working right now_ and nothing else:
+
+- **Radar**: a running status dot radiates a ring outward.
+- **Scan line**: a running card sweeps a thin accent line along its top edge.
+- **Shimmer**: "Working" and loading text sweep a highlight across themselves.
+- **Spinner**: a running tool call's status icon.
+
+Waiting-on-you is deliberately static: it is the user's move, not the agent's. All
+loops stop under `prefers-reduced-motion`; the signal stays as a static fill.
 
 ### The streaming rule
 
-Streamed tokens **must never animate individually** — no per-token fade, no
-typewriter reveal, no layout shift as text arrives. Text appears instantly; only
-the caret blinks and the state dot pulses.
-
-Fading each token makes fast models look slow and makes long outputs unreadable
-while they arrive. Honor `prefers-reduced-motion` by dropping the pulse to a
-static fill.
+Streamed tokens **must never animate individually**: no per-token fade, no
+typewriter reveal, no layout shift as text arrives. Text appears instantly.
 
 ---
 
@@ -467,262 +495,28 @@ Light mode is required for docs — people link to them from anywhere.
 
 ## 11. Implementation
 
-### 11.1 `packages/ui/src/styles/globals.css`
+### 11.1 Where it lives
 
-```css
-@import "tailwindcss";
-@import "tw-animate-css";
-@import "shadcn/tailwind.css";
-@import "@fontsource-variable/geist";
-@import "@fontsource/ibm-plex-mono/400.css";
-@import "@fontsource/ibm-plex-mono/500.css";
+`packages/ui/src/styles/globals.css` is the implementation and is not duplicated
+here. Tokens are primitives (`--n*`, `--accent-*`, status, `--line*`, shadows),
+mapped once onto the shadcn contract and exposed to Tailwind through `@theme
+inline` (`bg-frame`, `bg-surface`, `shadow-card`, `shadow-pop`, `text-ui`, …).
 
-@custom-variant dark (&:is(.dark *));
-@custom-variant light (&:is(.light *));
-@source "../../../apps/**/*.{ts,tsx}";
-@source "../../../components/**/*.{ts,tsx}";
-@source "../**/*.{ts,tsx}";
+`cn()` in `packages/ui/src/lib/utils.ts` teaches tailwind-merge the type roles
+(`text-ui`, `text-small`, …). Without it a following colour class silently deletes
+the size.
 
-/* ── aide primitives ─────────────────────────────────────────
-   docs/DESIGN.md is the source of truth for every value below.
-   ThemeProvider always writes an explicit .light or .dark onto
-   <html> and defaults to "system", so :root governs only the
-   pre-hydration frame. Dark there makes that frame dark, not white. */
-:root,
-.dark {
-  --n0: oklch(0.145 0 0);
-  --n1: oklch(0.178 0 0);
-  --n2: oklch(0.209 0 0);
-  --n3: oklch(0.252 0 0);
-  --n4: oklch(0.348 0.003 107);
-  --n5: oklch(0.537 0.005 107);
-  --n6: oklch(0.715 0.004 107);
-  --n7: oklch(0.884 0.005 107);
-  --n8: oklch(0.967 0.003 106);
+### 11.2 Product surfaces
 
-  --accent-subtle: oklch(0.701 0.097 236 / 0.16);
-  --accent-dim: oklch(0.701 0.097 236 / 0.5);
-  --accent-base: oklch(0.701 0.097 236);
-  --accent-hi: oklch(0.76 0.084 235);
-  --accent-ink: oklch(0.701 0.097 236);
-  --accent-fg: oklch(0.145 0 0);
-
-  --line: oklch(1 0 0 / 0.09);
-  --line-strong: oklch(1 0 0 / 0.18);
-
-  --ok: oklch(0.702 0.143 157);
-  --warn: oklch(0.76 0.139 74);
-  --danger-base: oklch(0.626 0.193 23);
-
-  --diff-add-fg: oklch(0.799 0.126 158);
-  --diff-add-bg: oklch(0.702 0.143 157 / 0.13);
-  --diff-del-fg: oklch(0.737 0.161 20);
-  --diff-del-bg: oklch(0.626 0.193 23 / 0.13);
-
-  --ease: cubic-bezier(0.2, 0, 0, 1);
-  --dur-fast: 120ms;
-  --dur-base: 180ms;
-  --dur-slow: 280ms;
-  --dur-pulse: 1600ms;
-
-  --radius: 0.375rem;
-}
-
-/* ── shadcn contract ─────────────────────────────────────────
-   Mapped once, in terms of the primitives. Never assign a raw
-   color here — extend the primitive block instead. */
-:root,
-.dark {
-  --background: var(--n0);
-  --foreground: var(--n8);
-  --card: var(--n1);
-  --card-foreground: var(--n8);
-  --popover: var(--n2);
-  --popover-foreground: var(--n8);
-  --primary: var(--accent-base);
-  --primary-foreground: var(--accent-fg);
-  --secondary: var(--n3);
-  --secondary-foreground: var(--n8);
-  --muted: var(--n2);
-  --muted-foreground: var(--n6);
-  --accent: var(--n2);
-  --accent-foreground: var(--n8);
-  --destructive: var(--danger-base);
-  --border: var(--line);
-  --input: var(--line-strong);
-  --ring: var(--accent-hi);
-  --sidebar: var(--n1);
-  --sidebar-foreground: var(--n7);
-  --sidebar-primary: var(--accent-base);
-  --sidebar-primary-foreground: var(--accent-fg);
-  --sidebar-accent: var(--n2);
-  --sidebar-accent-foreground: var(--n8);
-  --sidebar-border: var(--line);
-  --sidebar-ring: var(--accent-hi);
-}
-
-/* ── light theme ─────────────────────────────────────────────
-   Only the primitives flip. Every shadcn-contract variable above
-   is written in terms of these, so it follows automatically. */
-.light {
-  --n0: oklch(1 0 0);
-  --n1: oklch(0.976 0.003 106);
-  --n2: oklch(0.951 0.004 106);
-  --n3: oklch(0.918 0.005 107);
-  --n4: oklch(0.834 0.008 107);
-  --n5: oklch(0.632 0.009 107);
-  --n6: oklch(0.448 0.01 107);
-  --n7: oklch(0.284 0.005 107);
-  --n8: oklch(0.145 0 0);
-
-  --accent-subtle: oklch(0.701 0.097 236 / 0.16);
-  --accent-dim: oklch(0.701 0.097 236 / 0.55);
-  --accent-base: oklch(0.701 0.097 236);
-  --accent-hi: oklch(0.647 0.097 237);
-  --accent-ink: oklch(0.518 0.095 240);
-  --accent-fg: oklch(0.145 0 0);
-
-  --line: oklch(0 0 0 / 0.1);
-  --line-strong: oklch(0 0 0 / 0.2);
-
-  --ok: oklch(0.561 0.125 156);
-  --warn: oklch(0.544 0.117 71);
-  --danger-base: oklch(0.545 0.188 24);
-
-  --diff-add-fg: oklch(0.515 0.113 156);
-  --diff-add-bg: oklch(0.561 0.125 156 / 0.11);
-  --diff-del-fg: oklch(0.501 0.17 23);
-  --diff-del-bg: oklch(0.545 0.188 24 / 0.09);
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --color-popover: var(--popover);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-destructive: var(--destructive);
-  --color-border: var(--border);
-  --color-input: var(--input);
-  --color-ring: var(--ring);
-  --color-sidebar: var(--sidebar);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-ring: var(--sidebar-ring);
-
-  /* Turn state (§5) — the only color a transcript carries. */
-  --color-ok: var(--ok);
-  --color-warn: var(--warn);
-  --color-danger: var(--danger-base);
-  --color-accent-subtle: var(--accent-subtle);
-  --color-accent-dim: var(--accent-dim);
-  --color-accent-ink: var(--accent-ink);
-
-  --color-diff-add: var(--diff-add-fg);
-  --color-diff-add-bg: var(--diff-add-bg);
-  --color-diff-del: var(--diff-del-fg);
-  --color-diff-del-bg: var(--diff-del-bg);
-
-  --radius-sm: calc(var(--radius) * 0.34); /*  2px */
-  --radius-md: calc(var(--radius) * 0.5); /*  3px */
-  --radius-lg: var(--radius); /*  6px */
-  --radius-xl: calc(var(--radius) * 1.67); /* 10px */
-  --radius-2xl: calc(var(--radius) * 2.34); /* 14px */
-
-  --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-
-  /* Type scale (§3.2). Tracking tightens as size grows; the 11px
-     uppercase label role goes the other way. */
-  --text-h1: 2.5rem;
-  --text-h1--line-height: 1.14;
-  --text-h1--letter-spacing: -0.03em;
-  --text-h1--font-weight: 600;
-  --text-h2: 1.875rem;
-  --text-h2--line-height: 1.14;
-  --text-h2--letter-spacing: -0.025em;
-  --text-h2--font-weight: 600;
-  --text-h3: 1.25rem;
-  --text-h3--line-height: 1.14;
-  --text-h3--letter-spacing: -0.02em;
-  --text-h3--font-weight: 600;
-  --text-body: 0.9375rem;
-  --text-body--line-height: 1.62;
-  --text-ui: 0.8125rem;
-  --text-small: 0.75rem;
-  --text-label: 0.6875rem;
-  --text-label--letter-spacing: 0.1em;
-  --text-label--font-weight: 600;
-  --text-mono: 0.75rem;
-  --text-mono--line-height: 1.7;
-
-  /* Streaming is the only state that animates (§5, §7). */
-  --animate-pulse-dot: pulse-dot var(--dur-pulse) var(--ease) infinite;
-
-  /* A completed turn's badge settles out; the resting case shouldn't
-     accumulate chrome (§5). */
-  --animate-badge-settle: badge-settle 4.6s var(--ease) forwards;
-
-  @keyframes badge-settle {
-    0%,
-    87% {
-      opacity: 1;
-    }
-    100% {
-      opacity: 0;
-    }
-  }
-
-  @keyframes pulse-dot {
-    0%,
-    100% {
-      opacity: 1;
-    }
-    50% {
-      opacity: 0.35;
-    }
-  }
-}
-
-@layer base {
-  * {
-    @apply border-border outline-ring/50;
-  }
-  body {
-    @apply bg-background text-foreground;
-  }
-  button:not(:disabled),
-  [role="button"]:not(:disabled) {
-    cursor: pointer;
-  }
-}
-```
-
-### 11.2 Migration checklist
-
-| #   | Step                                                                                                                                                                                                                                                            |
-| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | Swap `@fontsource-variable/outfit` → `@fontsource-variable/jetbrains-mono` in `packages/ui/package.json`.                                                                                                                                                       |
-| 2   | Restructure theme blocks to `:root, .dark` and `.light`. `theme-provider.tsx` needs **no change** — it already writes an explicit class and defaults to `"system"`, so all three of its tests keep passing. This step only fixes the white pre-hydration flash. |
-| 3   | Delete `--font-heading`. Verified zero consumers: declared at `globals.css:121`, referenced nowhere.                                                                                                                                                            |
-| 4   | Audit light-on-primary assumptions — `--primary-foreground` is now dark. Verified single consumer: `packages/ui/src/components/button.tsx:11`.                                                                                                                  |
-| 5   | Delete `--chart-1…5` and their `@theme inline` passthroughs. Verified zero consumers outside the stylesheet.                                                                                                                                                    |
-| 6   | Add a required `icon` field to the adapter capability descriptor in `packages/contracts` (§4.3).                                                                                                                                                                |
-| 7   | Collect official vendor marks into `packages/ui/src/assets/harnesses/` (§4.4).                                                                                                                                                                                  |
-| 8   | Apply §3.2 tracking rules to heading styles. Absent today.                                                                                                                                                                                                      |
+| Surface         | Where                                         | Notes                                                                                           |
+| --------------- | --------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Shell           | `apps/web/src/components/shell/app-shell.tsx` | Sidebar on the frame; session + panel on an inset work surface. Panes float below `md`.         |
+| Mission control | `apps/web/src/features/overview/`             | Start a task (project, worktree, harness, prompt → session created and sent), then three lanes. |
+| Sidebar         | `apps/web/src/components/shell/sidebar.tsx`   | Needs you, Running, then every project. Harness health in the footer.                           |
+| Command palette | `apps/web/src/components/command-palette.tsx` | ⌘K / Ctrl+K. Sessions, actions, and open-by-id for a pasted `session_…`.                        |
+| Transcript      | `apps/web/src/features/transcript/`           | User bubbles right; assistant rows under a harness avatar; a handoff divider at every switch.   |
+| Composer        | `apps/web/src/features/composer/composer.tsx` | One card; adapter controls as pills; ⌘↵ sends.                                                  |
+| Full-app demo   | `apps/web/gallery.html?app`                   | The real App over a demo workspace; no server or harness needed.                                |
 
 ---
 
@@ -731,21 +525,27 @@ Light mode is required for docs — people link to them from anywhere.
 Recorded so settled questions stay settled. Each was chosen over specific
 alternatives.
 
-| Decision            | Chosen                         | Over                                                                | Why                                                                                                                                                                                                                                |
-| ------------------- | ------------------------------ | ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Accent hue          | Sky blue `#5FA8D3`, hue 236    | Cyan-teal (200); orange `#E88C2A`; cobalt `#2F6BFF`                 | Chosen in the 2026 restyle. Light enough to carry near-black text on fills, calm next to vendor marks, and bluer than the old cyan so the change reads as a rebrand. Accent text takes a separate ink token for contrast on white. |
-| Base mode           | Dark default, light shipped    | Light-first (the shadcn default)                                    | Local developer tool that lives beside a terminal. Both reference sites are dark-only.                                                                                                                                             |
-| Neutrals            | True black and white           | Hue-250 tint at C≈0.006                                             | The restyle alternates pure black and white surfaces. A blue-tinted ramp read gray-blue next to the sky-blue accent.                                                                                                               |
-| Typeface            | Geist alone, app and site      | Instrument Sans; Bricolage Grotesque; Inter; IBM Plex Sans          | Plain, modern and built for developer tools, without Inter's ubiquity. One family everywhere keeps the site and app identical.                                                                                                     |
-| Outfit              | Removed                        | Keeping it                                                          | Geometric, wide, near-circular bowls fighting Instrument Sans's rhythm. Zero consumers.                                                                                                                                            |
-| Display face        | None; Geist 600 at large sizes | Instrument Serif italic; Petrona                                    | Serif display was tried in the 2026 restyle and rejected in favor of a sans-only system.                                                                                                                                           |
-| Mono                | IBM Plex Mono, short allowlist | Full second register ("sans for language, mono for machine output") | Mono costs width and tone across a long transcript. Restricting it makes a monospaced line _mean_ machine-issued and copyable.                                                                                                     |
-| Harness identity    | Official vendor marks, as-is   | Six aide-assigned categorical hues                                  | A vendor's mark is unambiguous and self-updating; an invented color is a mapping every user must learn and breaks when a seventh harness arrives. Using marks unmodified also removes the trademark risk, which lay in recoloring. |
-| Theme default       | `"system"`                     | Forcing dark                                                        | Respects a stated OS preference and requires no provider change or test churn.                                                                                                                                                     |
-| Name casing         | `aide`, always lowercase       | "Aide" in prose, lowercase wordmark only                            | Matches opencode's convention; one rule with no exceptions is easier to hold.                                                                                                                                                      |
-| Radius              | 6px base, capped 14px          | 8px base capped 18px                                                | Sharper corners give a flat, printed feel while pills and dots stay round.                                                                                                                                                         |
-| Elevation           | Neutral-ramp surfaces          | Drop shadows                                                        | On a canvas at L 0.145 a shadow is nearly invisible; a 0.04 lightness step is not.                                                                                                                                                 |
-| Categorical palette | None                           | `--chart-1…5`                                                       | Five samples of one blue is a sequential scale, not a categorical one. With harness color dropped, aide has no categorical need at all.                                                                                            |
+| Decision               | Chosen                         | Over                                                                | Why                                                                                                                                                                                                                                |
+| ---------------------- | ------------------------------ | ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Redesign (2026-10)     | Mission control, dark-first    | Chat-first single thread; IDE-style panes                           | Users run several agents at once and switch harness mid-task. Status across sessions and the handoff seam are the product; the home screen now shows both.                                                                         |
+| Accent saturation      | C 0.155 sky, hue 240           | The soft C 0.097 sky                                                | The soft accent made primary buttons look disabled and could not carry "live". Same hue family, so the brand reads as continuous.                                                                                                  |
+| Neutral tint           | Hue 255 at C ≈0.01             | True black and white                                                | Flat black/grey read unfinished; a faint ink tint gives depth and sits with the sky accent.                                                                                                                                        |
+| Mono face              | Geist Mono                     | IBM Plex Mono                                                       | Same proportions as Geist, so mono spans sit in a sentence without a seam.                                                                                                                                                         |
+| Radius, elevation      | 8px base; edge-light shadows   | 6px flat surfaces only                                              | Cards on a board need a tangible edge; a 1px top highlight does that on dark without decorative drop shadows.                                                                                                                      |
+| Looping motion         | All live states, not one dot   | Streaming dot only                                                  | On a board of many sessions the eye must find running work instantly. Loops stay reserved for live work, never waiting or done.                                                                                                    |
+| Accent hue             | Sky blue `#5FA8D3`, hue 236    | Cyan-teal (200); orange `#E88C2A`; cobalt `#2F6BFF`                 | Chosen in the 2026 restyle. Light enough to carry near-black text on fills, calm next to vendor marks, and bluer than the old cyan so the change reads as a rebrand. Accent text takes a separate ink token for contrast on white. |
+| Base mode              | Dark default, light shipped    | Light-first (the shadcn default)                                    | Local developer tool that lives beside a terminal. Both reference sites are dark-only.                                                                                                                                             |
+| Neutrals (superseded)  | True black and white           | Hue-250 tint at C≈0.006                                             | The restyle alternates pure black and white surfaces. A blue-tinted ramp read gray-blue next to the sky-blue accent.                                                                                                               |
+| Typeface               | Geist alone, app and site      | Instrument Sans; Bricolage Grotesque; Inter; IBM Plex Sans          | Plain, modern and built for developer tools, without Inter's ubiquity. One family everywhere keeps the site and app identical.                                                                                                     |
+| Outfit                 | Removed                        | Keeping it                                                          | Geometric, wide, near-circular bowls fighting Instrument Sans's rhythm. Zero consumers.                                                                                                                                            |
+| Display face           | None; Geist 600 at large sizes | Instrument Serif italic; Petrona                                    | Serif display was tried in the 2026 restyle and rejected in favor of a sans-only system.                                                                                                                                           |
+| Mono (face superseded) | IBM Plex Mono, short allowlist | Full second register ("sans for language, mono for machine output") | Mono costs width and tone across a long transcript. Restricting it makes a monospaced line _mean_ machine-issued and copyable.                                                                                                     |
+| Harness identity       | Official vendor marks, as-is   | Six aide-assigned categorical hues                                  | A vendor's mark is unambiguous and self-updating; an invented color is a mapping every user must learn and breaks when a seventh harness arrives. Using marks unmodified also removes the trademark risk, which lay in recoloring. |
+| Theme default          | `"system"`                     | Forcing dark                                                        | Respects a stated OS preference and requires no provider change or test churn.                                                                                                                                                     |
+| Name casing            | `aide`, always lowercase       | "Aide" in prose, lowercase wordmark only                            | Matches opencode's convention; one rule with no exceptions is easier to hold.                                                                                                                                                      |
+| Radius (superseded)    | 6px base, capped 14px          | 8px base capped 18px                                                | Sharper corners give a flat, printed feel while pills and dots stay round.                                                                                                                                                         |
+| Elevation              | Neutral-ramp surfaces          | Drop shadows                                                        | On a canvas at L 0.145 a shadow is nearly invisible; a 0.04 lightness step is not.                                                                                                                                                 |
+| Categorical palette    | None                           | `--chart-1…5`                                                       | Five samples of one blue is a sequential scale, not a categorical one. With harness color dropped, aide has no categorical need at all.                                                                                            |
 
 ### Reference audit
 

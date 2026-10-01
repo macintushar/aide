@@ -19,7 +19,7 @@ const statusDotVariants = cva("inline-block size-2 shrink-0 rounded-full", {
      * static fill rather than removing the signal.
      */
     pulse: {
-      true: "animate-pulse-dot motion-reduce:animate-none",
+      true: "relative animate-pulse-dot after:absolute after:inset-0 after:animate-radar after:rounded-full after:bg-inherit after:content-[''] motion-reduce:animate-none motion-reduce:after:hidden",
       false: "",
     },
   },

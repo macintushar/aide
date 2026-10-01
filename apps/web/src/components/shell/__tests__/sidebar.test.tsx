@@ -1,10 +1,12 @@
 import { render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { TooltipProvider } from "@workspace/ui/components/tooltip"
-import { describe, expect, it } from "vitest"
+import { sessionFixture, type SessionSummary } from "@workspace/contracts"
+import { describe, expect, it, vi } from "vitest"
 
 import { Sidebar } from "../sidebar"
 import { ThemeProvider } from "@/components/theme-provider"
+import { OverviewProvider } from "@/features/overview"
 import type { RecentSession } from "@/lib/recent-sessions"
 
 const recents: RecentSession[] = [
@@ -84,5 +86,68 @@ describe("Sidebar recents", () => {
 
     await user.hover(symbols[0]!)
     expect(await screen.findByText("OpenCode")).toBeInTheDocument()
+  })
+})
+
+describe("Sidebar with the live session overview", () => {
+  function summaries(): SessionSummary[] {
+    const base = {
+      project: { id: "proj_1", name: "aide", directory: "/code/aide" },
+      openRequests: 0,
+      turnCount: 1,
+    }
+    return [
+      {
+        ...base,
+        session: { ...sessionFixture(), id: "s_wait", title: "Needs approval" },
+        activity: "needs_input",
+        openRequests: 1,
+      },
+      {
+        ...base,
+        session: { ...sessionFixture(), id: "s_run", title: "Busy agent" },
+        activity: "running",
+      },
+      {
+        ...base,
+        session: { ...sessionFixture(), id: "s_done", title: "Finished work" },
+        activity: "completed",
+      },
+    ]
+  }
+
+  it("lifts sessions that need you or are running above the projects", async () => {
+    const onSelectSession = vi.fn()
+    render(
+      <ThemeProvider>
+        <TooltipProvider delay={0}>
+          <OverviewProvider
+            listAllSessions={async () => ({ sessions: summaries() })}
+          >
+            <Sidebar
+              view="welcome"
+              recents={[]}
+              onNewSession={() => {}}
+              onOpenSettings={() => {}}
+              onSelectSession={onSelectSession}
+            />
+          </OverviewProvider>
+        </TooltipProvider>
+      </ThemeProvider>
+    )
+
+    const needsYou = await screen.findByRole("region", { name: "Needs you" })
+    expect(within(needsYou).getByText(/Needs approval/)).toBeInTheDocument()
+    const running = screen.getByRole("region", { name: "Running" })
+    expect(within(running).getByText(/Busy agent/)).toBeInTheDocument()
+    const projects = screen.getByRole("region", { name: "Projects" })
+    expect(within(projects).getByText("Finished work")).toBeInTheDocument()
+    // The attention count rides on the Mission control entry.
+    expect(
+      screen.getByRole("button", { name: /Mission control/ })
+    ).toHaveTextContent("1")
+
+    await userEvent.click(within(running).getByRole("button"))
+    expect(onSelectSession).toHaveBeenCalledWith("s_run")
   })
 })

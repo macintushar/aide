@@ -1,0 +1,45 @@
+info:
+  name: sessions-list
+  type: http
+  seq: 9
+
+http:
+  method: GET
+  url: "{{baseUrl}}/sessions"
+  headers:
+    - name: Authorization
+      value: Bearer {{sessionToken}}
+    - name: Origin
+      value: "{{origin}}"
+
+runtime:
+  scripts:
+    - type: tests
+      code: |-
+        test("lists every session with its activity", function () {
+          expect(res.status).to.equal(200);
+          expect(res.body).to.have.property("sessions").that.is.an("array");
+          for (const summary of res.body.sessions) {
+            expect(summary).to.have.property("session");
+            expect(summary).to.have.property("project");
+            expect(summary).to.have.property("activity").that.is.a("string");
+            expect(summary).to.have.property("openRequests").that.is.a("number");
+            expect(summary).to.have.property("turnCount").that.is.a("number");
+          }
+        });
+  assertions:
+    - expression: res.status
+      operator: eq
+      value: "200"
+
+settings:
+  encodeUrl: true
+  timeout: 10000
+  followRedirects: true
+  maxRedirects: 5
+
+docs: |-
+  Lists every session across projects, newest first, with its live activity
+  (needs_input, running, queued, failed, interrupted, completed, idle), open
+  request count, latest harness and model, last message preview and cost.
+  Backs the web app's overview board.

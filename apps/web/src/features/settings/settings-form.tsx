@@ -37,8 +37,8 @@ export type SettingsFormProps = {
 }
 
 const FIELD =
-  "h-9 w-full rounded-md border border-input bg-background px-3 text-ui"
-const LABEL = "text-small font-medium text-muted-foreground"
+  "field h-9 w-full rounded-lg border border-[var(--line-strong)] bg-[var(--n0)] px-3 text-ui text-foreground outline-none transition-colors placeholder:text-[var(--n5)] focus-visible:border-[var(--accent-dim)] focus-visible:ring-3 focus-visible:ring-[var(--accent-glow)] aria-invalid:border-danger/60"
+const LABEL = "text-small font-medium text-[var(--n6)]"
 
 function IssueList({ issues }: { issues: ReturnType<typeof issuesFor> }) {
   if (issues.length === 0) return null
@@ -99,9 +99,12 @@ export function SettingsForm({
   const showIssues = submitted
 
   return (
-    <form className="flex flex-col gap-8" onSubmit={submit} noValidate>
+    <form className="flex flex-col gap-10" onSubmit={submit} noValidate>
       <section aria-labelledby="settings-instances">
-        <h2 id="settings-instances" className="text-h3">
+        <h2
+          id="settings-instances"
+          className="text-[1.0625rem] font-semibold tracking-[-0.01em]"
+        >
           Instances
         </h2>
         <p className="mt-1 text-ui text-muted-foreground">
@@ -113,9 +116,9 @@ export function SettingsForm({
           {draft.instances.map((instance, index) => (
             <fieldset
               key={index}
-              className="rounded-lg border border-border bg-card p-4"
+              className="rounded-xl border border-[var(--line)] bg-[var(--n2)] p-4 shadow-card"
             >
-              <legend className="px-1 text-ui font-medium">
+              <legend className="rounded-md bg-[var(--n3)] px-2 py-0.5 font-mono text-small font-medium">
                 {instance.displayName || instance.instanceId || "New instance"}
               </legend>
               <div className="grid gap-3 sm:grid-cols-2">
@@ -241,7 +244,10 @@ export function SettingsForm({
       </section>
 
       <section aria-labelledby="settings-mcp">
-        <h2 id="settings-mcp" className="text-h3">
+        <h2
+          id="settings-mcp"
+          className="text-[1.0625rem] font-semibold tracking-[-0.01em]"
+        >
           MCP servers
         </h2>
         <p className="mt-1 text-ui text-muted-foreground">
@@ -253,9 +259,9 @@ export function SettingsForm({
           {draft.mcpServers.map((server, index) => (
             <fieldset
               key={index}
-              className="rounded-lg border border-border bg-card p-4"
+              className="rounded-xl border border-[var(--line)] bg-[var(--n2)] p-4 shadow-card"
             >
-              <legend className="px-1 text-ui font-medium">
+              <legend className="rounded-md bg-[var(--n3)] px-2 py-0.5 font-mono text-small font-medium">
                 {server.name || "New server"}
               </legend>
               <div className="grid gap-3 sm:grid-cols-2">
@@ -387,7 +393,10 @@ export function SettingsForm({
       </section>
 
       <section aria-labelledby="settings-defaults">
-        <h2 id="settings-defaults" className="text-h3">
+        <h2
+          id="settings-defaults"
+          className="text-[1.0625rem] font-semibold tracking-[-0.01em]"
+        >
           {target.kind === "project" ? "Project defaults" : "Defaults"}
         </h2>
         <p className="mt-1 text-ui text-muted-foreground">
@@ -465,7 +474,7 @@ export function SettingsForm({
         ) : null}
       </section>
 
-      <div className="flex items-center gap-3">
+      <div className="sticky bottom-0 -mx-4 flex items-center gap-3 border-t border-[var(--line)] bg-background/85 px-4 py-3 backdrop-blur sm:-mx-8 sm:px-8">
         <Button type="submit" disabled={saving}>
           {saving ? "Saving…" : "Save settings"}
         </Button>

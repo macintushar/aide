@@ -25,12 +25,12 @@ const STATUS_LABEL: Record<InstanceRuntimeStatus, string> = {
 }
 
 const STATUS_TONE: Record<InstanceRuntimeStatus, string> = {
-  configured: "bg-muted text-muted-foreground",
-  starting: "bg-warn/15 text-warn",
-  ready: "bg-ok/15 text-ok",
-  degraded: "bg-warn/15 text-warn",
-  stopped: "bg-muted text-muted-foreground",
-  failed: "bg-destructive/15 text-destructive",
+  configured: "bg-[var(--n3)] text-muted-foreground",
+  starting: "bg-warn/12 text-warn",
+  ready: "bg-ok/12 text-ok",
+  degraded: "bg-warn/12 text-warn",
+  stopped: "bg-[var(--n3)] text-muted-foreground",
+  failed: "bg-danger/12 text-danger",
 }
 
 const AUTH_LABEL: Record<InstanceAuth["status"], string> = {
@@ -51,7 +51,7 @@ export function StatusBadge({ status }: { status: InstanceRuntimeStatus }) {
   return (
     <span
       data-testid="instance-status"
-      className={`shrink-0 rounded-full px-2 py-1 text-small font-medium ${STATUS_TONE[status]}`}
+      className={`inline-flex h-5 shrink-0 items-center rounded-full px-2 text-[0.6875rem] font-medium ${STATUS_TONE[status]}`}
     >
       {STATUS_LABEL[status]}
     </span>
@@ -86,7 +86,7 @@ export function AuthState({ auth }: { auth: InstanceAuth }) {
               className={`rounded-full px-2 py-0.5 text-small ${
                 provider.connected
                   ? "bg-ok/10 text-ok"
-                  : "bg-muted text-muted-foreground"
+                  : "bg-[var(--n3)] text-muted-foreground"
               }`}
             >
               {provider.label}
@@ -119,20 +119,21 @@ export function InstanceCard({
   return (
     <article
       aria-label={instance.displayName ?? instance.instanceId}
-      className="rounded-lg border border-border bg-card p-4 shadow-sm"
+      className="rounded-xl border border-[var(--line)] bg-[var(--n2)] p-4 shadow-card"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-2">
-          <HarnessMark
-            src={harnessMarkFor(instance.driver)}
-            name={instance.driver}
-            size={20}
-            muted={!instance.enabled}
-            decorative
-            className="mt-0.5"
-          />
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-[var(--line)] bg-[var(--n1)]">
+            <HarnessMark
+              src={harnessMarkFor(instance.driver)}
+              name={instance.driver}
+              size={18}
+              muted={!instance.enabled}
+              decorative
+            />
+          </span>
           <div className="min-w-0">
-            <h3 className="truncate text-body font-semibold">
+            <h3 className="truncate text-ui font-semibold">
               {instance.displayName ?? instance.instanceId}
             </h3>
             <p className="truncate text-small text-muted-foreground">
@@ -206,7 +207,7 @@ export function InstanceCard({
       {instance.error ? (
         <p
           role="alert"
-          className="mt-3 rounded-lg bg-destructive/10 px-3 py-2 text-small text-destructive"
+          className="mt-3 rounded-lg bg-danger/10 px-3 py-2 text-small text-danger"
         >
           {instance.error.message}
         </p>
@@ -216,7 +217,7 @@ export function InstanceCard({
         <p className="mt-3 text-small text-muted-foreground">{blocked}</p>
       ) : null}
 
-      <div className="mt-4 flex flex-wrap gap-2">
+      <div className="mt-4 flex flex-wrap gap-1.5 border-t border-[var(--line)] pt-3">
         {running ? (
           <Button
             type="button"

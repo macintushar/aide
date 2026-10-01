@@ -1,4 +1,8 @@
-import { RiArrowUpLine } from "@remixicon/react"
+import {
+  RiArrowDownSLine,
+  RiArrowUpLine,
+  RiCornerDownRightLine,
+} from "@remixicon/react"
 import type {
   ExecutionSelection,
   FileMatch,
@@ -7,6 +11,11 @@ import type {
   Invocation,
 } from "@workspace/contracts"
 import { Button } from "@workspace/ui/components/button"
+import { HarnessMark } from "@workspace/ui/components/harness-mark"
+import { Kbd } from "@workspace/ui/components/kbd"
+import { cn } from "@workspace/ui/lib/utils"
+
+import { harnessMarkFor } from "@/features/instances/harness-marks"
 import {
   useEffect,
   useId,
@@ -66,25 +75,47 @@ export type ComposerProps = {
    * project defines itself only appear there, so the `/` picker prefers it.
    */
   sessionInventory?: (instanceId: string) => Promise<HarnessInventory>
+  /** Overrides the prompt shown in the empty message field. */
+  placeholder?: string
+  autoFocus?: boolean
+  className?: string
+  /** Extra controls rendered at the start of the toolbar. */
+  toolbarStart?: React.ReactNode
 }
 
 const SEARCH_DEBOUNCE_MS = 120
 
+/**
+ * One adapter-described control as a compact pill. It stays a native select
+ * underneath: keyboard, screen readers and the OS picker all work for free.
+ */
 function ControlSelect({
   control,
   disabled,
+  leading,
   onChange,
 }: {
   control: ComposerControl
   disabled: boolean
+  leading?: React.ReactNode
   onChange: (value: string) => void
 }) {
   const id = useId()
+  const current = control.options.find((option) => option.id === control.value)
 
   return (
-    <label className="flex min-w-0 flex-col gap-1" htmlFor={id}>
-      <span className="text-[0.68rem] font-medium tracking-[0.12em] text-muted-foreground uppercase">
-        {control.label}
+    <label
+      htmlFor={id}
+      title={control.label}
+      className={cn(
+        "group/control relative inline-flex h-7 max-w-[14rem] min-w-0 items-center gap-1.5 rounded-lg pr-6 pl-2 text-ui text-[var(--n7)] transition-colors duration-[var(--dur-fast)] focus-within:ring-3 focus-within:ring-[var(--accent-glow)] hover:bg-[var(--n3)] hover:text-foreground",
+        (disabled || control.options.length === 0) && "opacity-60"
+      )}
+    >
+      <span className="sr-only">{control.label}</span>
+      {leading}
+      <span aria-hidden="true" className="min-w-0 truncate">
+        {current?.label ?? "—"}
       </span>
       <select
         id={id}
@@ -92,7 +123,7 @@ function ControlSelect({
         value={control.value ?? ""}
         disabled={disabled || control.options.length === 0}
         onChange={(event) => onChange(event.target.value)}
-        className="h-9 min-w-0 rounded-xl border border-input bg-background px-2 text-sm outline-none focus:border-ring focus:ring-3 focus:ring-ring/30 disabled:opacity-60"
+        className="absolute inset-0 cursor-pointer appearance-none opacity-0 disabled:cursor-not-allowed"
       >
         {control.value === undefined ? <option value="">—</option> : null}
         {control.options.map((option) => (
@@ -101,6 +132,10 @@ function ControlSelect({
           </option>
         ))}
       </select>
+      <RiArrowDownSLine
+        aria-hidden="true"
+        className="pointer-events-none absolute right-1.5 size-3.5 text-[var(--n5)] group-hover/control:text-[var(--n6)]"
+      />
     </label>
   )
 }
@@ -136,11 +171,11 @@ function Picker({
 
   return (
     <div
-      className="absolute inset-x-0 bottom-full z-10 mb-2 max-h-64 overflow-auto rounded-2xl border border-border bg-popover p-1 shadow-lg"
+      className="absolute inset-x-0 bottom-full z-20 mb-2 max-h-72 animate-rise overflow-auto rounded-xl border border-[var(--line-strong)] bg-popover p-1 shadow-pop"
       data-testid={`${label}-picker`}
     >
       {items.length === 0 ? (
-        <p className="px-3 py-2 text-sm text-muted-foreground">{empty}</p>
+        <p className="px-3 py-2 text-ui text-muted-foreground">{empty}</p>
       ) : (
         <ul id={id} role="listbox" aria-label={label}>
           {items.map((item, index) => (
@@ -154,20 +189,23 @@ function Picker({
                 event.preventDefault()
                 onPick(index)
               }}
-              className={`flex cursor-pointer items-baseline gap-2 rounded-xl px-3 py-1.5 text-sm ${
-                index === active ? "bg-muted" : ""
-              }`}
+              className={cn(
+                "flex cursor-pointer items-baseline gap-2 rounded-lg px-2.5 py-1.5 text-ui",
+                index === active
+                  ? "bg-accent-subtle text-foreground"
+                  : "text-[var(--n7)]"
+              )}
             >
-              <span className="max-w-[16rem] shrink-0 truncate font-medium">
+              <span className="max-w-[16rem] shrink-0 truncate font-mono text-[0.8125rem] font-medium">
                 {item.label}
               </span>
               {item.badge ? (
-                <span className="shrink-0 rounded-full bg-muted px-1.5 text-[0.68rem] text-muted-foreground">
+                <span className="shrink-0 rounded-full bg-[var(--n3)] px-1.5 text-[0.6875rem] text-muted-foreground">
                   {item.badge}
                 </span>
               ) : null}
               {item.detail ? (
-                <span className="min-w-0 truncate text-xs text-muted-foreground">
+                <span className="min-w-0 truncate text-small text-muted-foreground">
                   {item.detail}
                 </span>
               ) : null}
@@ -186,6 +224,10 @@ export function Composer({
   searchFiles,
   onSteer,
   sessionInventory,
+  placeholder,
+  autoFocus,
+  className,
+  toolbarStart,
 }: ComposerProps) {
   const [draft, setDraft] = useState<ComposerDraft>({})
   const [content, setContent] = useState("")
@@ -354,21 +396,20 @@ export function Composer({
     onSteer(trimmed)
   }
 
+  const harness = view.instance
+
   return (
-    <form className="border-t border-border pt-5" onSubmit={submit}>
+    <form className={cn("flex flex-col gap-2", className)} onSubmit={submit}>
       {view.blockedReason ? (
         <p
           role="alert"
-          className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm text-amber-700 dark:text-amber-400"
+          className="flex items-center gap-2 rounded-xl border border-warn/25 bg-warn/8 px-3 py-2 text-ui text-warn"
         >
           {view.blockedReason}
         </p>
       ) : null}
 
-      <label htmlFor={messageId} className="mt-4 block text-sm font-medium">
-        Message
-      </label>
-      <div className="relative mt-2 rounded-2xl border border-input bg-background px-4 py-3 focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/30">
+      <div className="relative rounded-2xl border border-[var(--line-strong)] bg-[var(--n2)] shadow-card transition-[border-color,box-shadow] duration-[var(--dur-base)] focus-within:border-[var(--accent-dim)] focus-within:shadow-[0_0_0_4px_var(--accent-glow)]">
         {pickerOpen && (slash !== undefined || mention) ? (
           <Picker
             id={pickerId}
@@ -385,11 +426,15 @@ export function Composer({
             }
           />
         ) : null}
+        <label htmlFor={messageId} className="sr-only">
+          Message
+        </label>
         <textarea
           ref={textareaRef}
           id={messageId}
-          rows={3}
+          rows={2}
           value={content}
+          autoFocus={autoFocus}
           disabled={disabled || view.selection === undefined}
           role="combobox"
           aria-expanded={pickerOpen}
@@ -402,8 +447,9 @@ export function Composer({
           aria-autocomplete="list"
           placeholder={
             view.selection
-              ? "Continue this session… Type / for commands and skills, @ to link a file."
-              : "Send becomes available once an instance and model are selected."
+              ? (placeholder ??
+                "Ask for a change, a fix, or a plan… / for commands, @ for files")
+              : "Pick a ready harness and model to start typing."
           }
           onChange={(event) =>
             edit(
@@ -414,58 +460,84 @@ export function Composer({
           onSelect={(event) =>
             setCaret(event.currentTarget.selectionStart ?? content.length)
           }
-          onKeyDown={onKeyDown}
-          className="block w-full resize-y bg-transparent text-sm outline-none disabled:opacity-60"
+          onKeyDown={(event) => {
+            onKeyDown(event)
+            if (event.defaultPrevented || event.nativeEvent.isComposing) return
+            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+              event.preventDefault()
+              event.currentTarget.form?.requestSubmit()
+            }
+          }}
+          className="block field-sizing-content max-h-[40vh] min-h-16 w-full resize-none bg-transparent px-4 pt-3.5 pb-1 text-body leading-relaxed text-foreground outline-none placeholder:text-[var(--n5)] disabled:cursor-not-allowed disabled:opacity-60"
         />
-        <div className="mt-3 flex flex-wrap items-end gap-3 border-t border-border pt-3">
-          <div className="flex min-w-0 flex-1 flex-wrap gap-3">
-            {view.controls.map((control) => (
-              <ControlSelect
-                key={control.id}
-                control={control}
-                disabled={disabled}
-                onChange={(value) =>
-                  setDraft((current) =>
-                    applyComposerChange(current, control.id, value)
-                  )
-                }
-              />
-            ))}
+        <div className="flex flex-wrap items-center gap-1 px-2 pt-1 pb-2">
+          {toolbarStart}
+          {view.controls.map((control) => (
+            <ControlSelect
+              key={control.id}
+              control={control}
+              disabled={disabled}
+              leading={
+                control.id === "instance" && harness ? (
+                  <HarnessMark
+                    src={harnessMarkFor(harness.driver)}
+                    name={harness.displayName ?? harness.instanceId}
+                    size={14}
+                    decorative
+                  />
+                ) : undefined
+              }
+              onChange={(value) =>
+                setDraft((current) =>
+                  applyComposerChange(current, control.id, value)
+                )
+              }
+            />
+          ))}
+          <div className="ml-auto flex items-center gap-1.5 pl-2">
+            <span className="hidden items-center gap-1 text-small text-[var(--n5)] lg:flex">
+              <Kbd>⌘</Kbd>
+              <Kbd>↵</Kbd>
+            </span>
+            {onSteer ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={!canSteer}
+                title="Send queues a new turn; steer adds this to the one running now."
+                onClick={steer}
+              >
+                <RiCornerDownRightLine
+                  data-icon="inline-start"
+                  aria-hidden="true"
+                />
+                Steer current turn
+              </Button>
+            ) : null}
+            <Button
+              type="submit"
+              size="icon"
+              aria-label="Send"
+              disabled={!canSend}
+              className="rounded-full"
+            >
+              <RiArrowUpLine aria-hidden="true" />
+            </Button>
           </div>
-          <Button
-            type="submit"
-            size="icon"
-            aria-label="Send"
-            disabled={!canSend}
-          >
-            <RiArrowUpLine aria-hidden="true" />
-          </Button>
         </div>
       </div>
       {parsed.invocation ? (
         <p
-          className="mt-1 text-xs text-muted-foreground"
+          className="px-2 text-small text-muted-foreground"
           data-testid="invocation-hint"
         >
           Runs the {parsed.invocation.kind}{" "}
-          <span className="font-mono">/{parsed.invocation.name}</span>
+          <span className="font-mono text-accent-ink">
+            /{parsed.invocation.name}
+          </span>
           {parsed.content ? " with the rest as its arguments" : ""}.
         </p>
-      ) : null}
-      {onSteer ? (
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            disabled={!canSteer}
-            onClick={steer}
-          >
-            Steer current turn
-          </Button>
-          <span className="text-xs text-muted-foreground">
-            Send queues a new turn; steer adds this to the one running now.
-          </span>
-        </div>
       ) : null}
     </form>
   )

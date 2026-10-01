@@ -5,6 +5,7 @@ import {
   harnessInventorySchema,
   projectListSchema,
   sessionListSchema,
+  sessionSummaryListSchema,
   instancesSnapshotSchema,
   projectConfigRecordSchema,
   sessionSnapshotSchema,
@@ -13,6 +14,7 @@ import {
   type HarnessInventory,
   type ProjectList,
   type SessionList,
+  type SessionSummaryList,
   type GlobalConfigRecord,
   type InstancesSnapshot,
   type ProjectConfigRecord,
@@ -100,6 +102,11 @@ export function createReadClient(options: ReadClientOptions = {}) {
       return sessionListSchema.parse(
         await get(`/projects/${encodeURIComponent(projectId)}/sessions`)
       )
+    },
+
+    /** Every session across projects, with where each one stands. */
+    async listAllSessions(): Promise<SessionSummaryList> {
+      return sessionSummaryListSchema.parse(await get("/sessions"))
     },
 
     /** One file from the session's working directory. */

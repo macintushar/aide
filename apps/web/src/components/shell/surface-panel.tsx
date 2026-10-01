@@ -27,7 +27,7 @@ export function SurfacePanel({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-border pr-2 pl-3">
+      <header className="flex h-13 shrink-0 items-center justify-between gap-2 border-b border-[var(--line)] pr-2.5 pl-4">
         {active ? (
           <>
             <div className="flex min-w-0 items-center gap-2">
@@ -35,7 +35,7 @@ export function SurfacePanel({
                 className="size-4 shrink-0 text-muted-foreground"
                 aria-hidden="true"
               />
-              <span className="truncate text-ui font-medium">
+              <span className="truncate text-ui font-semibold">
                 {active.label}
               </span>
             </div>
@@ -51,9 +51,7 @@ export function SurfacePanel({
           </>
         ) : (
           <>
-            <span className="text-label text-muted-foreground uppercase">
-              Panel
-            </span>
+            <span className="text-ui font-semibold">Panel</span>
             <IconButton
               type="button"
               variant="ghost"
@@ -69,7 +67,7 @@ export function SurfacePanel({
 
       {active ? (
         <ScrollArea className="flex-1">
-          <div className="p-3">{children}</div>
+          <div className="p-4">{children}</div>
         </ScrollArea>
       ) : (
         <SurfaceChooser onOpenSurface={onOpenSurface} />
@@ -84,8 +82,8 @@ function SurfaceChooser({
   onOpenSurface: (surface: SurfaceId) => void
 }) {
   return (
-    <div className="flex flex-1 flex-col justify-center gap-4 p-4">
-      <div className="text-center">
+    <div className="flex flex-1 flex-col gap-4 p-4">
+      <div>
         <p className="text-ui font-medium">Open a surface</p>
         <p className="mt-1 text-small text-muted-foreground">
           Choose what to show beside the session.
@@ -116,14 +114,13 @@ function SurfaceTile({
       type="button"
       disabled={!surface.available}
       onClick={onSelect}
-      className="group rounded-lg border border-border bg-card p-3 text-left transition-colors duration-[var(--dur-fast)] outline-none hover:bg-[var(--n2)] focus-visible:ring-3 focus-visible:ring-ring/30 disabled:pointer-events-none disabled:opacity-45"
+      className="group rounded-xl border border-[var(--line)] bg-[var(--n2)] p-3.5 text-left shadow-card transition-colors duration-[var(--dur-fast)] outline-none hover:border-[var(--line-strong)] hover:bg-[var(--n3)] focus-visible:ring-3 focus-visible:ring-[var(--accent-glow)] disabled:pointer-events-none disabled:opacity-45"
     >
       <div className="flex items-start justify-between gap-2">
         <span className="flex items-center gap-2 text-ui font-medium">
-          <surface.icon
-            className="size-4 text-muted-foreground"
-            aria-hidden="true"
-          />
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-[var(--n3)] text-[var(--n6)] group-hover:text-accent-ink">
+            <surface.icon className="size-4" aria-hidden="true" />
+          </span>
           <span className="flex flex-col gap-1">
             <span>{surface.label}</span>
             <span className="text-small font-normal text-muted-foreground">

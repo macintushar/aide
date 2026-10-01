@@ -196,6 +196,7 @@ export function createAideTestApp(options: CoreIntegrationOptions) {
     app.use("/commands/*", sessionGuard)
     app.use("/config", sessionGuard)
     app.use("/projects/:projectId/config", sessionGuard)
+    app.use("/sessions", sessionGuard)
     app.use("/sessions/:id/files", sessionGuard)
     app.use("/sessions/:id/file", sessionGuard)
     app.use("/sessions/:id/inventory", sessionGuard)

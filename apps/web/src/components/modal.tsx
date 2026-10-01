@@ -35,7 +35,7 @@ export function Modal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-[2px]"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose()
       }}
@@ -46,12 +46,12 @@ export function Modal({
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className={`flex max-h-[85vh] w-full flex-col rounded-2xl border border-border bg-background shadow-xl outline-none ${
+        className={`flex max-h-[85vh] w-full animate-rise flex-col overflow-hidden rounded-2xl border border-[var(--line-strong)] bg-[var(--n2)] shadow-pop outline-none ${
           wide ? "max-w-4xl" : "max-w-md"
         }`}
       >
-        <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-2.5">
-          <h2 id={titleId} className="truncate text-ui font-medium">
+        <div className="flex items-center justify-between gap-2 border-b border-[var(--line)] py-2.5 pr-2.5 pl-5">
+          <h2 id={titleId} className="truncate text-ui font-semibold">
             {title}
           </h2>
           <IconButton
@@ -64,7 +64,7 @@ export function Modal({
             <RiCloseLine aria-hidden="true" />
           </IconButton>
         </div>
-        <div className="min-h-0 overflow-auto p-4">{children}</div>
+        <div className="min-h-0 overflow-auto p-5">{children}</div>
       </div>
     </div>
   )

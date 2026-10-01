@@ -372,3 +372,55 @@ describe("Transcript failed turns", () => {
     )
   })
 })
+
+describe("Transcript handoffs", () => {
+  function userOn(
+    id: string,
+    seq: number,
+    instanceId: string,
+    instanceName: string,
+    modelId = "gpt-5"
+  ) {
+    const message = userMessageFixture()
+    message.id = id
+    message.seq = seq
+    message.parts = message.parts.map((part) => ({ ...part, messageId: id }))
+    message.execution.selection.instanceId = instanceId
+    message.execution.selection.model.modelId = modelId
+    message.execution.display.instanceName = instanceName
+    message.execution.display.modelName = modelId
+    return message
+  }
+
+  it("marks the seam where the conversation moves to another harness", () => {
+    render(
+      <Transcript
+        messages={[
+          userOn("m1", 0, "opencode", "OpenCode"),
+          userOn("m2", 1, "opencode", "OpenCode"),
+          userOn("m3", 2, "claude", "Claude Code", "opus-5"),
+        ]}
+      />
+    )
+
+    const seams = screen.getAllByTestId("handoff")
+    expect(seams).toHaveLength(1)
+    expect(seams[0]).toHaveAccessibleName("Continued with Claude Code · opus-5")
+    expect(seams[0]).toHaveTextContent("Handed off to Claude Code")
+  })
+
+  it("calls a model change on the same harness a model switch", () => {
+    render(
+      <Transcript
+        messages={[
+          userOn("m1", 0, "claude", "Claude Code", "sonnet-5"),
+          userOn("m2", 1, "claude", "Claude Code", "opus-5"),
+        ]}
+      />
+    )
+
+    expect(screen.getByTestId("handoff")).toHaveTextContent(
+      "Switched model to opus-5"
+    )
+  })
+})

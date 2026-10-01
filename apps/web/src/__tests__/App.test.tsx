@@ -76,3 +76,27 @@ describe("App", () => {
     ).toBeInTheDocument()
   })
 })
+
+describe("App command palette", () => {
+  beforeEach(() => {
+    localStorage.clear()
+    window.location.hash = ""
+  })
+
+  it("opens on Ctrl+K and jumps to settings", async () => {
+    const user = userEvent.setup()
+    renderApp()
+
+    await user.keyboard("{Control>}k{/Control}")
+    const search = screen.getByRole("combobox", {
+      name: "Search sessions and actions",
+    })
+    await user.type(search, "settings")
+    await user.keyboard("{Enter}")
+
+    expect(
+      await screen.findByRole("button", { name: "Save settings" })
+    ).toBeInTheDocument()
+    expect(screen.queryByRole("dialog", { name: "Command palette" })).toBeNull()
+  })
+})

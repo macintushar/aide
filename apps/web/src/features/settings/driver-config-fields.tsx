@@ -84,8 +84,8 @@ export const DRIVER_CONFIG_FIELDS: Record<DriverId, FieldSpec[]> = {
 }
 
 const FIELD =
-  "h-9 w-full rounded-md border border-input bg-background px-3 text-ui"
-const LABEL = "text-small font-medium text-muted-foreground"
+  "field h-9 w-full rounded-lg border border-[var(--line-strong)] bg-[var(--n0)] px-3 text-ui text-foreground outline-none transition-colors placeholder:text-[var(--n5)] focus-visible:border-[var(--accent-dim)] focus-visible:ring-3 focus-visible:ring-[var(--accent-glow)] aria-invalid:border-danger/60"
+const LABEL = "text-small font-medium text-[var(--n6)]"
 
 export function DriverConfigFields({
   driver,
@@ -201,7 +201,7 @@ function EnvField({
         <textarea
           rows={3}
           aria-describedby={field.hint ? hintId : undefined}
-          className="w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-ui"
+          className="field w-full rounded-lg border border-[var(--line-strong)] bg-[var(--n0)] px-3 py-2 font-mono text-small outline-none focus-visible:border-[var(--accent-dim)] focus-visible:ring-3 focus-visible:ring-[var(--accent-glow)]"
           placeholder={field.placeholder}
           value={text}
           onChange={(event) => {

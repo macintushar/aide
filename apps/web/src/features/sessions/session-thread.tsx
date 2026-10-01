@@ -78,7 +78,7 @@ export function SessionThread() {
     ) : (
       <p
         role="status"
-        className="flex flex-1 items-center justify-center text-ui text-muted-foreground"
+        className="text-shimmer flex flex-1 items-center justify-center text-ui"
       >
         Loading session…
       </p>
@@ -210,7 +210,7 @@ export function SessionThread() {
           />
         ) : null}
         <ScrollArea className="flex-1" viewportRef={viewportRef}>
-          <div className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-6">
+          <div className="mx-auto flex max-w-3xl flex-col gap-8 px-4 pt-8 pb-10 sm:px-6">
             {state.messages.length > 0 ? (
               <Transcript
                 messages={state.messages}
@@ -225,7 +225,8 @@ export function SessionThread() {
               <EmptyState
                 icon={<RiQuestionAnswerLine />}
                 title="No messages yet"
-                description="Send the first message to start this session."
+                description="Send the first message below. You can switch harness or model on any later message."
+                className="py-24"
               />
             )}
 
@@ -244,8 +245,9 @@ export function SessionThread() {
               >
                 <h2
                   id="requests-heading"
-                  className="text-label text-warn uppercase"
+                  className="flex items-center gap-2 text-small font-medium text-warn"
                 >
+                  <span className="size-1.5 rounded-full bg-warn" />
                   Waiting on you
                 </h2>
                 {openRequests.map((request) => (
@@ -260,62 +262,59 @@ export function SessionThread() {
               </section>
             ) : null}
 
-            {typingNow ? (
-              <div className="flex flex-col gap-2">
-                <span className="text-label text-muted-foreground uppercase">
-                  Assistant
-                </span>
-                <TypingIndicator />
-              </div>
-            ) : null}
+            {typingNow ? <TypingIndicator /> : null}
           </div>
         </ScrollArea>
 
-        <div className="mx-auto w-full max-w-3xl px-4">
+        <div className="relative mx-auto w-full max-w-3xl px-3 pb-3 sm:px-6 sm:pb-5">
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-x-0 -top-8 h-8 bg-gradient-to-t from-background to-transparent"
+          />
           {streamError ? (
-            <p role="status" className="text-small text-warn">
+            <p role="status" className="mb-2 px-2 text-small text-warn">
               Live updates interrupted. Reconnecting…
             </p>
           ) : null}
           {commandError ? (
-            <p role="alert" className="text-small text-destructive">
+            <p role="alert" className="mb-2 px-2 text-small text-danger">
               Unable to complete that action: {commandError}. Try again.
             </p>
           ) : null}
-        </div>
 
-        <Composer
-          sources={{
-            instances: instancesState.instances,
-            ...(execution ? { lastSent: execution.selection } : {}),
-          }}
-          disabled={pending}
-          {...(searchFiles ? { searchFiles } : {})}
-          {...(sessionInventory ? { sessionInventory } : {})}
-          onSend={({ content, execution: selection, invocation }) => {
-            void send({
-              name: "turn.send",
-              commandId: newCommandId(),
-              sessionId,
-              content,
-              execution: selection,
-              ...(invocation ? { invocation } : {}),
-            })
-          }}
-          {...(canSteer && runningTurn
-            ? {
-                onSteer: (content: string) => {
-                  void send({
-                    name: "turn.steer",
-                    commandId: newCommandId(),
-                    sessionId,
-                    turnId: runningTurn.id,
-                    content,
-                  })
-                },
-              }
-            : {})}
-        />
+          <Composer
+            sources={{
+              instances: instancesState.instances,
+              ...(execution ? { lastSent: execution.selection } : {}),
+            }}
+            disabled={pending}
+            {...(searchFiles ? { searchFiles } : {})}
+            {...(sessionInventory ? { sessionInventory } : {})}
+            onSend={({ content, execution: selection, invocation }) => {
+              void send({
+                name: "turn.send",
+                commandId: newCommandId(),
+                sessionId,
+                content,
+                execution: selection,
+                ...(invocation ? { invocation } : {}),
+              })
+            }}
+            {...(canSteer && runningTurn
+              ? {
+                  onSteer: (content: string) => {
+                    void send({
+                      name: "turn.steer",
+                      commandId: newCommandId(),
+                      sessionId,
+                      turnId: runningTurn.id,
+                      content,
+                    })
+                  },
+                }
+              : {})}
+          />
+        </div>
       </div>
     </TranscriptActionsProvider>
   )

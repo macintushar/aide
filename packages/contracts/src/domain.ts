@@ -452,6 +452,60 @@ export const sessionListSchema = z.object({
 
 export type SessionList = z.infer<typeof sessionListSchema>
 
+/**
+ * Where a session stands right now, for an overview of every session:
+ * `needs_input` while a request waits on the user, `running` or `queued`
+ * while a turn is open, otherwise how its latest turn ended (`idle` before
+ * any turn).
+ */
+export const sessionActivitySchema = z.enum([
+  "needs_input",
+  "running",
+  "queued",
+  "failed",
+  "interrupted",
+  "completed",
+  "idle",
+])
+
+export type SessionActivity = z.infer<typeof sessionActivitySchema>
+
+/** One session with enough state to render it on an overview board. */
+export const sessionSummarySchema = z.object({
+  session: sessionSchema,
+  project: projectSchema.pick({ id: true, name: true, directory: true }),
+  activity: sessionActivitySchema,
+  openRequests: z.number().int().nonnegative(),
+  turnCount: z.number().int().nonnegative(),
+  /** The latest turn's harness, model and driver. */
+  latestExecution: z
+    .object({
+      driver: driverIdSchema,
+      instanceName: z.string().min(1),
+      modelName: z.string().min(1),
+    })
+    .optional(),
+  /** The latest message's first text, capped for previews. */
+  lastMessage: z
+    .object({
+      role: z.enum(["user", "assistant"]),
+      text: z.string(),
+    })
+    .optional(),
+  /** When the open turn started, if one is running. */
+  runningSince: timestampSchema.optional(),
+  /** Summed over every assistant message that reported a cost. */
+  costUsd: z.number().optional(),
+})
+
+export type SessionSummary = z.infer<typeof sessionSummarySchema>
+
+export const sessionSummaryListSchema = z.object({
+  sessions: z.array(sessionSummarySchema),
+})
+
+export type SessionSummaryList = z.infer<typeof sessionSummaryListSchema>
+
 /** One file from a session's working directory, for previewing a link. */
 export const filePreviewSchema = z.object({
   path: z.string().min(1),

@@ -54,8 +54,18 @@ function persist(state: WorkspaceState, storage: Storage = localStorage) {
   }
 }
 
+/** Below `md` the side panes float over the work, so they start closed. */
+export function isNarrowViewport(): boolean {
+  return window.matchMedia?.("(max-width: 767px)").matches ?? false
+}
+
 export function useWorkspaceState() {
-  const [state, setState] = useState<WorkspaceState>(() => readWorkspaceState())
+  const [state, setState] = useState<WorkspaceState>(() => {
+    const stored = readWorkspaceState()
+    return isNarrowViewport()
+      ? { ...stored, sidebarOpen: false, panelOpen: false }
+      : stored
+  })
 
   useEffect(() => {
     persist(state)
@@ -63,6 +73,14 @@ export function useWorkspaceState() {
 
   const toggleSidebar = useCallback(() => {
     setState((current) => ({ ...current, sidebarOpen: !current.sidebarOpen }))
+  }, [])
+
+  /** Closes the sidebar only where it covers the work (narrow screens). */
+  const dismissFloatingSidebar = useCallback(() => {
+    if (!isNarrowViewport()) return
+    setState((current) =>
+      current.sidebarOpen ? { ...current, sidebarOpen: false } : current
+    )
   }, [])
 
   const togglePanel = useCallback(() => {
@@ -107,5 +125,12 @@ export function useWorkspaceState() {
     return () => window.removeEventListener("keydown", handleKeyDown)
   }, [openSurface, state.panelOpen, togglePanel, toggleSidebar])
 
-  return { ...state, toggleSidebar, togglePanel, openSurface, closeSurface }
+  return {
+    ...state,
+    toggleSidebar,
+    togglePanel,
+    openSurface,
+    closeSurface,
+    dismissFloatingSidebar,
+  }
 }
