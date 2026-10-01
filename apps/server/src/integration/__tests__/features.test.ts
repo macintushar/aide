@@ -8,7 +8,9 @@ import type {
   CommandReceipt,
   ExecutionSelection,
   FileSearchResult,
+  SessionSummaryList,
 } from "@workspace/contracts"
+import { sessionSummaryListSchema } from "@workspace/contracts"
 import { afterAll, afterEach, describe, expect, it } from "vitest"
 
 import { artifactsRepo, eventLogRepo, nativeMappingsRepo } from "../../db"
@@ -588,6 +590,64 @@ describe("browsing, previews, compaction and subagents", () => {
         .sort()
     ).toEqual(["One", "Two"])
     expect((await subject.app.request("/projects")).status).toBe(401)
+  })
+
+  it("summarizes every session with where it stands", async () => {
+    const directory = await gitRepo()
+    const subject = await boot({ directory })
+    await subject.command("session.create", {
+      projectId: subject.project.id,
+      title: "Idle",
+    })
+    const done = (
+      await subject.command("session.create", {
+        projectId: subject.project.id,
+        title: "Done",
+      })
+    ).result as { id: string }
+    await subject.completeTurn(done.id, "finish this")
+    const waiting = (
+      await subject.command("session.create", {
+        projectId: subject.project.id,
+        title: "Waiting",
+      })
+    ).result as { id: string }
+    await subject.command("turn.send", {
+      sessionId: waiting.id,
+      content: "ask me first",
+      execution: selection,
+    })
+    await waitFor(() =>
+      subject.snapshot(waiting.id).requests.find((r) => r.status === "open")
+    )
+
+    const response = await subject.app.request("/sessions", {
+      headers: subject.headers,
+    })
+    const { sessions } = (await response.json()) as SessionSummaryList
+    const byTitle = new Map(sessions.map((s) => [s.session.title, s]))
+
+    expect(byTitle.get("Idle")).toMatchObject({
+      activity: "idle",
+      openRequests: 0,
+      turnCount: 0,
+      project: { id: subject.project.id },
+    })
+    expect(byTitle.get("Idle")?.latestExecution).toBeUndefined()
+    expect(byTitle.get("Done")).toMatchObject({
+      activity: "completed",
+      turnCount: 1,
+      latestExecution: { driver: selection.driver, modelName: expect.any(String) },
+      costUsd: 0.0042,
+    })
+    expect(byTitle.get("Waiting")).toMatchObject({
+      activity: "needs_input",
+      openRequests: 1,
+      lastMessage: { role: "user", text: "ask me first" },
+      runningSince: expect.any(String),
+    })
+    expect(sessionSummaryListSchema.parse({ sessions })).toBeTruthy()
+    expect((await subject.app.request("/sessions")).status).toBe(401)
   })
 
   it("previews a file inside the working directory and refuses one outside", async () => {

@@ -5,6 +5,7 @@ import type {
   FileSearchResult,
   ProjectList,
   SessionList,
+  SessionSummaryList,
 } from "@workspace/contracts"
 
 import type { AideDb } from "../db"
@@ -14,6 +15,7 @@ import type { ExecutionResolver } from "../services/execution"
 import { sessionDirectory } from "../services/project"
 import { WorkspaceError } from "./errors"
 import { searchFiles } from "./files"
+import { summarizeSession } from "./summaries"
 import { resolveRealWithinBoundary } from "./paths"
 
 const MAX_LIMIT = 100
@@ -61,6 +63,19 @@ export function createWorkspaceRouter({
     const result: SessionList = {
       sessions: sessionsRepo.listByProject(db, projectId),
     }
+    return c.json(result)
+  })
+
+  router.get("/sessions", (c) => {
+    const sessions = projectsRepo
+      .list(db)
+      .flatMap((project) =>
+        sessionsRepo
+          .listByProject(db, project.id)
+          .map((session) => summarizeSession(db, session, project))
+      )
+      .sort((a, b) => b.session.updatedAt.localeCompare(a.session.updatedAt))
+    const result: SessionSummaryList = { sessions }
     return c.json(result)
   })
 
