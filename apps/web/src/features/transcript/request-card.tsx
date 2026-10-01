@@ -3,19 +3,55 @@ import type {
   PermissionResolution,
   Request,
 } from "@workspace/contracts"
+import {
+  RiCheckboxCircleLine,
+  RiQuestionLine,
+  RiShieldKeyholeLine,
+} from "@remixicon/react"
 import { Button } from "@workspace/ui/components/button"
 import { useState, type FormEvent } from "react"
 
 type RequestResolution = InputResolution | PermissionResolution
+
+const CARD =
+  "rounded-xl border border-warn/30 bg-[linear-gradient(180deg,color-mix(in_oklch,var(--warn)_6%,var(--n2)),var(--n2)_45%)] p-4 shadow-card"
+
+function CardHeading({
+  icon,
+  eyebrow,
+  children,
+}: {
+  icon: React.ReactNode
+  eyebrow: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className="flex items-start gap-3">
+      <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-warn/12 text-warn [&_svg]:size-4">
+        {icon}
+      </span>
+      <div className="min-w-0">
+        <p className="text-small font-medium text-warn">{eyebrow}</p>
+        <h3 className="text-body font-semibold text-foreground">{children}</h3>
+      </div>
+    </div>
+  )
+}
 
 function ResolvedRequest({ request }: { request: Request }) {
   const title =
     request.kind === "permission" ? request.payload.title : "Input requested"
 
   return (
-    <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-3">
-      <span className="truncate text-ui font-medium">{title}</span>
-      <span className="shrink-0 rounded-full bg-muted px-2 py-1 text-small font-medium text-muted-foreground capitalize">
+    <div className="flex items-center justify-between gap-3 rounded-lg border border-[var(--line)] bg-[var(--n2)] px-3.5 py-2.5">
+      <span className="flex min-w-0 items-center gap-2 text-ui text-[var(--n6)]">
+        <RiCheckboxCircleLine
+          className="size-4 shrink-0 text-[var(--n5)]"
+          aria-hidden="true"
+        />
+        <span className="truncate">{title}</span>
+      </span>
+      <span className="shrink-0 rounded-full bg-[var(--n3)] px-2 py-0.5 text-small font-medium text-muted-foreground capitalize">
         {request.status}
       </span>
     </div>
@@ -30,42 +66,44 @@ function PermissionCard({
   onResolve: (resolution: RequestResolution) => void
 }) {
   return (
-    <section className="rounded-lg border border-border bg-card p-4 shadow-sm">
-      <p className="text-label text-muted-foreground uppercase">
-        {request.payload.toolName} permission
-      </p>
-      <h3 className="mt-1 text-body font-semibold">{request.payload.title}</h3>
+    <section className={CARD}>
+      <CardHeading
+        icon={<RiShieldKeyholeLine aria-hidden="true" />}
+        eyebrow={`${request.payload.toolName} permission`}
+      >
+        {request.payload.title}
+      </CardHeading>
       {request.payload.detail ? (
-        <p className="mt-1 text-ui text-muted-foreground">
+        <p className="mt-2 rounded-md bg-[var(--n0)] px-2.5 py-1.5 font-mono text-mono break-all text-[var(--n7)]">
           {request.payload.detail}
         </p>
       ) : null}
       {request.payload.boundary ? (
         <div
           data-testid="permission-boundary"
-          className="mt-3 rounded-xl border border-destructive/40 bg-destructive/5 p-3"
+          className="mt-3 rounded-lg border border-danger/35 bg-danger/8 p-3"
         >
-          <p className="text-sm font-medium text-destructive">
+          <p className="text-ui font-medium text-danger">
             This reaches outside the project
           </p>
           <ul className="mt-1 flex flex-col gap-0.5">
             {request.payload.boundary.outsidePaths.map((path) => (
-              <li key={path} className="font-mono text-xs break-all">
+              <li key={path} className="font-mono text-mono break-all">
                 {path}
               </li>
             ))}
           </ul>
-          <p className="mt-1 text-xs text-muted-foreground">
+          <p className="mt-1 text-small text-muted-foreground">
             Project: {request.payload.boundary.projectDirectory}
           </p>
         </div>
       ) : null}
       {request.payload.diff ? (
-        <pre className="mt-3 max-h-40 overflow-auto rounded-lg bg-muted p-3 font-mono text-mono whitespace-pre-wrap">
+        <pre className="mt-3 max-h-48 overflow-auto rounded-md border border-[var(--line)] bg-[var(--n0)] p-3 font-mono text-mono whitespace-pre-wrap text-[var(--n7)]">
           {request.payload.diff}
         </pre>
       ) : null}
-      <div className="mt-4 flex flex-wrap gap-2">
+      <div className="mt-4 flex flex-wrap gap-2 border-t border-warn/15 pt-3.5">
         {request.payload.options.map((option) => (
           <Button
             key={option.id}
@@ -133,17 +171,17 @@ function InputCard({
   }
 
   return (
-    <form
-      className="rounded-lg border border-border bg-card p-4 shadow-sm"
-      onSubmit={submit}
-    >
-      <p className="text-label text-muted-foreground uppercase">
+    <form className={CARD} onSubmit={submit}>
+      <CardHeading
+        icon={<RiQuestionLine aria-hidden="true" />}
+        eyebrow="The agent is asking"
+      >
         Input requested
-      </p>
-      <div className="mt-3 flex flex-col gap-5">
+      </CardHeading>
+      <div className="mt-4 flex flex-col gap-5">
         {request.payload.questions.map((question) => (
           <fieldset key={question.id} className="flex flex-col gap-2">
-            <legend className="text-ui font-medium">
+            <legend className="mb-1 text-ui font-medium">
               {question.header ?? question.prompt}
             </legend>
             {question.header ? (
@@ -152,7 +190,7 @@ function InputCard({
             {question.options?.map((option) => (
               <label
                 key={option.id}
-                className="flex items-center gap-2 text-ui"
+                className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-[var(--line)] bg-[var(--n1)] px-3 py-2 text-ui transition-colors hover:border-[var(--line-strong)] has-checked:border-[var(--accent-dim)] has-checked:bg-accent-subtle"
               >
                 <input
                   type={question.allowMultiple ? "checkbox" : "radio"}
@@ -178,7 +216,7 @@ function InputCard({
                       [question.id]: event.target.value,
                     }))
                   }
-                  className="resize-y rounded-md border border-input bg-background px-3 py-2 text-ui"
+                  className="resize-y rounded-lg border border-[var(--line-strong)] bg-[var(--n0)] px-3 py-2 text-ui outline-none focus-visible:border-[var(--accent-dim)] focus-visible:ring-3 focus-visible:ring-[var(--accent-glow)]"
                 />
               ) : (
                 <input
@@ -191,7 +229,7 @@ function InputCard({
                       [question.id]: event.target.value,
                     }))
                   }
-                  className="h-9 rounded-md border border-input bg-background px-3 text-ui"
+                  className="h-9 rounded-lg border border-[var(--line-strong)] bg-[var(--n0)] px-3 text-ui outline-none focus-visible:border-[var(--accent-dim)] focus-visible:ring-3 focus-visible:ring-[var(--accent-glow)]"
                 />
               )
             ) : null}

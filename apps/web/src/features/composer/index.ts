@@ -1,4 +1,8 @@
-export { Composer, type ComposerProps } from "./composer"
+export {
+  Composer,
+  type ComposerProps,
+  type ComposerSendInput,
+} from "./composer"
 export {
   applyComposerChange,
   COMPOSER_CONTROL_IDS,

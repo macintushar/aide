@@ -10,16 +10,21 @@ export function TypingIndicator({ className }: { className?: string }) {
     <p
       role="status"
       aria-label="Assistant is typing"
-      className={cn("flex items-center gap-1.5 py-1", className)}
+      className={cn("flex items-center gap-2.5 py-1 sm:pl-9.5", className)}
     >
-      {[0, 1, 2].map((dot) => (
-        <span
-          key={dot}
-          aria-hidden="true"
-          className="size-1.5 animate-pulse-dot rounded-full bg-[var(--n5)] motion-reduce:animate-none"
-          style={{ animationDelay: `${dot * 180}ms` }}
-        />
-      ))}
+      <span className="flex items-center gap-1">
+        {[0, 1, 2].map((dot) => (
+          <span
+            key={dot}
+            aria-hidden="true"
+            className="size-1.5 animate-pulse-dot rounded-full bg-accent-base motion-reduce:animate-none"
+            style={{ animationDelay: `${dot * 180}ms` }}
+          />
+        ))}
+      </span>
+      <span aria-hidden="true" className="text-shimmer text-small">
+        Working
+      </span>
     </p>
   )
 }

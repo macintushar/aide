@@ -27,7 +27,7 @@ function TabsTab({ className, ...props }: TabsPrimitive.Tab.Props) {
     <TabsPrimitive.Tab
       data-slot="tabs-tab"
       className={cn(
-        "inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-ui text-muted-foreground transition-colors duration-[var(--dur-fast)] outline-none select-none hover:bg-[var(--n2)] hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/30 data-[selected]:bg-[var(--n3)] data-[selected]:text-foreground data-[selected]:shadow-[inset_0_0_0_1px_var(--line-strong)] [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        "inline-flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-ui text-muted-foreground transition-colors duration-[var(--dur-fast)] outline-none select-none hover:bg-[var(--n2)] hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/30 data-[selected]:bg-[var(--n3)] data-[selected]:text-foreground data-[selected]:shadow-card [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         className
       )}
       {...props}

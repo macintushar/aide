@@ -51,17 +51,19 @@ export function SessionActivity() {
       {total ? (
         <p
           data-testid="session-usage"
-          className="rounded-lg bg-muted/50 px-2.5 py-2 text-small text-muted-foreground"
+          className="flex flex-col gap-0.5 rounded-xl border border-[var(--line)] bg-[var(--n2)] px-3.5 py-3 text-small text-muted-foreground"
         >
           <span className="font-medium text-foreground">Session usage</span>{" "}
-          {formatUsage(total)}
+          <span className="font-mono text-[0.6875rem]">
+            {formatUsage(total)}
+          </span>
         </p>
       ) : null}
-      <ol className="flex flex-col gap-2">
+      <ol className="relative flex flex-col gap-2 before:absolute before:top-3 before:bottom-3 before:left-[0.6875rem] before:w-px before:bg-[var(--line-strong)]">
         {turns.map((turn) => (
           <li
             key={turn.id}
-            className="rounded-lg border border-border bg-card p-2.5"
+            className="relative ml-6 rounded-xl border border-[var(--line)] bg-[var(--n2)] px-3 py-2.5 before:absolute before:top-4 before:-left-[1.0625rem] before:size-2 before:rounded-full before:bg-[var(--n4)] before:ring-4 before:ring-[var(--n1)]"
           >
             <div className="flex items-center justify-between gap-2">
               <span className="truncate text-ui font-medium">
@@ -71,17 +73,17 @@ export function SessionActivity() {
                 state={turnDisplayState(turn, session.state.requests)}
               />
             </div>
-            <p className="mt-1 truncate text-small text-muted-foreground">
+            <p className="mt-0.5 truncate text-small text-muted-foreground">
               {turn.execution.display.modelName}
               {turn.startedAt ? ` · ${formatTime(turn.startedAt)}` : null}
             </p>
             {usageByTurn.has(turn.id) ? (
-              <p className="mt-1 text-small text-muted-foreground">
+              <p className="mt-1 font-mono text-[0.6875rem] text-[var(--n5)]">
                 {formatUsage(usageByTurn.get(turn.id)!)}
               </p>
             ) : null}
             {turn.error ? (
-              <p className="mt-2 rounded-md bg-danger/10 px-2 py-1 text-small text-danger">
+              <p className="mt-2 rounded-lg bg-danger/10 px-2.5 py-1.5 text-small text-danger">
                 {turn.error.message}
               </p>
             ) : null}

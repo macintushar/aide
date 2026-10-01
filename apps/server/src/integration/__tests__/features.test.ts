@@ -637,7 +637,10 @@ describe("browsing, previews, compaction and subagents", () => {
     expect(byTitle.get("Done")).toMatchObject({
       activity: "completed",
       turnCount: 1,
-      latestExecution: { driver: selection.driver, modelName: expect.any(String) },
+      latestExecution: {
+        driver: selection.driver,
+        modelName: expect.any(String),
+      },
       costUsd: 0.0042,
     })
     expect(byTitle.get("Waiting")).toMatchObject({

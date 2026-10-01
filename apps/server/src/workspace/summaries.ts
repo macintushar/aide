@@ -30,14 +30,20 @@ export function summarizeSession(
     }
   }
 
-  const lastMessage = [...messages].reverse().find((message) =>
-    message.parts.some((part) => part.type === "text" && part.text.trim())
-  )
+  const lastMessage = [...messages]
+    .reverse()
+    .find((message) =>
+      message.parts.some((part) => part.type === "text" && part.text.trim())
+    )
   const lastText = lastMessage?.parts.find((part) => part.type === "text")
 
   return {
     session,
-    project: { id: project.id, name: project.name, directory: project.directory },
+    project: {
+      id: project.id,
+      name: project.name,
+      directory: project.directory,
+    },
     activity: activityOf(turns, openRequests),
     openRequests,
     turnCount: turns.length,

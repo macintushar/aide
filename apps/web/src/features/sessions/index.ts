@@ -1,4 +1,3 @@
-export { SessionNavigation } from "./session-navigation"
 export {
   SessionProvider,
   useRequiredSession,
@@ -8,7 +7,12 @@ export {
 } from "./session-provider"
 export { SessionThread } from "./session-thread"
 export { SessionActivity } from "./session-activity"
-export { SessionActions, SessionProject, SessionTitle } from "./session-summary"
+export {
+  SessionActions,
+  SessionProject,
+  SessionStatus,
+  SessionTitle,
+} from "./session-summary"
 export {
   latestExecution,
   latestTurn,

@@ -135,6 +135,11 @@ export function useInstances(): InstancesContextValue {
   return instances
 }
 
+/** The instances context where one may be absent (isolated renders). */
+export function useOptionalInstances(): InstancesContextValue | undefined {
+  return useContext(InstancesContext) ?? undefined
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Unknown error"
 }

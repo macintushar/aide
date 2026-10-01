@@ -16,7 +16,7 @@ function SelectTrigger({
     <SelectPrimitive.Trigger
       data-slot="select-trigger"
       className={cn(
-        "inline-flex h-7 items-center gap-1 rounded-md px-2 text-ui text-foreground transition-colors duration-[var(--dur-fast)] outline-none select-none hover:bg-[var(--n2)] focus-visible:ring-3 focus-visible:ring-ring/30 disabled:pointer-events-none disabled:opacity-50 data-[popup-open]:bg-[var(--n2)]",
+        "inline-flex h-7 items-center gap-1 rounded-lg px-2 text-ui text-foreground transition-colors duration-[var(--dur-fast)] outline-none select-none hover:bg-[var(--n2)] focus-visible:ring-3 focus-visible:ring-ring/30 disabled:pointer-events-none disabled:opacity-50 data-[popup-open]:bg-[var(--n2)]",
         className
       )}
       {...props}
@@ -50,7 +50,7 @@ function SelectContent({
         <SelectPrimitive.Popup
           data-slot="select-content"
           className={cn(
-            "z-50 max-h-[min(24rem,var(--available-height))] min-w-[var(--anchor-width)] overflow-y-auto rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-xl shadow-black/40 transition-[opacity,transform] duration-[var(--dur-base)] data-[ending-style]:scale-98 data-[ending-style]:opacity-0 data-[starting-style]:scale-98 data-[starting-style]:opacity-0",
+            "z-50 max-h-[min(24rem,var(--available-height))] min-w-[var(--anchor-width)] overflow-y-auto rounded-xl border border-[var(--line-strong)] bg-popover p-1 text-popover-foreground shadow-pop transition-[opacity,transform] duration-[var(--dur-base)] data-[ending-style]:scale-98 data-[ending-style]:opacity-0 data-[starting-style]:scale-98 data-[starting-style]:opacity-0",
             className
           )}
           {...props}
@@ -71,7 +71,7 @@ function SelectItem({
     <SelectPrimitive.Item
       data-slot="select-item"
       className={cn(
-        "flex cursor-default items-center gap-2 rounded-sm py-1.5 pr-2 pl-6 text-ui outline-none select-none data-[highlighted]:bg-[var(--n3)] data-[selected]:text-primary",
+        "flex cursor-default items-center gap-2 rounded-md py-1.5 pr-2 pl-6 text-ui outline-none select-none data-[highlighted]:bg-[var(--n3)] data-[selected]:text-primary",
         className
       )}
       {...props}

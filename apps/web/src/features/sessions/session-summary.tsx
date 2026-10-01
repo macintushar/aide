@@ -1,8 +1,10 @@
 import {
+  RiContractLeftRightLine,
+  RiDeleteBinLine,
   RiFolder3Line,
   RiGitBranchLine,
   RiMore2Line,
-  RiStopCircleLine,
+  RiStopFill,
 } from "@remixicon/react"
 import { sessionSchema } from "@workspace/contracts"
 import { Button, IconButton } from "@workspace/ui/components/button"
@@ -17,7 +19,15 @@ import { Modal } from "@/components/modal"
 import { ThreadMeta, ThreadTitle } from "@/components/shell/thread-header"
 import { useInstances } from "@/features/instances"
 import { useSession } from "@/features/sessions/session-provider"
-import { latestTurn } from "@/features/sessions/session-selectors"
+import {
+  latestTurn,
+  latestTurnState,
+} from "@/features/sessions/session-selectors"
+import { elapsed } from "@/features/overview/activity"
+import { useNow } from "@/features/overview/overview-provider"
+import { TURN_STATE_META } from "@/features/transcript/turn-state"
+import { StatusDot } from "@workspace/ui/components/status-dot"
+import { cn } from "@workspace/ui/lib/utils"
 import { newCommandId } from "@/lib/transport/command-client"
 
 /** The session's title; clicking it renames the session in place. */
@@ -55,7 +65,7 @@ export function SessionTitle() {
           onKeyDown={(event) => {
             if (event.key === "Escape") setDraft(undefined)
           }}
-          className="h-8 w-full max-w-md rounded-md border border-input bg-background px-2 text-ui"
+          className="h-8 w-full max-w-md rounded-lg border border-[var(--accent-dim)] bg-[var(--n0)] px-2 text-ui font-semibold outline-none focus-visible:ring-3 focus-visible:ring-[var(--accent-glow)]"
         />
       </form>
     )
@@ -65,7 +75,7 @@ export function SessionTitle() {
     <button
       type="button"
       title="Rename session"
-      className="min-w-0 cursor-text text-left"
+      className="min-w-0 cursor-text rounded-md px-1 py-0.5 text-left hover:bg-[var(--n2)]"
       onClick={() => setDraft(title ?? "")}
     >
       <ThreadTitle>{title ?? session.sessionId}</ThreadTitle>
@@ -88,14 +98,61 @@ export function SessionProject() {
   )
 }
 
+const STATUS_TEXT: Record<string, string> = {
+  streaming: "text-accent-ink",
+  awaiting: "text-warn",
+  failed: "text-danger",
+  completed: "text-ok",
+}
+
+/** Where the open session stands right now, with a live clock while it runs. */
+export function SessionStatus() {
+  const session = useSession()
+  const state = session
+    ? latestTurnState(session.state.turns, session.state.requests)
+    : undefined
+  const turn = session ? latestTurn(session.state.turns) : undefined
+  const live = state === "streaming" || state === "awaiting"
+  const now = useNow(live)
+  if (!state) return null
+  const meta = TURN_STATE_META[state]
+  const label =
+    state === "streaming"
+      ? "Working"
+      : state === "awaiting"
+        ? "Needs you"
+        : meta.label.charAt(0).toUpperCase() + meta.label.slice(1)
+
+  return (
+    <span
+      data-testid="session-status"
+      data-state={state}
+      className={cn(
+        "inline-flex h-6 items-center gap-1.5 rounded-full border border-[var(--line)] bg-[var(--n2)] px-2.5 text-small font-medium",
+        STATUS_TEXT[state] ?? "text-[var(--n6)]"
+      )}
+    >
+      <StatusDot tone={meta.dot} pulse={meta.pulse} className="size-1.5" />
+      {label}
+      {live && turn?.startedAt ? (
+        <span className="font-mono text-[0.6875rem] text-[var(--n5)] tabular-nums">
+          {elapsed(turn.startedAt, now)}
+        </span>
+      ) : null}
+    </span>
+  )
+}
+
 function MenuItem({
   children,
+  icon,
   onClick,
   disabled,
   danger,
   hint,
 }: {
   children: React.ReactNode
+  icon?: React.ReactNode
   onClick: () => void
   disabled?: boolean
   danger?: boolean
@@ -108,10 +165,14 @@ function MenuItem({
       disabled={disabled}
       title={hint}
       onClick={onClick}
-      className={`flex w-full items-center rounded-lg px-3 py-1.5 text-left text-ui hover:bg-muted disabled:opacity-50 disabled:hover:bg-transparent ${
-        danger ? "text-destructive" : ""
-      }`}
+      className={cn(
+        "flex h-8 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-ui outline-none hover:bg-[var(--n3)] focus-visible:bg-[var(--n3)] disabled:opacity-45 disabled:hover:bg-transparent",
+        danger ? "text-danger hover:bg-danger/10" : "text-[var(--n7)]"
+      )}
     >
+      <span className="flex size-4 shrink-0 items-center justify-center opacity-80 [&_svg]:size-4">
+        {icon}
+      </span>
       {children}
     </button>
   )
@@ -177,16 +238,18 @@ export function SessionActions() {
         <span
           title={worktree.path}
           data-testid="worktree-badge"
-          className="flex max-w-48 items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-small text-muted-foreground"
+          className="flex h-6 max-w-48 items-center gap-1 rounded-full border border-[var(--line)] bg-[var(--n2)] px-2 text-small text-[var(--n6)] max-sm:hidden"
         >
           <RiGitBranchLine className="size-3.5 shrink-0" aria-hidden="true" />
-          <span className="truncate font-mono">{worktree.branch}</span>
+          <span className="truncate font-mono text-[0.6875rem]">
+            {worktree.branch}
+          </span>
         </span>
       ) : null}
       {busy ? (
         <Button
           type="button"
-          variant="outline"
+          variant="destructive"
           size="sm"
           disabled={pending}
           onClick={() =>
@@ -198,8 +261,8 @@ export function SessionActions() {
             })
           }
         >
-          <RiStopCircleLine data-icon="inline-start" aria-hidden="true" />
-          Interrupt
+          <RiStopFill data-icon="inline-start" aria-hidden="true" />
+          <span className="max-sm:sr-only">Interrupt</span>
         </Button>
       ) : null}
 
@@ -216,9 +279,10 @@ export function SessionActions() {
             </IconButton>
           }
         />
-        <PopoverContent side="bottom" align="end" className="w-56 p-1">
+        <PopoverContent side="bottom" align="end" className="w-60 p-1">
           <div role="menu" aria-label="Session actions">
             <MenuItem
+              icon={<RiContractLeftRightLine aria-hidden="true" />}
               disabled={!canCompact || pending}
               hint={
                 canCompact
@@ -240,6 +304,7 @@ export function SessionActions() {
             </MenuItem>
             {worktree ? (
               <MenuItem
+                icon={<RiGitBranchLine aria-hidden="true" />}
                 disabled={busy || pending}
                 onClick={() => {
                   setMenuOpen(false)
@@ -251,6 +316,7 @@ export function SessionActions() {
               </MenuItem>
             ) : null}
             <MenuItem
+              icon={<RiDeleteBinLine aria-hidden="true" />}
               danger
               disabled={busy || pending}
               onClick={() => {

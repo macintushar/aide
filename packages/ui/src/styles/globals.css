@@ -2,8 +2,7 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
-@import "@fontsource/ibm-plex-mono/400.css";
-@import "@fontsource/ibm-plex-mono/500.css";
+@import "@fontsource-variable/geist-mono";
 
 @custom-variant dark (&:is(.dark *));
 @custom-variant light (&:is(.light *));
@@ -16,36 +15,54 @@
    ThemeProvider always writes an explicit .light or .dark onto
    <html> and defaults to "system", so :root governs only the
    pre-hydration frame. Dark there makes that frame dark, not white. */
+/* ── aide primitives ─────────────────────────────────────────
+   docs/DESIGN.md is the source of truth for every value below.
+   ThemeProvider always writes an explicit .light or .dark onto
+   <html> and defaults to "system", so :root governs only the
+   pre-hydration frame. Dark there makes that frame dark, not white.
+
+   Neutrals carry a faint blue (hue 255) so the dark theme reads as
+   deep ink rather than flat grey. n0 is the outer frame (sidebar,
+   page), n1 the main work surface, n2 cards, n3 raised controls. */
 :root,
 .dark {
-  --n0: oklch(0.145 0 0);
-  --n1: oklch(0.178 0 0);
-  --n2: oklch(0.209 0 0);
-  --n3: oklch(0.252 0 0);
-  --n4: oklch(0.348 0.003 107);
-  --n5: oklch(0.537 0.005 107);
-  --n6: oklch(0.715 0.004 107);
-  --n7: oklch(0.884 0.005 107);
-  --n8: oklch(0.967 0.003 106);
+  --n0: oklch(0.145 0.006 255);
+  --n1: oklch(0.172 0.007 255);
+  --n2: oklch(0.203 0.008 255);
+  --n3: oklch(0.243 0.009 255);
+  --n4: oklch(0.322 0.011 255);
+  --n5: oklch(0.528 0.013 255);
+  --n6: oklch(0.708 0.011 255);
+  --n7: oklch(0.868 0.006 255);
+  --n8: oklch(0.968 0.003 255);
 
-  --accent-subtle: oklch(0.701 0.097 236 / 0.16);
-  --accent-dim: oklch(0.701 0.097 236 / 0.5);
-  --accent-base: oklch(0.701 0.097 236);
-  --accent-hi: oklch(0.76 0.084 235);
-  --accent-ink: oklch(0.701 0.097 236);
-  --accent-fg: oklch(0.145 0 0);
+  /* Saturated sky — the brand hue, pushed until it reads as "live". */
+  --accent-subtle: oklch(0.72 0.155 240 / 0.14);
+  --accent-dim: oklch(0.72 0.155 240 / 0.45);
+  --accent-base: oklch(0.72 0.155 240);
+  --accent-hi: oklch(0.78 0.13 238);
+  --accent-ink: oklch(0.79 0.125 238);
+  --accent-fg: oklch(0.17 0.035 250);
+  --accent-glow: oklch(0.72 0.155 240 / 0.28);
 
-  --line: oklch(1 0 0 / 0.09);
-  --line-strong: oklch(1 0 0 / 0.18);
+  --line: oklch(1 0 0 / 0.075);
+  --line-strong: oklch(1 0 0 / 0.14);
 
-  --ok: oklch(0.702 0.143 157);
-  --warn: oklch(0.76 0.139 74);
-  --danger-base: oklch(0.626 0.193 23);
+  --ok: oklch(0.765 0.15 158);
+  --warn: oklch(0.82 0.145 78);
+  --danger-base: oklch(0.69 0.19 22);
 
-  --diff-add-fg: oklch(0.799 0.126 158);
-  --diff-add-bg: oklch(0.702 0.143 157 / 0.13);
-  --diff-del-fg: oklch(0.737 0.161 20);
-  --diff-del-bg: oklch(0.626 0.193 23 / 0.13);
+  --diff-add-fg: oklch(0.8 0.13 158);
+  --diff-add-bg: oklch(0.765 0.15 158 / 0.12);
+  --diff-del-fg: oklch(0.75 0.16 20);
+  --diff-del-bg: oklch(0.69 0.19 22 / 0.12);
+
+  /* Depth: a hairline of top light plus a soft drop. */
+  --shadow-card:
+    inset 0 1px 0 0 oklch(1 0 0 / 0.035), 0 1px 2px 0 oklch(0 0 0 / 0.35);
+  --shadow-pop:
+    inset 0 1px 0 0 oklch(1 0 0 / 0.05), 0 16px 40px -8px oklch(0 0 0 / 0.6),
+    0 4px 12px -4px oklch(0 0 0 / 0.4);
 
   --ease: cubic-bezier(0.2, 0, 0, 1);
   --dur-fast: 120ms;
@@ -53,7 +70,7 @@
   --dur-slow: 280ms;
   --dur-pulse: 1600ms;
 
-  --radius: 0.375rem;
+  --radius: 0.5rem;
 }
 
 /* ── shadcn contract ─────────────────────────────────────────
@@ -61,9 +78,9 @@
    color here — extend the primitive block instead. */
 :root,
 .dark {
-  --background: var(--n0);
+  --background: var(--n1);
   --foreground: var(--n8);
-  --card: var(--n1);
+  --card: var(--n2);
   --card-foreground: var(--n8);
   --popover: var(--n2);
   --popover-foreground: var(--n8);
@@ -79,7 +96,7 @@
   --border: var(--line);
   --input: var(--line-strong);
   --ring: var(--accent-hi);
-  --sidebar: var(--n1);
+  --sidebar: var(--n0);
   --sidebar-foreground: var(--n7);
   --sidebar-primary: var(--accent-base);
   --sidebar-primary-foreground: var(--accent-fg);
@@ -92,35 +109,44 @@
 /* ── light theme ─────────────────────────────────────────────
    Only the primitives flip. Every shadcn-contract variable above
    is written in terms of these, so it follows automatically. */
+/* ── light theme ─────────────────────────────────────────────
+   Only the primitives flip. Every shadcn-contract variable above
+   is written in terms of these, so it follows automatically. */
 .light {
-  --n0: oklch(1 0 0);
-  --n1: oklch(0.976 0.003 106);
-  --n2: oklch(0.951 0.004 106);
-  --n3: oklch(0.918 0.005 107);
-  --n4: oklch(0.834 0.008 107);
-  --n5: oklch(0.632 0.009 107);
-  --n6: oklch(0.448 0.01 107);
-  --n7: oklch(0.284 0.005 107);
-  --n8: oklch(0.145 0 0);
+  --n0: oklch(0.966 0.004 255);
+  --n1: oklch(1 0 0);
+  --n2: oklch(0.975 0.003 255);
+  --n3: oklch(0.945 0.005 255);
+  --n4: oklch(0.872 0.008 255);
+  --n5: oklch(0.61 0.013 255);
+  --n6: oklch(0.47 0.015 255);
+  --n7: oklch(0.31 0.013 255);
+  --n8: oklch(0.18 0.012 255);
 
-  --accent-subtle: oklch(0.701 0.097 236 / 0.16);
-  --accent-dim: oklch(0.701 0.097 236 / 0.55);
-  --accent-base: oklch(0.701 0.097 236);
-  --accent-hi: oklch(0.647 0.097 237);
-  --accent-ink: oklch(0.518 0.095 240);
-  --accent-fg: oklch(0.145 0 0);
+  --accent-subtle: oklch(0.6 0.18 246 / 0.1);
+  --accent-dim: oklch(0.6 0.18 246 / 0.45);
+  --accent-base: oklch(0.6 0.18 246);
+  --accent-hi: oklch(0.55 0.18 248);
+  --accent-ink: oklch(0.5 0.17 250);
+  --accent-fg: oklch(1 0 0);
+  --accent-glow: oklch(0.6 0.18 246 / 0.2);
 
-  --line: oklch(0 0 0 / 0.1);
-  --line-strong: oklch(0 0 0 / 0.2);
+  --line: oklch(0.2 0.02 255 / 0.09);
+  --line-strong: oklch(0.2 0.02 255 / 0.17);
 
-  --ok: oklch(0.561 0.125 156);
-  --warn: oklch(0.544 0.117 71);
-  --danger-base: oklch(0.545 0.188 24);
+  --ok: oklch(0.56 0.14 158);
+  --warn: oklch(0.6 0.145 62);
+  --danger-base: oklch(0.56 0.2 25);
 
-  --diff-add-fg: oklch(0.515 0.113 156);
-  --diff-add-bg: oklch(0.561 0.125 156 / 0.11);
-  --diff-del-fg: oklch(0.501 0.17 23);
-  --diff-del-bg: oklch(0.545 0.188 24 / 0.09);
+  --diff-add-fg: oklch(0.5 0.12 158);
+  --diff-add-bg: oklch(0.56 0.14 158 / 0.1);
+  --diff-del-fg: oklch(0.5 0.17 23);
+  --diff-del-bg: oklch(0.56 0.2 25 / 0.08);
+
+  --shadow-card: 0 1px 2px 0 oklch(0.2 0.02 255 / 0.06), 0 0 0 0 transparent;
+  --shadow-pop:
+    0 16px 40px -8px oklch(0.2 0.02 255 / 0.18),
+    0 4px 12px -4px oklch(0.2 0.02 255 / 0.1);
 }
 
 @theme inline {
@@ -159,19 +185,31 @@
   --color-accent-dim: var(--accent-dim);
   --color-accent-ink: var(--accent-ink);
 
+  --color-surface: var(--n1);
+  --color-frame: var(--n0);
+  --color-raised: var(--n3);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-accent-base: var(--accent-base);
+  --color-accent-fg: var(--accent-fg);
+  --color-accent-glow: var(--accent-glow);
+  --shadow-card: var(--shadow-card);
+  --shadow-pop: var(--shadow-pop);
+
   --color-diff-add: var(--diff-add-fg);
   --color-diff-add-bg: var(--diff-add-bg);
   --color-diff-del: var(--diff-del-fg);
   --color-diff-del-bg: var(--diff-del-bg);
 
-  --radius-sm: calc(var(--radius) * 0.34); /*  2px */
-  --radius-md: calc(var(--radius) * 0.5); /*  3px */
-  --radius-lg: var(--radius); /*  6px */
-  --radius-xl: calc(var(--radius) * 1.67); /* 10px */
-  --radius-2xl: calc(var(--radius) * 2.34); /* 14px */
+  --radius-sm: 0.25rem; /*  4px */
+  --radius-md: 0.375rem; /*  6px */
+  --radius-lg: var(--radius); /*  8px */
+  --radius-xl: 0.75rem; /* 12px */
+  --radius-2xl: 1rem; /* 16px */
 
   --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-mono:
+    "Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace;
 
   /* Type scale (§3.2). Tracking tightens as size grows; the 11px
      uppercase label role goes the other way. */
@@ -190,6 +228,7 @@
   --text-body: 0.9375rem;
   --text-body--line-height: 1.62;
   --text-ui: 0.8125rem;
+  --text-ui--line-height: 1.45;
   --text-small: 0.75rem;
   --text-label: 0.6875rem;
   --text-label--letter-spacing: 0.1em;
@@ -214,6 +253,44 @@
     }
   }
 
+  /* A running agent radiates a ring outward from its dot. */
+  --animate-radar: radar 1.8s var(--ease) infinite;
+  /* Live status text sweeps a highlight across itself. */
+  --animate-shimmer: shimmer 2.2s linear infinite;
+  --animate-rise: rise var(--dur-slow) var(--ease) both;
+
+  @keyframes radar {
+    0% {
+      transform: scale(1);
+      opacity: 0.55;
+    }
+    80%,
+    100% {
+      transform: scale(2.6);
+      opacity: 0;
+    }
+  }
+
+  @keyframes shimmer {
+    0% {
+      background-position: 120% 0;
+    }
+    100% {
+      background-position: -20% 0;
+    }
+  }
+
+  @keyframes rise {
+    0% {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
   @keyframes pulse-dot {
     0%,
     100% {
@@ -229,11 +306,72 @@
   * {
     @apply border-border outline-ring/50;
   }
+  html {
+    background: var(--n0);
+  }
+  html.dark {
+    color-scheme: dark;
+  }
+  html.light {
+    color-scheme: light;
+  }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-frame text-foreground antialiased;
+    font-feature-settings: "ss01", "cv11";
+    text-rendering: optimizeLegibility;
+  }
+  ::selection {
+    background: var(--accent-dim);
+    color: var(--n8);
+  }
+  :focus-visible {
+    outline-offset: 2px;
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--n4) transparent;
   }
   button:not(:disabled),
   [role="button"]:not(:disabled) {
     cursor: pointer;
+  }
+}
+
+@layer components {
+  /* Native selects keep the OS picker but lose the OS chrome. */
+  select.field,
+  .field:is(select) {
+    appearance: none;
+    padding-right: 2rem;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23868c98'%3E%3Cpath d='M12 13.17 16.95 8.22l1.41 1.41L12 16 5.64 9.64l1.41-1.41z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.6rem center;
+    background-size: 1rem;
+  }
+}
+
+@layer utilities {
+  /* Live text: a soft highlight sweeps across while an agent works. */
+  .text-shimmer {
+    background: linear-gradient(
+        90deg,
+        var(--n6) 0%,
+        var(--n6) 40%,
+        var(--n8) 50%,
+        var(--n6) 60%,
+        var(--n6) 100%
+      )
+      0 0 / 250% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: var(--animate-shimmer);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .text-shimmer {
+      animation: none;
+      color: var(--n6);
+      background: none;
+    }
   }
 }
